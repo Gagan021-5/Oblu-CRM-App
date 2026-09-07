@@ -1,0 +1,353 @@
+{% extends 'inventory/base.html' %}
+{% load static %}
+{% block content %}
+<head>
+    <title>Inventory Report</title>
+    <link href="https://bootswatch.com/5/minty/bootstrap.css" rel="stylesheet">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <style>
+        html {
+            scroll-behavior: smooth;
+        }
+         h3[id^="category-"] {
+          position: sticky;
+          top: 0;
+          z-index: 20;
+          background: black;
+          padding: 0.5rem 0;
+          border-bottom: 2px solid #dee2e6;
+        }
+
+       .table-responsive {
+          max-height: 80vh; /*scrollable height */
+          overflow-y: auto;
+       }
+
+       .table thead th {
+         position: sticky;
+         top: 0;
+         background-color: #212529;
+         color: white;
+         z-index: 10;
+       }
+
+       .low-stock {
+           background-color: #ed2537 !important; /* Red highlight */
+       }
+        .category-index {
+            top: 0;
+            z-index: 1000;
+            background-color: #1c2126;
+            padding: 0.75rem 1rem;
+            border-radius: 0.5rem;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+            margin-bottom: 2rem;
+        }
+        .category-index .nav-link {
+            color: #ffffff;
+            border-radius: 50rem;
+            transition: background-color 0.2s;
+            font-weight: 500;
+        }
+        .category-index .nav-link:hover {
+            color: black;
+            background-color: #e9ecef;
+        }
+       .h6, .h6, h5, .h5, h4, .h4, h3, .h3, h2, .h2, h1, .h1 {
+         color:#ffffff;
+       }
+       .instructions {
+         background-color: #1c2126;
+         border-left: 5px solid #0d6efd;
+         line-height: 1.6;
+       }
+       .instructions h4 {
+         color: #0d6efd;
+         font-weight: 600;
+       }
+       .instructions p {
+         margin-bottom: 1rem;
+       }
+
+       /* 🔍 Search Bar Styling */
+        .wrapper {
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          margin-bottom: 20px;
+        }
+
+        .autocomplete {
+          position: relative;
+          width: 60%;
+          margin-top: 10px;
+        }
+
+        .autocomplete-input {
+          width: 100%;
+          padding: 12px 45px 12px 15px;
+          font-size: 16px;
+          border: none;
+          outline: none;
+          border-radius: 50px;
+          background-color: #f9f9f9;
+          box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+          border: 3px solid grey;
+          transition: all 0.3s ease;
+        }
+
+        .autocomplete::after {
+          content: "🔍";
+          position: absolute;
+          right: 15px;
+          top: 50%;
+          transform: translateY(-50%);
+          font-size: 18px;
+          color: #222;
+          pointer-events: none;
+        }
+
+        .autocomplete-result-list {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+            color:#222;
+            position: absolute;
+            width: 100%;
+            max-height: 200px;
+            overflow-y: auto;
+            background-color: #f9f9f9;
+            border: 1px solid #ccc;
+            border-radius: 0 0 10px 10px;
+            z-index: 1000;
+        }
+
+        .autocomplete-result-list li {
+            padding: 8px 12px;
+            cursor: pointer;
+        }
+
+        .autocomplete-result-list li:hover {
+            background-color: #e9ecef;
+        }
+    </style>
+</head>
+<body class="p-4">
+
+  <h1 class="mb-4">Inventory Report</h1>
+
+   <!-- Search Bar -->
+  <div class="wrapper">
+    <div id="autocomplete" class="autocomplete">
+      <input id="search-input" class="autocomplete-input" placeholder="Search product name..." />
+      <ul class="autocomplete-result-list"></ul>
+    </div>
+  </div>
+  <!-- End Search Bar -->
+
+  <!-- 📌 Professional Category Index -->
+  <nav class="category-index">
+      <ul class="nav nav-pills flex-wrap gap-2">
+        {% for category in categories %}
+          <li class="nav-item">
+            <a class="nav-link" href="#category-{{ category.id }}">{{ category.name }}</a>
+          </li>
+        {% endfor %}
+      </ul>
+  </nav>
+
+      <!-- 📌 Instructions -->
+  <div class="instructions my-4 p-4 rounded shadow-sm">
+    <h4 class="mb-3">📖 How to Read This Report</h4>
+    <p>📌 <b>Item Name (Link)</b> — The name of the inventory item.<br/>
+    You can click the name to open the product's prediction page. This lets you quickly see details and future stock suggestions.</p>
+
+    <p>📉 <b>min_quantity_closing — Closing</b><br/>
+    Trend based on how much stock you usually end with.<br/>
+    We look at your closing stock at the end of each month for all past months.<br/>
+    By drawing a trend line, we can predict how your stock levels are likely to change over the next 3 months.<br/>
+    We take the lowest predicted value and show it here.<br/>
+    📝 Meaning: “If my current stock usage and buying continue as usual, this is the minimum stock I might have left.”</p>
+
+    <p>📦 <b>min_quantity_outwards — Outwards</b><br/>
+    Based on how much stock goes out (used or sold).<br/>
+    We analyze monthly outwards quantities to understand your demand.<br/>
+    By predicting the next 3 months’ usage and adding a 10% safety buffer, we calculate how much stock you should ideally keep.<br/>
+    📝 Meaning: “This is the stock I need to have on hand to meet expected demand and avoid shortages.”</p>
+
+    <p>📊 <b>min_quantity_average — Avg</b><br/>
+    Average of all past outwards quantities.<br/>
+    📝 Meaning: “On average, this is how much stock has been used each month historically.”</p>
+
+    <p>📈 <b>min_quantity_average_three — Last 3 Avg</b><br/>
+    Average of last 3 months’ outwards quantities.<br/>
+    This focuses on recent trends rather than the entire history, reflecting any changes in usage patterns.<br/>
+    📝 Meaning: “This shows recent demand trends so you can adjust stock more accurately.”</p>
+
+    <p>📈 <b>min_quantity_gpt — GPT</b><br/>
+    Estimated minimum stock level predicted by GPT using historical outwards data.<br/>
+    ⚡ Note: It won’t run a GPT prediction if there’s not enough historical data<br/>
+    📝 Meaning: “This is simply an OpenAI prediction using outwards quantities fed to it as monthly data.”</p>
+
+    <p>📝 <b>Total Entries</b><br/>
+    Total number of daily stock records we have for this item.<br/>
+    📝 Meaning: “This tells you how much historical data supports these predictions. More entries usually mean more reliable suggestions.”</p>
+  </div>
+
+  {% for category in categories %}
+    <h3 id="category-{{ category.id }}" class="mt-5">{{ category.name }}</h3>
+
+    <div class="table-responsive">
+      <table class="table table-bordered table-striped align-middle">
+        <thead class="table-dark">
+          <tr>
+            <th>Product Name</th>
+            <th>Quantity</th>
+            <th>Nitin est.</th>
+            <th>Min Qty (Closing)</th>
+            <th style="background-color: #6fc8e4;">Linear Regression Outwards</th>
+            <th>Min Qty (GPT)</th>
+            <th>Min Qty (Average)</th>
+            <th>Min Qty (Last 3 Avg)</th>
+            <th>Total Historical Entries</th>
+            <th>Expected Deliveries</th>
+            <th>Expected Quantity</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in category.inventoryitem_set.all %}
+            <tr class="{% if item.quantity < item.min_quantity_outwards %}low-stock{% endif %}">
+             <td>
+              <a href="/inventory/predict/{{ item.id }}" class="text-decoration-none fw-semibold">
+                {{ item.name }}
+              </a>
+            <td>{{ item.quantity }}</td>
+
+            <td>{% if item.min_quantity_nitin != -1 %}{{ item.min_quantity_nitin }}{% else %}-{% endif %}</td>
+            <td>{% if item.min_quantity_closing != -1 %}{{ item.min_quantity_closing }}{% else %}-{% endif %}</td>
+            <td>{% if item.min_quantity_outwards != -1 %}{{ item.min_quantity_outwards }}{% else %}-{% endif %}</td>
+            <td>{% if item.min_quantity_gpt != -1 %}{{ item.min_quantity_gpt }}{% else %}-{% endif %}</td>
+            <td>{% if item.min_quantity_average != -1 %}{{ item.min_quantity_average }}{% else %}-{% endif %}</td>
+            <td>{% if item.min_quantity_average_three != -1 %}{{ item.min_quantity_average_three }}{% else %}-{% endif %}</td>
+
+            <td>{{ item.total_historical_entries }}</td>
+            <td>{% if item.expected_delivery %}{{ item.expected_delivery }}{% else %}-{% endif %}</td>
+            <td>{% if item.expected_quantity %}{{ item.expected_quantity }}{% else %}-{% endif %}</td>
+
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="8" class="text-center text-muted">No products in this category.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endfor %}
+
+    <div id="download-tools">
+        <button onclick="downloadPDF()" style="margin-top: 20px; padding: 10px 20px; background-color: #333; color: white; border: none; cursor: pointer;">
+            Download PDF
+        </button>
+
+
+    </div>
+<script>
+
+    function downloadPDF() {
+    // Hide buttons before print
+    const tools = document.getElementById('download-tools');
+    if (tools) tools.style.display = 'none';
+
+    window.print();
+
+    // Restore buttons after short delay
+    setTimeout(() => {
+        if (tools) tools.style.display = '';
+    }, 1000);
+    }
+
+    // --- Collect product names and their corresponding rows ---
+    const products = [];
+    document.querySelectorAll("table tbody tr").forEach(row => {
+        const link = row.querySelector("td a");
+        if (link) {
+            const name = link.textContent.trim();
+            const id = link.getAttribute("href");
+            products.push({ name, id });
+        }
+    });
+
+    const searchInput = document.getElementById("search-input");
+    const resultList = document.querySelector(".autocomplete-result-list");
+
+    // Helper: remove previous highlights
+    function clearHighlights() {
+      document.querySelectorAll(".highlighted-row").forEach(row => {
+        row.classList.remove("highlighted-row");
+      });
+    }
+
+    // Helper: scroll to product by name
+    function scrollToProduct(name) {
+      const link = Array.from(document.querySelectorAll("td a")).find(a =>
+        a.textContent.trim().toLowerCase() === name.toLowerCase()
+      );
+      if (link) {
+        const row = link.closest("tr");
+        clearHighlights();
+        row.classList.add("highlighted-row");
+        row.scrollIntoView({ behavior: "smooth", block: "center" });
+      } else {
+        alert("Product not found!");
+      }
+    }
+
+    // Add highlight style
+    const style = document.createElement("style");
+    style.textContent = `
+      .highlighted-row {
+        outline: 3px solid yellow;
+
+      }
+    `;
+    document.head.appendChild(style);
+
+    // Show autocomplete suggestions
+    searchInput.addEventListener("input", function() {
+      const query = this.value.toLowerCase();
+      resultList.innerHTML = "";
+
+      if (!query) return;
+
+      const matches = products.filter(p =>
+        p.name.toLowerCase().includes(query)
+      );
+
+      matches.forEach(p => {
+        const li = document.createElement("li");
+        li.textContent = p.name;
+        li.addEventListener("click", () => {
+          searchInput.value = p.name;
+          resultList.innerHTML = "";
+          scrollToProduct(p.name);
+        });
+        resultList.appendChild(li);
+      });
+    });
+
+    // Handle Enter key press
+    searchInput.addEventListener("keydown", e => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        const name = searchInput.value.trim();
+        resultList.innerHTML = "";
+        scrollToProduct(name);
+      }
+    });
+
+</script>
+
+</body>
+{% endblock content %}

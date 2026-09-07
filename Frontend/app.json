@@ -1,0 +1,80 @@
+{
+  "expo": {
+    "name": "Oblu Nexus",
+    "slug": "callapp",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "oblunexus",
+    "userInterfaceStyle": "light",
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#000000",
+        "foregroundImage": "./assets/images/android-icon-foreground.png",
+        "backgroundImage": "./assets/images/android-icon-background.png",
+        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.READ_CALL_LOG",
+        "android.permission.READ_PHONE_STATE",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_DATA_SYNC",
+        "android.permission.WAKE_LOCK"
+      ],
+      "package": "com.calltracer.app"
+    },
+    "web": {
+      "output": "static",
+      "favicon": "./assets/images/favicon.png"
+    },
+    "plugins": [
+      "./plugins/withNetworkSecurityConfig",
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#F8FAFC"
+        }
+      ],
+      "expo-background-task",
+      [
+        "expo-font",
+        {
+          "fonts": [
+            "./assets/fonts/GeneralSans-Bold.otf",
+            "./assets/fonts/GeneralSans-BoldItalic.otf",
+            "./assets/fonts/GeneralSans-Extralight.otf",
+            "./assets/fonts/GeneralSans-ExtralightItalic.otf",
+            "./assets/fonts/GeneralSans-Italic.otf",
+            "./assets/fonts/GeneralSans-Light.otf",
+            "./assets/fonts/GeneralSans-LightItalic.otf",
+            "./assets/fonts/GeneralSans-Medium.otf",
+            "./assets/fonts/GeneralSans-MediumItalic.otf",
+            "./assets/fonts/GeneralSans-Regular.otf",
+            "./assets/fonts/GeneralSans-Semibold.otf",
+            "./assets/fonts/GeneralSans-SemiboldItalic.otf"
+          ]
+        }
+      ],
+      "expo-image",
+      "expo-status-bar",
+      "expo-web-browser"
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "035c640b-f294-4ced-82b8-4f7513c87b4d"
+      }
+    }
+  }
+}

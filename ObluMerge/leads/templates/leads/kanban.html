@@ -1,0 +1,435 @@
+{% load static %}
+
+{% block title %}Lead Pipeline{% endblock %}
+
+{% block extra_css %}
+<style>
+  :root {
+    --kanban-bg: #f0f2f5;
+    --col-bg:    #ffffff;
+    --card-bg:   #fff;
+    --accent:    #4f46e5;
+    --danger:    #ef4444;
+    --warn:      #f59e0b;
+    --success:   #10b981;
+    --text:      #1e293b;
+    --muted:     #64748b;
+    --border:    #e2e8f0;
+    --shadow:    0 1px 4px rgba(0,0,0,.08);
+  }
+
+  body { background: var(--kanban-bg); }
+
+  /* ── TOP BAR ── */
+  .kb-topbar {
+    background: #fff;
+    border-bottom: 1px solid var(--border);
+    padding: 12px 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  .kb-topbar h1 { font-size: 1.1rem; font-weight: 700; margin: 0; color: var(--text); }
+  .kb-topbar .spacer { flex: 1; }
+  .kb-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 7px 14px; border-radius: 8px; font-size: .8rem;
+    font-weight: 600; cursor: pointer; border: none; text-decoration: none;
+    transition: opacity .15s;
+  }
+  .kb-btn:hover { opacity: .85; }
+  .kb-btn-primary { background: var(--accent); color: #fff; }
+  .kb-btn-outline { background: #fff; color: var(--text); border: 1px solid var(--border); }
+
+  /* ── BOARD ── */
+  .kb-board {
+    display: flex;
+    gap: 14px;
+    padding: 16px 20px;
+    overflow-x: auto;
+    min-height: calc(100vh - 110px);
+    align-items: flex-start;
+  }
+
+  /* ── COLUMN ── */
+  .kb-col {
+    flex: 0 0 260px;
+    background: var(--col-bg);
+    border-radius: 12px;
+    box-shadow: var(--shadow);
+    display: flex;
+    flex-direction: column;
+    max-height: calc(100vh - 130px);
+  }
+  .kb-col-header {
+    padding: 12px 14px 10px;
+    border-radius: 12px 12px 0 0;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .kb-col-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .kb-col-title { font-size: .82rem; font-weight: 700; color: var(--text); flex: 1; }
+  .kb-col-count {
+    background: #f1f5f9;
+    color: var(--muted);
+    font-size: .72rem;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 20px;
+  }
+  .kb-col-body {
+    padding: 10px;
+    overflow-y: auto;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  /* ── CARD ── */
+  .kb-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px;
+    cursor: grab;
+    transition: box-shadow .15s, transform .1s;
+    user-select: none;
+  }
+  .kb-card:active { cursor: grabbing; }
+  .kb-card.dragging {
+    opacity: .5;
+    box-shadow: 0 8px 24px rgba(0,0,0,.18);
+    transform: rotate(1.5deg);
+  }
+  .kb-card.drag-over { border-color: var(--accent); background: #eef2ff; }
+  .kb-card .card-name {
+    font-size: .85rem; font-weight: 700; color: var(--text);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .kb-card .card-phone {
+    font-size: .75rem; color: var(--muted); margin-top: 2px;
+  }
+  .kb-card .card-source {
+    font-size: .72rem; color: var(--accent);
+    margin-top: 6px;
+  }
+  .kb-card .card-meta {
+    display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap;
+  }
+  .kb-badge {
+    font-size: .68rem; font-weight: 600; padding: 2px 7px;
+    border-radius: 20px; display: inline-flex; align-items: center; gap: 3px;
+  }
+  .kb-badge-calls { background:#ede9fe; color:#6d28d9; }
+  .kb-badge-overdue { background:#fee2e2; color:#b91c1c; }
+  .kb-badge-followup { background:#fef3c7; color:#92400e; }
+  .kb-badge-remark { background:#d1fae5; color:#065f46; }
+
+  .kb-card .card-remark {
+    font-size: .73rem; color: var(--muted);
+    margin-top: 6px;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    font-style: italic;
+  }
+  .kb-card .card-actions {
+    display: flex; gap: 6px; margin-top: 10px;
+  }
+  .card-action-btn {
+    flex: 1;
+    font-size: .7rem; font-weight: 600;
+    padding: 4px 6px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: #f8fafc;
+    color: var(--text);
+    text-decoration: none;
+    text-align: center;
+    transition: background .12s;
+  }
+  .card-action-btn:hover { background: #eef2ff; color: var(--accent); }
+  .card-action-btn.call { background: #ecfdf5; color: #065f46; border-color: #a7f3d0; }
+  .card-action-btn.call:hover { background: #d1fae5; }
+
+  /* Drop zone highlight */
+  .kb-col-body.drag-target {
+    background: #eef2ff;
+    border-radius: 8px;
+    outline: 2px dashed var(--accent);
+  }
+
+  /* ── SIDE PANEL (follow-ups) ── */
+  .kb-side {
+    flex: 0 0 230px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .kb-side-card {
+    background: #fff;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    padding: 12px;
+    box-shadow: var(--shadow);
+  }
+  .kb-side-card h4 {
+    font-size: .78rem; font-weight: 700;
+    color: var(--text); margin: 0 0 8px;
+    text-transform: uppercase; letter-spacing: .05em;
+  }
+  .fu-item {
+    padding: 6px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: .75rem;
+    color: var(--text);
+  }
+  .fu-item:last-child { border-bottom: none; }
+  .fu-item .fu-lead { font-weight: 600; }
+  .fu-item .fu-date { color: var(--muted); font-size: .7rem; }
+  .fu-item.overdue .fu-date { color: var(--danger); }
+
+  /* ── EMPTY STATE ── */
+  .kb-empty {
+    text-align: center;
+    padding: 20px 10px;
+    color: var(--muted);
+    font-size: .75rem;
+  }
+  .kb-empty svg { width: 28px; height: 28px; opacity: .3; margin-bottom: 4px; }
+
+  /* ── TOAST ── */
+  #kb-toast {
+    position: fixed; bottom: 24px; right: 24px;
+    background: #1e293b; color: #fff;
+    padding: 10px 18px; border-radius: 8px;
+    font-size: .82rem; font-weight: 600;
+    opacity: 0; transition: opacity .25s;
+    pointer-events: none; z-index: 9999;
+  }
+  #kb-toast.show { opacity: 1; }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- TOP BAR -->
+<div class="kb-topbar">
+  <h1>📋 Lead Pipeline</h1>
+
+  {% if is_manager %}
+  <select class="kb-btn kb-btn-outline" onchange="window.location.search='?member='+this.value">
+    <option value="me" {% if selected_member == 'me' %}selected{% endif %}>My Leads</option>
+    {% for m in team_members %}
+    <option value="{{ m.id }}" {% if selected_member == m.id|stringformat:'s' %}selected{% endif %}>
+      {{ m.name }}
+    </option>
+    {% endfor %}
+  </select>
+  {% endif %}
+
+  <div class="spacer"></div>
+
+  <a href="{% url 'leads:lead_create' %}" class="kb-btn kb-btn-primary">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:14px;height:14px"><path d="M12 5v14M5 12h14"/></svg>
+    Add Lead
+  </a>
+  <a href="{% url 'leads:lead_upload' %}" class="kb-btn kb-btn-outline">↑ Upload</a>
+  <a href="{% url 'leads:lead_list' %}" class="kb-btn kb-btn-outline">List View</a>
+  <a href="{% url 'leads:followup_dashboard' %}" class="kb-btn kb-btn-outline">📅 Follow-ups</a>
+</div>
+
+<!-- BOARD -->
+<div class="kb-board">
+
+  <!-- KANBAN COLUMNS -->
+  {% for col in stage_columns %}
+  <div class="kb-col" data-stage-id="{{ col.stage.id }}">
+    <div class="kb-col-header">
+      <span class="kb-col-dot" style="background:{{ col.stage.color }};"></span>
+      <span class="kb-col-title">{{ col.stage.name }}</span>
+      <span class="kb-col-count">{{ col.count }}</span>
+    </div>
+    <div class="kb-col-body" data-stage-id="{{ col.stage.id }}"
+         ondragover="onDragOver(event)"
+         ondragleave="onDragLeave(event)"
+         ondrop="onDrop(event, {{ col.stage.id }})">
+
+      {% for item in col.leads %}
+      {% with lead=item.lead %}
+      <div class="kb-card"
+           draggable="true"
+           data-lead-id="{{ lead.id }}"
+           ondragstart="onDragStart(event)"
+           ondragend="onDragEnd(event)">
+
+        <div class="card-name" title="{{ lead.name }}">{{ lead.name }}</div>
+        <div class="card-phone">📞 {{ lead.phone }}</div>
+
+        {% if lead.source %}
+        <div class="card-source">{{ lead.source.name }}</div>
+        {% endif %}
+
+        <div class="card-meta">
+          {% if item.call_count %}
+          <span class="kb-badge kb-badge-calls">📞 {{ item.call_count }}</span>
+          {% endif %}
+          {% if item.overdue %}
+          <span class="kb-badge kb-badge-overdue">⚠ Overdue</span>
+          {% elif lead.followup_date %}
+          <span class="kb-badge kb-badge-followup">📅 {{ lead.followup_date|date:"d M" }}</span>
+          {% endif %}
+        </div>
+
+        {% if item.last_remark %}
+        <div class="card-remark">"{{ item.last_remark.remark }}"</div>
+        {% endif %}
+
+        <div class="card-actions">
+          <a href="{% url 'leads:add_call' lead.pk %}" class="card-action-btn call">📞 Call</a>
+          <a href="{% url 'leads:lead_detail' lead.pk %}" class="card-action-btn">Details</a>
+        </div>
+      </div>
+      {% endwith %}
+      {% empty %}
+      <div class="kb-empty">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="3"/></svg>
+        <br>No leads here
+      </div>
+      {% endfor %}
+
+    </div>
+  </div>
+  {% endfor %}
+
+  <!-- FOLLOW-UP SIDE PANEL -->
+  <div class="kb-side">
+    {% if followups_overdue %}
+    <div class="kb-side-card" style="border-left:3px solid var(--danger);">
+      <h4>⚠ Overdue ({{ followups_overdue|length }})</h4>
+      {% for fu in followups_overdue %}
+      <div class="fu-item overdue">
+        <div class="fu-lead">
+          <a href="{% url 'leads:lead_detail' fu.lead.pk %}">{{ fu.lead.name }}</a>
+        </div>
+        <div class="fu-date">Due: {{ fu.followup_date|date:"d M" }}</div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if followups_today %}
+    <div class="kb-side-card" style="border-left:3px solid var(--success);">
+      <h4>Today ({{ followups_today|length }})</h4>
+      {% for fu in followups_today %}
+      <div class="fu-item">
+        <div class="fu-lead">
+          <a href="{% url 'leads:lead_detail' fu.lead.pk %}">{{ fu.lead.name }}</a>
+        </div>
+        <div class="fu-date">{{ fu.note|truncatechars:40 }}</div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if followups_upcoming %}
+    <div class="kb-side-card" style="border-left:3px solid var(--accent);">
+      <h4>Upcoming</h4>
+      {% for fu in followups_upcoming|slice:":8" %}
+      <div class="fu-item">
+        <div class="fu-lead">
+          <a href="{% url 'leads:lead_detail' fu.lead.pk %}">{{ fu.lead.name }}</a>
+        </div>
+        <div class="fu-date">{{ fu.followup_date|date:"d M" }}</div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+
+</div>
+
+<!-- TOAST -->
+<div id="kb-toast"></div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const MOVE_URL = "{% url 'leads:move_stage' %}";
+const CSRF = "{{ csrf_token }}";
+
+let draggedCard = null;
+
+function onDragStart(e) {
+  draggedCard = e.currentTarget;
+  draggedCard.classList.add("dragging");
+  e.dataTransfer.effectAllowed = "move";
+  e.dataTransfer.setData("text/plain", draggedCard.dataset.leadId);
+}
+function onDragEnd(e) {
+  e.currentTarget.classList.remove("dragging");
+  document.querySelectorAll(".drag-target").forEach(el => el.classList.remove("drag-target"));
+}
+function onDragOver(e) {
+  e.preventDefault();
+  e.currentTarget.classList.add("drag-target");
+}
+function onDragLeave(e) {
+  e.currentTarget.classList.remove("drag-target");
+}
+function onDrop(e, stageId) {
+  e.preventDefault();
+  e.currentTarget.classList.remove("drag-target");
+
+  const leadId = e.dataTransfer.getData("text/plain");
+  if (!leadId) return;
+
+  // Optimistic UI: move card
+  const target = document.querySelector(`.kb-col-body[data-stage-id="${stageId}"]`);
+  const card   = document.querySelector(`.kb-card[data-lead-id="${leadId}"]`);
+  if (target && card) {
+    target.insertBefore(card, target.firstChild);
+    // update counts
+    document.querySelectorAll(".kb-col").forEach(col => {
+      const body  = col.querySelector(".kb-col-body");
+      const count = col.querySelector(".kb-col-count");
+      count.textContent = body.querySelectorAll(".kb-card").length;
+    });
+  }
+
+  // API call
+  fetch(MOVE_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      "X-CSRFToken": CSRF
+    },
+    body: `lead_id=${leadId}&stage_id=${stageId}`
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.status === "ok") {
+      showToast(`Moved to "${data.new_stage}"`);
+    }
+  });
+}
+
+function showToast(msg) {
+  const t = document.getElementById("kb-toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  setTimeout(() => t.classList.remove("show"), 2200);
+}
+</script>
+{% endblock %}

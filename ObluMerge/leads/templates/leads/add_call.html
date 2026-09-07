@@ -1,0 +1,342 @@
+{% block title %}Log Call – {{ lead.name }}{% endblock %}
+
+{% block extra_css %}
+<style>
+  :root {
+    --accent: #4f46e5; --success: #10b981; --danger: #ef4444;
+    --border: #e2e8f0; --bg: #f8fafc; --text: #1e293b; --muted: #64748b;
+  }
+  body { background: var(--bg); }
+
+  .call-wrap {
+    max-width: 580px; margin: 40px auto; padding: 0 16px;
+  }
+
+  /* Progress steps */
+  .steps {
+    display: flex; align-items: center; gap: 0;
+    margin-bottom: 28px;
+  }
+  .step {
+    display: flex; flex-direction: column; align-items: center; flex: 1;
+  }
+  .step-circle {
+    width: 36px; height: 36px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: .82rem; font-weight: 700;
+    border: 2px solid var(--border);
+    background: #fff; color: var(--muted);
+    transition: all .2s;
+  }
+  .step.active .step-circle   { border-color: var(--accent); color: var(--accent); }
+  .step.done .step-circle     { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .step-label { font-size: .72rem; color: var(--muted); margin-top: 4px; font-weight: 500; }
+  .step-line  { flex: 1; height: 2px; background: var(--border); }
+  .step-line.done { background: var(--accent); }
+
+  /* Card */
+  .call-card {
+    background: #fff; border-radius: 14px;
+    border: 1px solid var(--border);
+    box-shadow: 0 2px 12px rgba(0,0,0,.06);
+    overflow: hidden;
+  }
+  .call-card-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 12px;
+  }
+  .lead-avatar {
+    width: 44px; height: 44px; border-radius: 50%;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    color: #fff; display: flex; align-items: center; justify-content: center;
+    font-weight: 800; font-size: 1.1rem; flex-shrink: 0;
+  }
+  .lead-info h2 { font-size: 1rem; font-weight: 700; margin: 0; color: var(--text); }
+  .lead-info p  { font-size: .8rem; color: var(--muted); margin: 2px 0 0; }
+
+  /* Connection grid */
+  .conn-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: 8px; padding: 20px;
+  }
+  .conn-option { display: none; }
+  .conn-label {
+    display: flex; flex-direction: column; align-items: center;
+    gap: 6px; padding: 12px 8px; border-radius: 10px;
+    border: 2px solid var(--border); cursor: pointer;
+    transition: all .15s; font-size: .75rem; font-weight: 600;
+    color: var(--muted); text-align: center;
+  }
+  .conn-label .icon { font-size: 1.5rem; }
+  .conn-option:checked + .conn-label {
+    border-color: var(--accent); background: #eef2ff; color: var(--accent);
+  }
+  .conn-option[value="CONNECTED"]:checked + .conn-label {
+    border-color: var(--success); background: #ecfdf5; color: #065f46;
+  }
+
+  /* Section title */
+  .section-title {
+    font-size: .72rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .06em; color: var(--muted);
+    padding: 0 20px 10px; margin-top: -4px;
+  }
+
+  /* Duration row */
+  .duration-row {
+    padding: 0 20px 16px;
+  }
+  .duration-row label { font-size: .78rem; font-weight: 600; color: var(--text); display: block; margin-bottom: 6px; }
+  .duration-row input {
+    width: 120px; padding: 8px 12px; border: 1px solid var(--border);
+    border-radius: 8px; font-size: .85rem; color: var(--text);
+  }
+
+  /* Remark section */
+  .remark-section {
+    border-top: 1px solid var(--border);
+    padding: 20px;
+  }
+  .remark-section h3 {
+    font-size: .88rem; font-weight: 700; color: var(--text);
+    margin: 0 0 14px;
+  }
+  .form-group { margin-bottom: 14px; }
+  .form-group label { font-size: .78rem; font-weight: 600; color: var(--text); display: block; margin-bottom: 5px; }
+  .form-group select,
+  .form-group textarea,
+  .form-group input[type=text],
+  .form-group input[type=number] {
+    width: 100%; padding: 9px 12px; border: 1px solid var(--border);
+    border-radius: 8px; font-size: .85rem; color: var(--text);
+    transition: border-color .15s;
+  }
+  .form-group select:focus,
+  .form-group textarea:focus,
+  .form-group input:focus {
+    outline: none; border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(79,70,229,.1);
+  }
+  .form-group textarea { resize: vertical; }
+
+  /* Conditional fields */
+  .conditional-fields { display: none; }
+  .conditional-fields.visible { display: block; }
+  .price-row { display: flex; gap: 10px; }
+  .price-row .form-group { flex: 1; }
+
+  /* No-remark notice */
+  .no-remark-notice {
+    display: none;
+    background: #fef9c3; border: 1px solid #fde68a;
+    border-radius: 8px; padding: 10px 14px;
+    font-size: .8rem; color: #92400e; margin-bottom: 14px;
+  }
+  .no-remark-notice.visible { display: block; }
+
+  /* Actions */
+  .call-actions {
+    padding: 16px 20px;
+    border-top: 1px solid var(--border);
+    display: flex; gap: 10px; justify-content: flex-end;
+  }
+  .btn-submit {
+    padding: 10px 22px; background: var(--accent); color: #fff;
+    border: none; border-radius: 8px; font-size: .85rem; font-weight: 700;
+    cursor: pointer; transition: opacity .15s;
+  }
+  .btn-submit:hover { opacity: .88; }
+  .btn-cancel {
+    padding: 10px 18px; background: #f1f5f9; color: var(--text);
+    border: 1px solid var(--border); border-radius: 8px;
+    font-size: .85rem; font-weight: 600; cursor: pointer;
+    text-decoration: none;
+  }
+
+  .skip-note { font-size: .72rem; color: var(--muted); text-align: center; margin-top: 6px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="call-wrap">
+
+  <!-- Breadcrumb -->
+  <div style="margin-bottom:16px; font-size:.8rem; color:var(--muted);">
+    <a href="{% url 'leads:kanban' %}" style="color:var(--accent);">Pipeline</a>
+    › <a href="{% url 'leads:lead_detail' lead.pk %}" style="color:var(--accent);">{{ lead.name }}</a>
+    › Log Call
+  </div>
+
+  <!-- Steps indicator -->
+  <div class="steps">
+    <div class="step active" id="step1-indicator">
+      <div class="step-circle">1</div>
+      <div class="step-label">Call Info</div>
+    </div>
+    <div class="step-line" id="step-line-1"></div>
+    <div class="step" id="step2-indicator">
+      <div class="step-circle">2</div>
+      <div class="step-label">Add Remark</div>
+    </div>
+    <div class="step-line" id="step-line-2"></div>
+    <div class="step" id="step3-indicator">
+      <div class="step-circle">✓</div>
+      <div class="step-label">Done</div>
+    </div>
+  </div>
+
+  <form method="POST">
+    {% csrf_token %}
+
+    <div class="call-card">
+      <!-- Lead header -->
+      <div class="call-card-header">
+        <div class="lead-avatar">{{ lead.name|first|upper }}</div>
+        <div class="lead-info">
+          <h2>{{ lead.name }}</h2>
+          <p>📞 {{ lead.phone }}{% if lead.state %} · {{ lead.state }}{% endif %}</p>
+        </div>
+      </div>
+
+      <!-- Connection status grid -->
+      <div class="section-title" style="padding-top:16px;">Was the call connected?</div>
+      <div class="conn-grid">
+        {% for val, label in call_form.connection_status.field.choices %}
+        <div>
+          <input class="conn-option" type="radio" name="connection_status"
+                 id="conn_{{ val }}" value="{{ val }}"
+                 {% if val == 'CONNECTED' %}checked{% endif %}
+                 onchange="onConnectionChange(this.value)">
+          <label class="conn-label" for="conn_{{ val }}">
+            <span class="icon">
+              {% if val == 'CONNECTED' %}✅
+              {% elif val == 'NOT_PICKED' %}📵
+              {% elif val == 'BUSY' %}🔄
+              {% elif val == 'SWITCHED_OFF' %}📴
+              {% elif val == 'WRONG_NUMBER' %}❌
+              {% else %}📬{% endif %}
+            </span>
+            {{ label }}
+          </label>
+        </div>
+        {% endfor %}
+      </div>
+
+      <!-- Duration -->
+      <div class="duration-row">
+        <label for="id_duration_minutes">Duration (minutes)</label>
+        <input type="number" name="duration_minutes" id="id_duration_minutes"
+               min="0" placeholder="e.g. 5">
+      </div>
+
+      <!-- Remark section -->
+      <div class="remark-section" id="remark-section">
+        <h3>📝 Call Notes</h3>
+
+        <div class="no-remark-notice" id="no-remark-notice">
+          ℹ️ Call not connected — you can still leave a brief note (optional).
+        </div>
+
+        <!-- Remark text -->
+        <div class="form-group">
+          <label>Your notes <span style="color:var(--muted);font-weight:400">(required for connected calls)</span></label>
+          <textarea name="remark" rows="3" placeholder="What happened on this call?"></textarea>
+        </div>
+
+        <!-- Reason code -->
+        <div class="form-group">
+          <label>Outcome / Reason</label>
+          <select name="reason_code" id="reason_code_select" onchange="onReasonChange(this)">
+            <option value="">— Select outcome —</option>
+            {% for rc in remark_form.reason_code.field.queryset %}
+            <option value="{{ rc.pk }}"
+                    data-req-price="{{ rc.requires_price_data|lower }}"
+                    data-req-why="{{ rc.requires_why|lower }}">
+              {{ rc.label }}
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <!-- Relevance -->
+        <div class="form-group">
+          <label>Relevance</label>
+          <select name="relevance">
+            <option value="">— Mark relevance —</option>
+            {% for r in remark_form.relevance.field.queryset %}
+            <option value="{{ r.pk }}">{{ r.label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <!-- NOT INTERESTED: why? -->
+        <div class="conditional-fields" id="why-fields">
+          <div class="form-group">
+            <label>Why not interested?</label>
+            <select name="not_interested_why">
+              <option value="">— Select reason —</option>
+              {% for val, label in remark_form.not_interested_why.field.choices %}
+              {% if val %}<option value="{{ val }}">{{ label }}</option>{% endif %}
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+
+        <!-- PRICE HIGH: price fields -->
+        <div class="conditional-fields" id="price-fields">
+          <div class="form-group">
+            <label>Product Discussed</label>
+            <input type="text" name="product_discussed" placeholder="e.g. Model XYZ">
+          </div>
+          <div class="price-row">
+            <div class="form-group">
+              <label>Quoted Price (₹)</label>
+              <input type="number" name="quoted_price" step="0.01" placeholder="0.00">
+            </div>
+            <div class="form-group">
+              <label>Customer's Expected Price (₹)</label>
+              <input type="number" name="requested_price" step="0.01" placeholder="0.00">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div class="call-actions">
+        <a href="{% url 'leads:lead_detail' lead.pk %}" class="btn-cancel">Cancel</a>
+        <button type="submit" class="btn-submit">Save Call Log →</button>
+      </div>
+    </div>
+
+    <p class="skip-note">All fields are optional except call status. Remark is strongly recommended.</p>
+  </form>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function onConnectionChange(val) {
+  const notice = document.getElementById("no-remark-notice");
+  const indicator2 = document.getElementById("step2-indicator");
+  if (val === "CONNECTED") {
+    notice.classList.remove("visible");
+    indicator2.classList.add("active");
+  } else {
+    notice.classList.add("visible");
+  }
+}
+
+function onReasonChange(sel) {
+  const opt = sel.options[sel.selectedIndex];
+  const reqPrice = opt.dataset.reqPrice === "true";
+  const reqWhy   = opt.dataset.reqWhy   === "true";
+
+  document.getElementById("price-fields").classList.toggle("visible", reqPrice);
+  document.getElementById("why-fields").classList.toggle("visible",   reqWhy);
+}
+
+// Init
+onConnectionChange("CONNECTED");
+</script>
+{% endblock %}

@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sales Ledger | {{ item.name }}</title>
+
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+
+<style>
+    :root {
+        --bg: #f8fafc;
+        --primary: #4f46e5;
+        --dark: #0f172a;
+    }
+
+    body {
+        font-family: 'Inter', sans-serif;
+        background-color: var(--bg);
+        color: var(--dark);
+    }
+
+    .ledger-container {
+        padding: 15px;
+        max-width: 1200px;
+        margin: 0 auto;
+    }
+
+    /* --- Header --- */
+    .page-header {
+        background: white;
+        padding: 20px;
+        border-radius: 12px;
+        border: 1px solid #e2e8f0;
+        margin-bottom: 20px;
+    }
+
+    /* --- Desktop Table --- */
+    .ledger-card {
+        background: white;
+        border-radius: 12px;
+        border: 1px solid #e2e8f0;
+        overflow: hidden;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+    }
+
+    .table thead th {
+        background: #f8fafc;
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        padding: 15px;
+        border-bottom: 2px solid #edf2f7;
+    }
+
+    /* --- FIXED MOBILE VIEW --- */
+    @media (max-width: 768px) {
+        .table thead {
+            display: none; /* Hide headers */
+        }
+
+        .table, .table tbody, .table tr, .table td {
+            display: block;
+            width: 100%;
+        }
+
+        .table tr {
+            margin-bottom: 20px;
+            border-bottom: 3px solid #ebeef2; /* Thicker separator between "cards" */
+            padding-bottom: 10px;
+            background: white;
+        }
+
+        .table td {
+            display: flex; /* Use Flex instead of Absolute to prevent overlapping/cuts */
+            justify-content: space-between;
+            align-items: center;
+            text-align: right;
+            padding: 12px 15px !important;
+            border-bottom: 1px solid #f1f5f9;
+            min-height: 45px; /* Ensures row doesn't collapse */
+        }
+
+        /* The Label (Left Side) */
+        .table td::before {
+            content: attr(data-label);
+            font-weight: 700;
+            color: #64748b;
+            text-transform: uppercase;
+            font-size: 0.7rem;
+            text-align: left;
+            padding-right: 10px;
+            flex-shrink: 0; /* Prevents label from squishing */
+        }
+
+        /* The Value (Right Side) */
+        .table td > * {
+            max-width: 60%; /* Prevents long names from pushing label off screen */
+            word-wrap: break-word;
+        }
+
+        .salesperson-badge {
+            margin-left: auto;
+        }
+    }
+
+    .salesperson-badge {
+        background: #eef2ff;
+        color: #4338ca;
+        padding: 4px 8px;
+        border-radius: 6px;
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+
+    /* --- Footer Summary --- */
+    .ledger-footer {
+        background: var(--dark);
+        color: white;
+        padding: 20px;
+    }
+
+    .summary-item {
+        border-bottom: 1px solid #1e293b;
+        padding-bottom: 10px;
+        margin-bottom: 10px;
+    }
+
+    @media (min-width: 768px) {
+        .summary-item {
+            border-bottom: none;
+            padding-bottom: 0;
+            margin-bottom: 0;
+        }
+    }
+</style>
+</head>
+<body>
+
+<div class="ledger-container">
+
+    <!-- Header -->
+    <header class="page-header shadow-sm">
+        <div class="row align-items-center g-3">
+            <div class="col-12 col-md-8 text-center text-md-start">
+                <h2 class="h5 fw-bold mb-1">Sales Ledger</h2>
+                <h3 class="h4 fw-bold text-primary mb-1">{{ item.name }}</h3>
+                <p class="text-muted small mb-0">{{ start_date }} to {{ end_date }}</p>
+            </div>
+            <div class="col-12 col-md-4 text-center text-md-end">
+                <a href="{% url 'product_contribution_summary' %}?start_date={{ start_date }}&end_date={{ end_date }}" class="btn btn-outline-dark btn-sm fw-bold w-100 w-md-auto">
+                    <i class="bi bi-arrow-left me-1"></i> Back
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <!-- Table -->
+    <div class="ledger-card">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Voucher #</th>
+                        <th>Customer</th>
+                        <th>Salesperson</th>
+                        <th class="text-center">Qty</th>
+                        <th class="text-end">Amount</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in report_rows %}
+                    <tr>
+                        <td data-label="Date">{{ row.obj.voucher.date|date:"d M Y" }}</td>
+                        <td data-label="Voucher #">{{ row.obj.voucher.voucher_no }}</td>
+                        <td data-label="Customer" class="fw-bold">{{ row.obj.voucher.party_name }}</td>
+                        <td data-label="Salesperson">
+                            <span class="salesperson-badge">{{ row.salesperson }}</span>
+                        </td>
+                        <td data-label="Quantity" class="text-md-center fw-bold">{{ row.obj.quantity|floatformat:0 }}</td>
+                        <td data-label="Total Amount" class="text-md-end fw-bold text-primary">₹ {{ row.obj.amount|floatformat:2 }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="6" class="text-center py-5 text-muted">No records found.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Footer -->
+        <div class="ledger-footer">
+            <div class="row g-2">
+                <div class="col-12 col-md-4 summary-item">
+                    <div class="small opacity-50 text-uppercase">Summary</div>
+                    <div class="fw-bold">Periodic Total</div>
+                </div>
+                <div class="col-6 col-md-4 text-md-center summary-item">
+                    <div class="small opacity-50 text-uppercase">Total Qty</div>
+                    <div class="h5 mb-0 fw-bold">{{ total_qty|floatformat:2 }}</div>
+                </div>
+                <div class="col-6 col-md-4 text-end summary-item">
+                    <div class="small opacity-50 text-uppercase">Total Value</div>
+                    <div class="h5 mb-0 fw-bold text-warning">₹ {{ total_amt|floatformat:2 }}</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

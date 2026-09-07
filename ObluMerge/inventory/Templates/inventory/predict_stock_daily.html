@@ -1,0 +1,180 @@
+{% extends "inventory/base.html" %}
+
+{% block content %}
+<style>
+    body {
+        font-family: 'Inter', sans-serif;
+        background: linear-gradient(to right, #0f2027, #203a43, #2c5364);
+        color: #e0e0e0;
+    }
+
+    h1, h2 {
+        color: #ffffff;
+    }
+
+    h1 {
+        font-size: 2.2rem;
+        text-align: center;
+        margin-bottom: 2rem;
+    }
+
+    h2 {
+        border-left: 5px solid #00ffcc;
+        padding-left: 0.75rem;
+        margin-top: 2rem;
+        font-size: 1.5rem;
+    }
+
+    p, ul, li {
+        font-size: 1rem;
+        line-height: 1.6;
+    }
+
+    .highlight-blue {
+        color: #66fcf1;
+        font-weight: bold;
+    }
+
+    .highlight-green {
+        color: #7CFC00;
+        font-weight: bold;
+    }
+
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 1rem;
+        background-color: rgba(255, 255, 255, 0.05);
+        border-radius: 10px;
+        overflow: hidden;
+    }
+
+    th, td {
+        border: 1px solid #444;
+        padding: 12px;
+        text-align: center;
+    }
+
+    th {
+        background-color: rgba(0, 255, 204, 0.1);
+        font-weight: 600;
+        color: #00ffcc;
+    }
+
+    tr:nth-child(even) {
+        background-color: rgba(255, 255, 255, 0.02);
+    }
+
+    .section {
+        background-color: rgba(255, 255, 255, 0.04);
+        padding: 1.5rem;
+        border-radius: 12px;
+        margin-bottom: 2rem;
+        box-shadow: 0 0 10px rgba(0,255,204,0.2);
+    }
+
+    ul {
+        margin: 0;
+        padding-left: 1.2rem;
+    }
+
+    li {
+        margin-bottom: 0.5rem;
+    }
+
+    @media (max-width: 768px) {
+        body {
+            padding: 1rem;
+        }
+    }
+</style>
+
+<h1>📦 Stock Prediction for {{ product.name }}</h1>
+{% if product.total_historical_entries %}
+    <div style="text-align:center; margin-bottom: 2rem;">
+        <a href="{% url 'history' product.id %}"
+           style="display:inline-block; padding:10px 20px; margin-right:15px;
+                  background:#00ffcc; color:#0f2027; text-decoration:none;
+                  border-radius:6px; font-weight:bold; transition:0.3s;">
+            📜 View History
+        </a>
+
+        <a href="{% url 'stock_chart_2' product.id %}"
+           style="display:inline-block; padding:10px 20px;
+                  background:#00ffcc; color:#0f2027; text-decoration:none;
+                  border-radius:6px; font-weight:bold; transition:0.3s;">
+            📈 View Daily Graphs
+        </a>
+        <a href="{% url 'monthly-stock-chart' product.id %}"
+           style="display:inline-block; padding:10px 20px;
+                  background:#00ffcc; color:#0f2027; text-decoration:none;
+                  border-radius:6px; font-weight:bold; transition:0.3s;">
+            📈 View Monthly Graphs
+        </a>
+    </div>
+{% endif %}
+
+{% if error %}
+    <p style="color: red; text-align:center; font-weight:bold;">{{ error }}</p>
+{% else %}
+    <div class="section">
+        <h2>📉 Trend-Based Prediction (Closing Stock)</h2>
+        <ul>
+            {% for month, qty in trend_pred %}
+                <li><strong>{{ month }}</strong> → <span class="highlight-blue">{{ qty }} PCS</span></li>
+            {% endfor %}
+        </ul>
+        <p>🧮 <strong>Recommended Minimum Stock (Trend):</strong> <span class="highlight-blue">{{ min_stock_trend }} PCS</span></p>
+    </div>
+
+    <div class="section">
+        <h2>📊 Demand-Based Prediction (Outwards Quantity)</h2>
+        <ul>
+            {% for month, qty in demand_pred %}
+                <li><strong>{{ month }}</strong> → <span class="highlight-green">{{ qty }} PCS</span></li>
+            {% endfor %}
+        </ul>
+        <p>🧮 <strong>Recommended Minimum Stock (Demand + Buffer):</strong> <span class="highlight-green">{{ min_stock_demand }} PCS</span></p>
+    </div>
+
+    <div class="section">
+        <h2>📊 Demand-Based Prediction on Averages (Outwards Quantity)</h2>
+
+        <p>🧮 <strong>Recommended Minimum Stock (Averages of previous data):</strong> <span class="highlight-green">{{  product.min_quantity_average }} PCS</span></p>
+    </div>
+
+    <div class="section">
+        <h2>📊 Demand-Based Prediction on 3 months average (Outwards Quantity)</h2>
+
+        <p>🧮 <strong>Recommended Minimum Stock (Averages of last 3 month):</strong> <span class="highlight-green">{{  product.min_quantity_average_three }} PCS</span></p>
+    </div>
+    <div class="section">
+        <h2>📊 ChatGpt Prediction</h2>
+
+        <p>🧮 <strong>Recommended Minimum Stock (Chatgpt prediction):</strong> <span class="highlight-green">{{  product.min_quantity_gpt }} PCS</span></p>
+    </div>
+
+
+    <div class="section">
+        <h2>📅 Monthly Stock Data (Summary)</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Month</th>
+                    <th>Closing Qty</th>
+                    <th>Outwards Qty</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in excel_data %}
+                    <tr>
+                        <td>{{ row.Month }}</td>
+                        <td>{{ row.closing_quantity|default:"-" }}</td>
+                        <td>{{ row.outwards_quantity|default:"-" }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,67 @@
+{%extends 'quotations/base.html'%}
+{% block content %}
+{% load crispy_forms_tags %}
+    <style>
+    @media (max-width: 500px) {
+      .form-container {
+        padding: 30px 20px;
+      }
+
+      .form-container h1 {
+        font-size: 1.6rem;
+      }
+
+      .btn-primary {
+        padding: 10px 20px;
+        font-size: 0.95rem;
+      }
+    }
+  </style>
+
+  <div class="main-container">
+    <div class="form-container">
+      <h1>Create Product</h1>
+      <div class="text-center">
+        <a href="{% url 'product_list' %}" class="btn-secondary">← Back to Products</a>
+      </div>
+
+      <form method="POST" class="mt-4">
+        {% csrf_token %}
+
+        <!-- Product Fields -->
+        <div class="row g-3">
+          {% for field in form %}
+            <div class="col-md-6">
+              {{ field|as_crispy_field }}
+            </div>
+          {% endfor %}
+        </div>
+
+        <!-- Dynamic Price Tiers -->
+        <div class="mt-4">
+          <h4 class="text-center mb-3">Dynamic Price Tiers</h4>
+          {{ tier_formset.management_form }}
+          {% for subform in tier_formset %}
+            <div class="tier-card">
+              {% for field in subform %}
+                {% if field.name != "DELETE" %}
+                  <div class="mb-3">
+                    {{ field|as_crispy_field }}
+                  </div>
+                {% endif %}
+              {% endfor %}
+              <div class="form-check">
+                {{ subform.DELETE }} <label class="form-check-label">Delete this tier</label>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+
+        <!-- Buttons -->
+        <div class="mt-4 text-center">
+          <button type="submit" class="btn-primary">Create Product</button>
+        </div>
+      </form>
+    </div>
+  </div>
+{% endblock content %}

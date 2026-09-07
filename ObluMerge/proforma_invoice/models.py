@@ -1,0 +1,1622 @@
+# proforma_invoice/models.py
+
+from django.db import models
+from django.core.exceptions import ValidationError
+from django.utils import timezone
+from datetime import timedelta
+# Import existing models
+from customer_dashboard.models import Customer
+from inventory.models import InventoryItem
+from django.urls import reverse
+from decimal import Decimal
+from num2words import num2words
+from django.conf import settings
+from django.core.serializers.json import DjangoJSONEncoder
+from django.db.models import Q
+from decimal import Decimal, ROUND_HALF_UP
+# 🧾 1. Product Pricing
+class ProductPrice(models.Model):
+    """
+    Each InventoryItem can have a single base price and optional dynamic pricing tiers.
+    """
+    product = models.OneToOneField(
+        InventoryItem,
+        on_delete=models.CASCADE,
+        related_name="proforma_price"
+    )
+    price = models.DecimalField(max_digits=10, decimal_places=2)
+    # NEW: The Maximum Selling Price / Manufacturer Suggested Price
+    msrp = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=0.00, null=True,blank=True,
+        help_text="The ceiling price. Requests above this are auto-approved."
+    )
+
+    has_dynamic_price = models.BooleanField(default=False)
+    min_requirement = models.PositiveIntegerField(default=1)
+    tax_rate = models.DecimalField(max_digits=10, decimal_places=2, default=0.0)
+    terms_and_conditions = models.TextField(blank=True, null=True)
+    hsn=models.DecimalField(max_digits=10, decimal_places=0, blank=True, null=True)
+
+    class Meta:
+        verbose_name = "Product Price"
+        verbose_name_plural = "Product Prices"
+
+    def __str__(self):
+        return f"{self.product.name} - ₹{self.price}"
+
+
+
+class ProductPriceTier(models.Model):
+    """
+    Quantity-based dynamic pricing tiers for a product.
+    Example: Buy 10+ @ ₹95 each, 50+ @ ₹90 each, etc.
+    """
+    product = models.ForeignKey(
+        ProductPrice,
+        related_name="price_tiers",
+        on_delete=models.CASCADE
+    )
+    min_quantity = models.PositiveIntegerField()
+    unit_price = models.DecimalField(max_digits=10, decimal_places=2)
+
+    # ------add field---------
+    msrp = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=0.00, null=True,blank=True,
+        help_text="The ceiling price. Requests above this are auto-approved."
+    )
+
+
+
+    class Meta:
+        ordering = ["min_quantity"]
+        verbose_name = "Product Price Tier"
+        verbose_name_plural = "Product Price Tiers"
+
+    def __str__(self):
+        return f"{self.product.product.name} - {self.min_quantity}+ @ ₹{self.unit_price}"
+
+
+
+# ------adding mode------
+class CourierMode(models.TextChoices):
+    SURFACE = "surface", "Surface"
+    AIR = "air", "Air"
+
+
+# 📅 2. Proforma Invoice Core Models
+def validity_default():
+    return timezone.now() + timedelta(weeks=2)
+
+
+class ProformaInvoice(models.Model):
+    """
+    The main proforma invoice model — similar to a quotation but restricted to items in stock.
+    """
+    customer = models.ForeignKey(Customer, on_delete=models.CASCADE)
+    shipping_customer = models.ForeignKey(
+        Customer,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="shipping_invoices"
+    )
+    date_created = models.DateTimeField(auto_now_add=True)
+    validity = models.DateTimeField(default=validity_default)
+    created_by = models.CharField(max_length=255, default="Oblu")
+    DISPATCH_CHOICES = [
+        ('processing', 'Still Processing'),
+        ('pending', 'Pending'),
+        ('dispatched', 'Dispatched'),
+    ]
+    dispatch_status = models.CharField(
+        max_length=20,
+        choices=DISPATCH_CHOICES,
+        default='processing'
+    )
+    dispatch_requested_at = models.DateTimeField(null=True, blank=True)
+    dispatched_at = models.DateTimeField(null=True, blank=True)
+
+    is_price_altered = models.BooleanField(default=False)
+
+    courier_mode = models.CharField(
+        max_length=10,
+        choices=CourierMode.choices,
+        default=CourierMode.SURFACE)
+
+    # 🔥 NEW FIELD  (Converted-pi)
+    is_converted_to_pi = models.BooleanField(default=False, help_text="Converted-pi")
+
+
+
+
+    def is_intra_state(self):
+        """
+        True  -> CGST + SGST
+        False -> IGST
+        """
+
+        seller_state = "Delhi"
+
+        if self.shipping_customer:
+            supply_state = self.shipping_customer.state
+        else:
+            supply_state = self.customer.state
+
+        return supply_state == seller_state
+
+    def gst_type(self):
+        """
+        Returns the GST type label used in templates.
+        """
+
+        if self.is_intra_state():
+            return "CGST + SGST"
+        return "IGST"
+
+    def ship_to(self):
+        return self.shipping_customer if self.shipping_customer else self.customer
+
+    def taxable_total(self):
+        return sum(item.total_price_excl_tax() for item in self.items.all())
+
+    def total(self):
+        return sum(item.total_price() for item in self.items.all())
+
+    def __str__(self):
+        return f"Proforma #{self.id} - {self.customer.name}"
+
+    def get_absolute_url(self):
+        return reverse("proforma_detail", args=[self.pk])
+
+    def items_total(self):
+        """Sum of all products including GST"""
+        # return sum(item.total_price_incl_gst() for item in self.items.all())
+        return sum(item.total_price() for item in self.items.all())
+
+    def total_quantity(self):
+        return sum(item.quantity for item in self.items.all())
+
+    def courier_charge(self):
+        total_courier = Decimal("0.00")
+
+        # category -> {"qty": int, "product": InventoryItem}
+        category_data = {}
+
+        # print("\n========== COURIER CHARGE DEBUG ==========")
+        # print("INVOICE:", self.id)
+        # print("MODE:", self.courier_mode)
+        #
+        # 🔹 Group quantities by category
+        for item in self.items.all():
+            category = item.product.category
+
+            if category not in category_data:
+                category_data[category] = {
+                    "qty": 0,
+                    "product": item.product,  # 👈 store product here
+                }
+
+            category_data[category]["qty"] += item.quantity
+
+        # 🔹 Apply courier slab ONCE per category
+        for category, data in category_data.items():
+            total_qty = data["qty"]
+            product = data["product"]
+
+            # print(f"\nCATEGORY: {category.name}")
+            # print("TOTAL QTY:", total_qty)
+            #
+            sheet = product.courier_sheets.filter(
+                mode=self.courier_mode
+            ).first()
+
+            if not sheet:
+                # print("❌ NO COURIER SHEET FOUND")
+                continue
+
+            tier = (
+                sheet.tiers
+                .filter(min_quantity__lte=total_qty)
+                .filter(
+                    models.Q(max_quantity__gte=total_qty) |
+                    models.Q(max_quantity__isnull=True)
+                )
+                .order_by("-min_quantity")
+                .first()
+            )
+
+            # print("MATCHED TIER:", tier)
+
+            if tier:
+                total_courier += tier.charge
+                # print("ADDED CHARGE:", tier.charge)
+
+        # print("\nTOTAL COURIER CHARGE:", total_courier)
+        # print("========================================\n")
+
+        return total_courier
+
+    def courier_charge(self):
+
+        total_courier = Decimal("0.00")
+
+        items = self.items.select_related(
+            "product",
+            "product__category"
+        )
+
+        total_sheet_qty = Decimal("0")
+        sheet_product = None
+
+        # Categories that must be summed together
+        SHEET_CATEGORIES = [
+            "THERMOFORMING SHEETS",
+            "BAY MATERIALS",
+        ]
+
+        # Categories that charge per unit
+        PER_UNIT_KEYWORDS = [
+            "PRINTER",
+            "RESIN",
+            "ANYCUBIC",
+            "FILAMENT",
+            "MACHINE",
+        ]
+
+        # -------------------------
+        # STEP 1 — SUM SHEETS
+        # -------------------------
+
+        for item in items:
+
+            qty = Decimal(str(item.quantity or 0))
+            if qty <= 0:
+                continue
+
+            product = item.product
+
+            category_name = (
+                product.category.name.upper()
+                if product.category else ""
+            )
+
+            # print("CATEGORY:", category_name)
+
+            if category_name in SHEET_CATEGORIES:
+
+                total_sheet_qty += qty
+
+                if not sheet_product:
+                    sheet_product = product
+
+        # print("TOTAL SHEET QTY:", total_sheet_qty)
+
+        # -------------------------
+        # STEP 2 — APPLY SHEET SLAB ONCE
+        # -------------------------
+
+        if total_sheet_qty > 0 and sheet_product:
+
+            try:
+
+                sheet_rule = CourierCharge.objects.get(
+                    product=sheet_product,
+                    mode=self.courier_mode
+                )
+
+            except CourierCharge.DoesNotExist:
+
+                sheet_rule = None
+
+            if sheet_rule:
+
+                tier = (
+                    sheet_rule.tiers
+                    .filter(min_quantity__lte=total_sheet_qty)
+                    .filter(
+                        Q(max_quantity__gte=total_sheet_qty)
+                        | Q(max_quantity__isnull=True)
+                    )
+                    .order_by("-min_quantity")
+                    .first()
+                )
+
+                if tier:
+                    # print("SHEET CHARGE:", tier.charge)
+
+                    total_courier += tier.charge
+
+        # -------------------------
+        # STEP 3 — OTHER PRODUCTS
+        # -------------------------
+
+        for item in items:
+
+            qty = Decimal(str(item.quantity or 0))
+            if qty <= 0:
+                continue
+
+            product = item.product
+
+            category_name = (
+                product.category.name.upper()
+                if product.category else ""
+            )
+
+            # Skip sheets (already handled)
+            if category_name in SHEET_CATEGORIES:
+                continue
+
+            try:
+
+                rule = CourierCharge.objects.get(
+                    product=product,
+                    mode=self.courier_mode
+                )
+
+            except CourierCharge.DoesNotExist:
+                continue
+
+            tier = (
+                rule.tiers
+                .filter(min_quantity__lte=qty)
+                .filter(
+                    Q(max_quantity__gte=qty)
+                    | Q(max_quantity__isnull=True)
+                    | Q(max_quantity=0)
+                )
+                .order_by("-min_quantity")
+                .first()
+            )
+
+            if not tier:
+                continue
+
+            # Detect per-unit categories safely
+            is_per_unit = any(
+                keyword in category_name
+                for keyword in PER_UNIT_KEYWORDS
+            )
+
+            if is_per_unit:
+
+                charge = qty * tier.charge
+
+            else:
+
+                charge = tier.charge
+
+            # print(
+            #     "PRODUCT:", product.name,
+            #     "| CATEGORY:", category_name,
+            #     "| QTY:", qty,
+            #     "| RATE:", tier.charge,
+            #     "| CHARGE:", charge
+            # )
+            #
+            total_courier += charge
+
+        # print("FINAL COURIER:", total_courier)
+
+        return total_courier
+
+    def courier_gst(self):
+        """
+        Correct courier GST calculation:
+        - Splits courier charge proportionally to product value
+        - Applies exact GST rate per product from ProductPrice.tax_rate
+        """
+        total_courier = self.courier_charge()
+        if total_courier == 0:
+            return Decimal("0.00")
+
+        total_value = sum(item.total_price() for item in self.items.all())
+        if total_value == 0:
+            return Decimal("0.00")
+
+        total_gst = Decimal("0.00")
+
+        for item in self.items.all():
+            item_value = item.total_price()
+
+            # Proportional courier part for this item
+            courier_part = total_courier * (item_value / total_value)
+
+            # Get exact GST rate from ProductPrice.tax_rate
+            gst_rate = Decimal(item.taxrate() or 0)
+
+            # Apply GST correctly
+            gst_amount = courier_part * gst_rate / Decimal("100")
+
+            total_gst += gst_amount
+
+        return total_gst
+
+    def courier_gst_breakup(self):
+        """
+        Returns courier GST split per product
+        - courier_part: proportion of total courier based on item value
+        - gst_rate: exact product GST from ProductPrice
+        - gst_amount: courier_part * gst_rate / 100
+        """
+        breakup = []
+
+        total_value = sum(item.total_price() for item in self.items.all())
+        total_courier = self.courier_charge()
+
+        if total_value == 0 or total_courier == 0:
+            return breakup
+
+        for item in self.items.all():
+            item_value = item.total_price()
+
+            # Split courier proportionally
+            courier_part = total_courier * (item_value / total_value)
+
+            # Exact GST rate from product
+            gst_rate = Decimal(item.taxrate() or 0)
+
+            # Correct GST amount
+            gst_amount = courier_part * gst_rate / Decimal("100")
+
+            breakup.append({
+                "product": item.product.name,
+                "quantity": item.quantity,
+                "item_value": round(item_value, 2),
+                "courier": round(courier_part, 2),
+                "gst_rate": gst_rate,
+                "gst_amount": round(gst_amount, 2),
+                "total_courier_with_gst": round(courier_part + gst_amount, 2)
+            })
+
+        return breakup
+
+    def grand_total(self):
+        """Products incl GST + Courier incl GST"""
+        # return self.items_total() + self.courier_charge() + self.courier_gst()
+        return self.items_total() + self.courier_charge() + self.courier_gst()
+
+    def grand_total_in_words(self):
+        amount = self.grand_total().quantize(Decimal("0.01"))
+
+        rupees = int(amount)
+        paise = int((amount - Decimal(rupees)) * 100)
+
+        words = (
+                num2words(rupees, lang="en_IN")
+                .replace(",", "")
+                .title()
+                + " Rupees"
+        )
+
+        if paise > 0:
+            words += (
+                    " "
+                    + num2words(paise, lang="en_IN")
+                    .replace(",", "")
+                    .title()
+                    + " Paise"
+            )
+
+        words += " Only"
+        return words
+
+    def grand_total_in_words(self):
+        amount = self.grand_total().quantize(Decimal("0.01"))
+
+        rupees = int(amount)
+        paise = int((amount - Decimal(rupees)) * 100)
+
+        words = (
+                num2words(rupees, lang="en_IN")
+                .replace(",", "")
+                .title()
+                + " Rupees"
+        )
+
+        if paise > 0:
+            words += (
+                    " "
+                    + num2words(paise, lang="en_IN")
+                    .replace(",", "")
+                    .title()
+                    + " Paise"
+            )
+
+        words += " Only"
+        return words
+
+    def igst_total(self):
+        """
+        Total IGST = Product GST + Courier GST
+        """
+        product_gst = self.items_total() - self.taxable_total()
+        return product_gst + self.courier_gst()
+
+    def calculate_final_total(self):
+        """Standardized calculation logic used by API and Emails"""
+        # 1. Resolve Approved Prices
+        altered_prices = {}
+        approved_price_reqs = self.price_requests.filter(status="approved", is_product_request=True)
+        for req in approved_price_reqs:
+            if req.product:
+                altered_prices[str(req.product.id)] = Decimal(str(req.requested_price))
+
+        # 2. Calculate Products
+        items_qs = self.items.all()
+        subtotal_excl = Decimal("0.00")
+        total_product_gst = Decimal("0.00")
+
+        for item in items_qs:
+            qty = Decimal(str(item.quantity or 0))
+            gst_rate = Decimal(str(item.taxrate() or 0))
+
+            if str(item.product.id) in altered_prices:
+                unit_price_incl = altered_prices[str(item.product.id)]
+            elif item.current_price:
+                unit_price_incl = item.current_price
+            else:
+                unit_price_incl = Decimal(str(item.unit_price()))
+
+            divisor = Decimal("1.00") + (gst_rate / Decimal("100"))
+            unit_price_excl = (unit_price_incl / divisor).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            taxable_value = (unit_price_excl * qty).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            product_gst = (taxable_value * gst_rate / Decimal("100")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+            subtotal_excl += taxable_value
+            total_product_gst += product_gst
+
+        # 3. Courier Charges
+        courier_req = self.price_requests.filter(
+            requested_courier_charge__isnull=False,
+            status="approved"
+        ).first()
+
+        if courier_req:
+            courier_charge = Decimal(str(courier_req.requested_courier_charge))
+        else:
+            raw_courier = self.courier_charge() if callable(self.courier_charge) else self.courier_charge
+            courier_charge = Decimal(str(raw_courier or 0))
+
+        # 4. GST & Rounding
+        if subtotal_excl > 0:
+            combined_gst_rate = (total_product_gst / subtotal_excl * Decimal("100")).quantize(Decimal("0.01"),
+                                                                                              rounding=ROUND_HALF_UP)
+        else:
+            combined_gst_rate = Decimal("0.00")
+
+        courier_gst = (courier_charge * combined_gst_rate / Decimal("100")).quantize(Decimal("0.01"),
+                                                                                     rounding=ROUND_HALF_UP)
+        total_gst = (total_product_gst + courier_gst).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+        gross_total = (subtotal_excl + courier_charge + total_gst).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        return gross_total.quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+
+    def __str__(self):
+        return f"Proforma #{self.id} - {self.customer.name}"
+
+
+class ProformaInvoiceItem(models.Model):
+    """
+    Items listed in a proforma invoice. Prices come from ProductPrice (and dynamic tiers if any).
+    """
+    invoice = models.ForeignKey(
+        ProformaInvoice,
+        related_name="items",
+        on_delete=models.CASCADE
+    )
+    product = models.ForeignKey(InventoryItem, on_delete=models.CASCADE)
+    quantity = models.PositiveIntegerField(default=1)
+
+    # 🔥 NEW FIELDS  (# added section)
+    customer_name_snapshot = models.CharField(max_length=255, blank=True, null=True, help_text="customer")
+
+    current_price = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True,
+        help_text="Price at time of creation"
+    )
+    requested_price = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True,
+        help_text="Price requested by user"
+    )
+
+    current_courier_charge = models.DecimalField(
+        max_digits=10, decimal_places=2, default=0.00,
+        help_text="Current - courier"
+    )
+    requested_courier_charge = models.DecimalField(
+        max_digits=10, decimal_places=2, default=0.00,
+        help_text="Requested - courier"
+    )
+
+    current_msrp = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True,
+        help_text="Current - MSRP"
+    )
+
+    stock_requested = models.IntegerField(
+        default=0,
+        help_text="Stock-requested (Integer)"
+    )
+
+    made_by = models.CharField(
+        max_length=255, null=True, blank=True,
+        help_text="made-by"
+    )
+
+    # =====================================================
+    # 🔥 LOGIC UPDATES
+    # =====================================================
+
+    def save(self, *args, **kwargs):
+        """
+        Auto-populate snapshot fields from the product/invoice
+        on first save if not provided.
+        """
+        if not self.pk:
+            # Snapshot the current values from the ProductPrice model
+            price_obj = getattr(self.product, "proforma_price", None)
+            if price_obj:
+                self.current_price = self.get_unit_price_incl_tax()
+                self.current_msrp = price_obj.msrp
+
+            self.customer_name_snapshot = self.invoice.customer.name
+
+            # Initial stock requested equals current quantity
+            if not self.stock_requested:
+                self.stock_requested = self.quantity
+
+        super().save(*args, **kwargs)
+
+    # =====================================================
+    # 🔥 SINGLE SOURCE OF TRUTH FOR UNIT PRICE (INC GST)
+    # =====================================================
+    def get_unit_price_incl_tax(self):
+        """
+        Returns correct unit price INCLUDING GST
+        - Applies dynamic tier pricing if enabled
+        - Falls back to base price
+        """
+        try:
+            if not self.product: return Decimal("0.00")
+            p = self.product
+        except:
+            return Decimal("0.00")
+
+        price_obj = getattr(self.product, "proforma_price", None)
+        if not price_obj:
+            return Decimal("0.00")
+
+        unit_price = price_obj.price  # base price (inc GST)
+
+        # 🔥 CHANGED: dynamic tier logic centralized here
+        if price_obj.has_dynamic_price:
+            tier = (
+                price_obj.price_tiers
+                .filter(min_quantity__lte=self.quantity)
+                .order_by("-min_quantity")
+                .first()
+            )
+            if tier:
+                unit_price = tier.unit_price
+
+        return unit_price
+
+    # =====================================================
+    # TOTAL PRICE (INC GST)
+    # =====================================================
+    def total_price(self):
+        """
+        Total price INCLUDING GST
+        """
+        # 🔥 CHANGED: now uses centralized pricing logic
+        return self.get_unit_price_incl_tax() * self.quantity
+
+    # =====================================================
+    # UNIT PRICE (INC GST)
+    # =====================================================
+    def unit_price(self):
+        """
+        Unit price INCLUDING GST
+        """
+        # 🔥 CHANGED: earlier always returned base price
+        return self.get_unit_price_incl_tax()
+
+    # =====================================================
+    # UNIT PRICE (EXCLUDING GST)
+    # =====================================================
+    def unit_price_excl_tax(self):
+        """
+        Unit price EXCLUDING GST
+        """
+        unit_price = self.get_unit_price_incl_tax()  # 🔥 CHANGED
+        tax_rate = self.taxrate() or 0
+
+        return unit_price / (1 + (tax_rate / 100))
+
+    # =====================================================
+    # TOTAL PRICE (EXCLUDING GST)
+    # =====================================================
+    def total_price_excl_tax(self):
+        return self.unit_price_excl_tax() * self.quantity
+
+    # =====================================================
+    # TAX / HSN HELPERS
+    # =====================================================
+    def taxrate(self):
+        price_obj = getattr(self.product, "proforma_price", None)
+        return price_obj.tax_rate if price_obj else 0
+
+    def hsn(self):
+        price_obj = getattr(self.product, "proforma_price", None)
+        return price_obj.hsn if price_obj else None
+
+    # =====================================================
+    # VALIDATION
+    # =====================================================
+    def clean(self):
+        """
+        Validation before saving:
+        - ensure price exists
+        - ensure minimum order quantity
+        - ensure stock availability
+        """
+        try:
+            if not self.product: return
+            p = self.product
+        except:
+            return
+
+
+        price_obj = getattr(self.product, "proforma_price", None)
+        if not price_obj:
+            raise ValidationError(
+                f"No price defined for {self.product.name}."
+            )
+
+        # Minimum order check
+        if self.quantity < price_obj.min_requirement:
+            raise ValidationError(
+                f"Minimum order for {self.product.name} is "
+                f"{price_obj.min_requirement} units."
+            )
+
+        # Stock check
+        # available_qty = getattr(self.product, "quantity", 0)
+        # if self.quantity > available_qty:
+        #     raise ValidationError(
+        #         f"Only {available_qty} units available in stock "
+        #         f"for {self.product.name}."
+        #     )
+        #
+
+    def save(self, *args, **kwargs):
+        if not self.pk:
+            # ONLY snapshot from master if the field is currently empty
+            if not self.current_price or self.current_price == 0:
+                price_obj = getattr(self.product, "proforma_price", None)
+                if price_obj:
+                    # This is where 180 was coming from
+                    self.current_price = self.get_unit_price_incl_tax()
+
+            if not self.current_msrp:
+                price_obj = getattr(self.product, "proforma_price", None)
+                if price_obj:
+                    self.current_msrp = price_obj.msrp
+
+            self.customer_name_snapshot = self.invoice.customer.name
+            if not self.stock_requested:
+                self.stock_requested = self.quantity
+
+        super().save(*args, **kwargs)
+
+
+
+    def __str__(self):
+        return f"{self.product.name} ({self.quantity})"
+
+
+class CourierCharge(models.Model):
+    product = models.ForeignKey(
+        InventoryItem,
+        on_delete=models.CASCADE,
+        related_name="courier_sheets"
+    )
+    mode = models.CharField(
+        max_length=10,
+        choices=CourierMode.choices,
+        default=CourierMode.SURFACE
+    )
+    class Meta:
+        unique_together = ("product", "mode")
+
+
+    def __str__(self):
+        return f"{self.product.name} - {self.mode}"
+
+class CourierChargeTier(models.Model):
+    """
+    Quantity-based courier charge slabs
+    Example:
+    0–60   → 200
+    100–200 → 600
+    200–400 → 800
+    """
+    courier_product = models.ForeignKey(
+        CourierCharge,
+        related_name="tiers",
+        on_delete=models.CASCADE
+    )
+    min_quantity = models.PositiveIntegerField()
+    max_quantity = models.PositiveIntegerField(null=True, blank=True)
+    charge = models.DecimalField(max_digits=10, decimal_places=2)
+
+    class Meta:
+        ordering = ["min_quantity"]
+
+
+    def __str__(self):
+        if self.max_quantity:
+            return f"{self.courier_product}+→{self.min_quantity}-{self.max_quantity} → ₹{self.charge}"
+        return f"{self.courier_product}+→{self.min_quantity}+ → ₹{self.charge}"
+
+
+class ProformaPriceChangeRequest(models.Model):
+    STATUS_CHOICES = [
+        ("pending", "Pending"),
+        ("approved", "Approved"),
+        ("rejected", "Rejected"),
+    ]
+    # True = Product Price Request, False = Courier Request
+    is_product_request = models.BooleanField(default=True)
+
+    invoice = models.ForeignKey(
+        'ProformaInvoice',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="price_requests"
+    )
+    quotation = models.ForeignKey(
+        'QuotationMaker',
+        related_name="price_requests", # 👈 Must be 'price_requests'
+        on_delete=models.CASCADE,
+        null=True, blank=True
+    )
+
+
+    # --- NEW: Link Customer directly for easier filtering/memory check ---
+    customer = models.ForeignKey(Customer, on_delete=models.SET_NULL, null=True)
+    # If is_product_request is True, we need to know which product
+    product = models.ForeignKey(
+        InventoryItem,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        help_text="Only required if is_product_request is True")
+
+
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="proforma_price_requests_made" )
+
+
+    # --- UPDATED: JSON Structure will now store: --- ❌
+    # { "item_id": {"req_price": 60, "rec_price": 100, "msrp": 70, "under_msrp": true} } ❌
+    #removed JSON PATTERN
+
+# -----product fields --------
+    requested_price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    recommended_price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    msrp_snapshot = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    quantity = models.PositiveIntegerField(null=True, blank=True, help_text="Snapshot of quantity at time of request")
+
+
+# -------For courier-------
+    requested_courier_charge = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    recommended_courier_charge = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+
+
+    # NEW: Track courier status specifically
+    COURIER_STATUS_CHOICES = [
+        ("pending", "Pending"),
+        ("approved", "Approved"),
+        ("rejected", "Rejected"),
+    ]
+    courier_status = models.CharField(
+        max_length=10,
+        choices=COURIER_STATUS_CHOICES,
+        default="pending"
+    )
+
+    # Note: requested_product_prices will now look like this:
+    # {
+    #   "101": {"requested_price": 500, "recommended_price": 600, "status": "approved"},
+    #   "102": {"requested_price": 400, "recommended_price": 600, "status": "rejected"}
+    # }
+
+
+
+    reason = models.TextField(blank=True, null=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
+
+    # --- NEW: Approval Logic Fields ---
+    is_under_msrp = models.BooleanField(
+        default=False,
+        help_text="True if ANY item in this request is priced below its MSRP"
+    )
+
+    # Tracks which role has signed off
+    accountant_approved = models.BooleanField(default=False)
+    superuser_approved = models.BooleanField(default=False)
+
+    # --- NEW: Permitted Field (Auto-unlock) ---
+    is_permitted = models.BooleanField(
+        default=False,
+        help_text="Ticked if this price/customer combo was already approved in the past"
+    )
+
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name="proforma_price_requests_reviewed"
+    )
+
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    recommended_price= models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    is_this_product_price = models.BooleanField(
+        default=False,
+    )
+    def clean(self):
+        """
+        Custom validation to ensure the request is linked
+        to either an Invoice or a Quotation.
+        """
+        from django.core.exceptions import ValidationError
+        if not self.invoice and not self.quotation:
+            raise ValidationError("A price request must be linked to either an Invoice or a Quotation.")
+
+
+
+    def __str__(self):
+        req_type = "Product" if self.is_product_request else "Courier"
+        return f"{req_type} Request #{self.id} (Inv: {self.invoice_id}) - MSRP Status: {self.is_under_msrp}"
+
+
+
+
+    def save(self, *args, **kwargs):
+        # 1. HANDLE PRODUCT REQUESTS (Keep exactly as is)
+        if self.is_product_request:
+            self.requested_courier_charge = None
+
+            if self.quantity is None and self.product:
+                parent = self.invoice or self.quotation
+                if parent:
+                    item = parent.items.filter(product=self.product).first()
+                    if item: self.quantity = item.quantity
+
+            if self.requested_price is not None and self.msrp_snapshot is not None:
+                self.is_under_msrp = self.requested_price < self.msrp_snapshot
+
+        # 2. HANDLE COURIER REQUESTS (New Logic Added)
+        else:
+            self.product = None
+            self.requested_price = None
+            self.msrp_snapshot = None
+            self.quantity = None
+
+            # --- NEW COURIER LOGIC ---
+            # --- FETCH RECOMMENDED CHARGE AUTOMATICALLY ---
+
+            if not self.recommended_courier_charge:
+                parent = self.invoice or self.quotation
+                if parent:
+                    # This calls the courier_charge() method you defined in ProformaInvoice/QuotationMaker
+                    current_system_charge = parent.courier_charge()
+                    self.recommended_courier_charge = current_system_charge
+
+
+            if self.requested_courier_charge is not None and self.recommended_courier_charge is not None:
+                # Flag for Admin Review if requested charge is less than 50% of original
+                half_price = self.recommended_courier_charge / 2
+                self.is_under_msrp = self.requested_courier_charge < half_price
+            else:
+                self.is_under_msrp = False
+
+        super().save(*args, **kwargs)
+
+class ApprovedPriceMemory(models.Model):
+    """
+    Stores previously approved prices for a specific Customer + Product combination.
+    Used to implement the 'is_permitted' logic.
+    """
+    customer = models.ForeignKey(Customer, on_delete=models.CASCADE)
+    product = models.ForeignKey(InventoryItem, on_delete=models.CASCADE)
+    min_approved_price = models.DecimalField(max_digits=10, decimal_places=2)
+    # If the base price (recommended price) changes, this memory becomes invalid
+    base_price_at_approval = models.DecimalField(max_digits=10, decimal_places=2)
+    last_updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('customer', 'product')
+
+    def __str__(self):
+        return f"{self.customer.name} | {self.product.name} | Min: ₹{self.min_approved_price}"
+
+class ProformaStockShortageRequest(models.Model):
+    """Handles requests where quantity ordered > warehouse stock."""
+    STATUS_CHOICES = [("pending", "Pending Approval"), ("approved", "Stock Confirmed"), ("rejected", "Unavailable")]
+
+    invoice = models.ForeignKey(ProformaInvoice, on_delete=models.CASCADE, related_name="stock_requests")
+    product = models.ForeignKey(InventoryItem, on_delete=models.CASCADE,null=True,
+        blank=True
+)
+
+    requested_quantity = models.IntegerField(default=0)
+    available_quantity = models.IntegerField(default=0)
+
+    requested_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
+
+    reviewed_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+                                    related_name="stock_reviewed")
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+
+    def get_duration(self):
+        if self.created_at and self.reviewed_at:
+            diff = self.reviewed_at - self.created_at
+            # Format: 2h 15m or 45m
+            total_seconds = int(diff.total_seconds())
+            hours, remainder = divmod(total_seconds, 3600)
+            minutes, _ = divmod(remainder, 60)
+            if hours > 0:
+                return f"{hours}h {minutes}m"
+            return f"{minutes}m"
+        return None
+
+    def __str__(self):
+        p_name = self.product.name if self.product else "No Product/Courier"
+        return f"{p_name} - Inv #{self.invoice.id}"
+
+class ProformaRemark(models.Model):
+    # 1. Links
+    invoice = models.ForeignKey('ProformaInvoice', on_delete=models.CASCADE, related_name="remarks",null=True,blank=True   # <--- Add this
+)
+    quotation = models.ForeignKey('QuotationMaker', on_delete=models.CASCADE, related_name="remarks", null=True, blank=True) #new
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+
+    # 2. Content
+    remark = models.TextField()
+
+    # 3. Metadata
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def str(self):
+        return f"{self.user.username} - {self.created_at.strftime('%d %b, %H:%M')}"
+
+
+class CreditPeriodOverdueByPassRequest(models.Model):
+    STATUS_CHOICES = [
+        ("pending", "Pending"),
+        ("approved", "Approved"),
+        ("rejected", "Rejected"),
+    ]
+
+    customer = models.ForeignKey(Customer, on_delete=models.CASCADE)
+
+    # FK to the Proforma Invoice that is causing the credit block
+    proforma_invoice = models.ForeignKey(
+        ProformaInvoice,
+        on_delete=models.CASCADE,
+        related_name="credit_approvals"
+    )
+
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default="pending")
+
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="credit_requests_made"
+    )
+
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name="credit_approved_by"
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f"Request for PI #{self.proforma_invoice.id} - {self.status}"
+
+
+
+
+class QuotationMaker(models.Model):
+    """
+    A formal price offer to a customer.
+    Does not track dispatch/shipping status as it's pre-sales.
+    """
+    customer = models.ForeignKey(Customer, on_delete=models.CASCADE)
+    shipping_customer = models.ForeignKey(
+        Customer,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="quotation_shipping"
+    )
+    date_created = models.DateTimeField(auto_now_add=True)
+    validity = models.DateTimeField(default=validity_default)
+    created_by = models.CharField(max_length=255, default="Oblu")
+
+    is_price_altered = models.BooleanField(default=False)
+
+    courier_mode = models.CharField(
+        max_length=10,
+        choices=CourierMode.choices,
+        default=CourierMode.SURFACE
+    )
+
+    # Status tracking
+    is_converted_to_proforma = models.BooleanField(
+        default=False,
+        help_text="True if this quotation was converted to a Proforma Invoice"
+    )
+    converted_at = models.DateTimeField(null=True, blank=True, help_text="Timestamp when converted to PI")
+
+    class Meta:
+        ordering = ['-date_created']
+
+    def __str__(self):
+        return f"Quotation #{self.id} - {self.customer.name}"
+
+    def get_absolute_url(self):
+        return reverse("quotation_detail", args=[self.pk])
+
+    # --- GST LOGIC ---
+    def is_intra_state(self):
+        seller_state = "Delhi"
+        supply_state = self.shipping_customer.state if self.shipping_customer else self.customer.state
+        return supply_state == seller_state
+
+    def gst_type(self):
+        return "CGST + SGST" if self.is_intra_state() else "IGST"
+
+    # --- TOTALS LOGIC ---
+    def taxable_total(self):
+        return sum(item.total_price_excl_tax() for item in self.items.all())
+
+    def items_total_incl_tax(self):
+        return sum(item.total_price() for item in self.items.all())
+
+    def total_quantity(self):
+        return sum(item.quantity for item in self.items.all())
+
+    # --- CLEAN COURIER LOGIC ---
+    def courier_charge(self):
+        total_courier = Decimal("0.00")
+        items = self.items.select_related("product", "product__category")
+
+        total_sheet_qty = Decimal("0")
+        sheet_product = None
+
+        SHEET_CATEGORIES = ["THERMOFORMING SHEETS", "BAY MATERIALS"]
+        PER_UNIT_KEYWORDS = ["PRINTER", "RESIN", "ANYCUBIC", "FILAMENT", "MACHINE"]
+
+        # 1. Handle grouped categories (Sheets)
+        for item in items:
+            qty = Decimal(str(item.quantity or 0))
+            category_name = item.product.category.name.upper() if item.product.category else ""
+            if category_name in SHEET_CATEGORIES:
+                total_sheet_qty += qty
+                if not sheet_product: sheet_product = item.product
+
+        if total_sheet_qty > 0 and sheet_product:
+            rule = CourierCharge.objects.filter(product=sheet_product, mode=self.courier_mode).first()
+            if rule:
+                tier = rule.tiers.filter(min_quantity__lte=total_sheet_qty).filter(
+                    Q(max_quantity__gte=total_sheet_qty) | Q(max_quantity__isnull=True)
+                ).order_by("-min_quantity").first()
+                if tier: total_courier += tier.charge
+
+        # 2. Handle Individual items
+        for item in items:
+            category_name = item.product.category.name.upper() if item.product.category else ""
+            if category_name in SHEET_CATEGORIES: continue
+
+            rule = CourierCharge.objects.filter(product=item.product, mode=self.courier_mode).first()
+            if not rule: continue
+
+            tier = rule.tiers.filter(min_quantity__lte=item.quantity).filter(
+                Q(max_quantity__gte=item.quantity) | Q(max_quantity__isnull=True)
+            ).order_by("-min_quantity").first()
+
+            if tier:
+                is_per_unit = any(kw in category_name for kw in PER_UNIT_KEYWORDS)
+                total_courier += (Decimal(item.quantity) * tier.charge) if is_per_unit else tier.charge
+
+        return total_courier
+
+    def courier_gst(self):
+        total_courier = self.courier_charge()
+        total_value = self.items_total_incl_tax()
+        if total_courier == 0 or total_value == 0: return Decimal("0.00")
+
+        total_gst = Decimal("0.00")
+        for item in self.items.all():
+            item_value = item.total_price()
+            courier_part = total_courier * (item_value / total_value)
+            gst_rate = Decimal(item.taxrate() or 0)
+            total_gst += (courier_part * gst_rate / Decimal("100"))
+        return total_gst.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    def grand_total(self):
+        return (self.items_total_incl_tax() + self.courier_charge() + self.courier_gst()).quantize(Decimal("1"),
+                                                                                                   rounding=ROUND_HALF_UP)
+
+    def grand_total_in_words(self):
+        amount = self.grand_total()
+        rupees = int(amount)
+        paise = int((amount - Decimal(rupees)) * 100)
+        words = f"{num2words(rupees, lang='en_IN').replace(',', '').title()} Rupees"
+        if paise > 0:
+            words += f" {num2words(paise, lang='en_IN').replace(',', '').title()} Paise"
+        return words + " Only"
+
+    @property
+    def has_pending_price_requests(self):
+        """Returns True if there is at least one price request still 'pending'"""
+        return self.price_requests.filter(status='pending').exists()
+
+    @property
+    def is_fully_reviewed(self):
+        """Returns True if all requests are either Approved or Rejected (or if no requests exist)"""
+        return not self.has_pending_price_requests
+
+
+class QuotationMakerItem(models.Model):
+    quotation = models.ForeignKey(
+        'QuotationMaker',
+        related_name="items",
+        on_delete=models.CASCADE
+    )
+    product = models.ForeignKey(InventoryItem, on_delete=models.CASCADE)
+    quantity = models.PositiveIntegerField(default=1)
+
+    # Snapshots
+    customer_name_snapshot = models.CharField(max_length=255, blank=True, null=True)
+    current_price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    requested_price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    current_msrp = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    current_courier_charge = models.DecimalField(
+        max_digits=10, decimal_places=2, default=0.00,
+        help_text="Current - courier"
+    )
+    requested_courier_charge = models.DecimalField(
+        max_digits=10, decimal_places=2, default=0.00,
+        help_text="Requested - courier"
+    )
+
+
+    made_by = models.CharField(
+        max_length=255, null=True, blank=True,
+        help_text="made-by"
+    )
+
+
+    def save(self, *args, **kwargs):
+        if not self.pk:
+            # On creation, snapshot the current prices
+            price_obj = getattr(self.product, "proforma_price", None)  # Assuming shared price logic
+            if price_obj:
+                self.current_price = self.get_unit_price_incl_tax()
+                self.current_msrp = price_obj.msrp
+            self.customer_name_snapshot = self.quotation.customer.name
+        super().save(*args, **kwargs)
+
+    def get_unit_price_incl_tax(self):
+        # 1. Use manual requested price if available
+        if self.requested_price and self.requested_price > 0:
+            return self.requested_price
+
+        # 2. Fallback to Product Price Logic
+        price_obj = getattr(self.product, "proforma_price", None)
+        if not price_obj: return Decimal("0.00")
+
+        unit_price = price_obj.price
+        if price_obj.has_dynamic_price:
+            tier = price_obj.price_tiers.filter(min_quantity__lte=self.quantity).order_by("-min_quantity").first()
+            if tier: unit_price = tier.unit_price
+        return unit_price
+
+    # proforma_invoice/models.py
+
+    def get_unit_price_incl_tax(self):
+        # 1. If a manual request was already made for THIS document, use it
+        if self.requested_price and self.requested_price > 0:
+            return self.requested_price
+
+        # 2. NEW: Check Approved Price Memory for this Customer + Product
+        from .models import ApprovedPriceMemory
+        memory = ApprovedPriceMemory.objects.filter(
+            customer=self.quotation.customer,
+            product=self.product
+        ).first()
+
+        if memory:
+            # Check if the master price hasn't changed since approval
+            price_obj = getattr(self.product, "proforma_price", None)
+            if price_obj and memory.base_price_at_approval == price_obj.price:
+                return memory.min_approved_price
+
+        # 3. Fallback to Product Master Price Logic
+        price_obj = getattr(self.product, "proforma_price", None)
+        if not price_obj: return Decimal("0.00")
+
+        unit_price = price_obj.price
+        if price_obj.has_dynamic_price:
+            tier = price_obj.price_tiers.filter(min_quantity__lte=self.quantity).order_by("-min_quantity").first()
+            if tier: unit_price = tier.unit_price
+        return unit_price
+    def total_price(self):
+        return self.get_unit_price_incl_tax() * self.quantity
+
+    def unit_price_excl_tax(self):
+        unit_incl = self.get_unit_price_incl_tax()
+        return unit_incl / (Decimal("1") + (Decimal(self.taxrate()) / Decimal("100")))
+
+    def total_price_excl_tax(self):
+        return (self.unit_price_excl_tax() * self.quantity).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    def taxrate(self):
+        price_obj = getattr(self.product, "proforma_price", None)
+        return price_obj.tax_rate if price_obj else 0
+
+    def hsn(self):
+        price_obj = getattr(self.product, "proforma_price", None)
+        return price_obj.hsn if price_obj else None
+
+    def __str__(self):
+        return f"{self.product.name} x {self.quantity}"
+
+
+# new dispatch models
+
+class ShipmentMethod(models.Model):
+
+    name = models.CharField(max_length=100)
+
+    tracking_url = models.URLField()
+
+    is_active = models.BooleanField(default=True)
+
+
+
+class DispatchRequest(models.Model):
+
+    STATUS_CHOICES = [
+
+        # Salesperson created dispatch request
+        ("requested", "Requested"),
+
+        # Accounts entered invoice number, shipment method
+        # and notified warehouse
+        ("waiting_for_packing", "Waiting For Packing"),
+
+        # Warehouse uploaded packed product photos
+        # waiting for accounts review
+        ("packed_awaiting_approval", "Packed - Awaiting Approval"),
+
+        # Accounts approved packing photos
+        # warehouse can now dispatch
+        ("packing_approved", "Packing Approved"),
+
+        # Warehouse dispatched goods and entered docket no.
+        ("dispatched_by_warehouse", "Dispatched By Warehouse"),
+
+        # Accounts performed final verification
+        ("completed", "Completed"),
+
+        # Failure states
+        ("packing_rejected", "Packing Rejected"),
+        ("cancelled", "Cancelled"),
+    ]
+
+    invoice = models.OneToOneField(
+        ProformaInvoice,
+        on_delete=models.CASCADE,
+        related_name="dispatch_request"
+    )
+
+    shipment_method = models.ForeignKey(
+        ShipmentMethod,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True
+    )
+
+    invoice_number = models.CharField(
+        max_length=100,
+        null=True,
+        blank=True
+    )
+
+    status = models.CharField(
+        max_length=50,
+        choices=STATUS_CHOICES,
+        default="requested"
+    )
+
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True
+    )
+
+def dispatch_upload_path(instance, filename):
+
+    invoice_id = instance.dispatch_request.invoice.id
+
+    return (
+        f"dispatchs/"
+        f"{timezone.now().year}/"
+        f"{timezone.now().month}/"
+        f"invoice_{invoice_id}/"
+        f"{filename}"
+    )
+class DispatchPhoto(models.Model):
+
+    dispatch_request = models.ForeignKey(
+        DispatchRequest,
+        related_name="photos",
+        on_delete=models.CASCADE
+    )
+
+    image = models.ImageField(
+        upload_to=dispatch_upload_path
+    )
+
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True
+    )
+
+    uploaded_at = models.DateTimeField(
+        auto_now_add=True
+    )
+
+class WarehouseDispatch(models.Model):
+
+    dispatch_request = models.OneToOneField(
+        DispatchRequest,
+        on_delete=models.CASCADE
+    )
+
+    docket_number = models.CharField(
+        max_length=100
+    )
+
+    dispatched_at = models.DateTimeField(
+        null=True,
+        blank=True
+    )
+
+    dispatched_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        on_delete=models.SET_NULL
+    )
+
+class DispatchRemark(models.Model):
+
+    dispatch_request = models.ForeignKey(
+        DispatchRequest,
+        related_name="remarks",
+        on_delete=models.CASCADE
+    )
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True
+    )
+
+    message = models.TextField()
+
+    created_at = models.DateTimeField(
+        auto_now_add=True
+    )
+
+    class Meta:
+        ordering = ["created_at"]
+
+class DispatchStateHistory(models.Model):
+
+    dispatch_request = models.ForeignKey(
+        DispatchRequest,
+        related_name="history",
+        on_delete=models.CASCADE
+    )
+
+    from_status = models.CharField(
+        max_length=50,
+        blank=True
+    )
+
+    to_status = models.CharField(
+        max_length=50
+    )
+
+    changed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        on_delete=models.SET_NULL
+    )
+
+    changed_at = models.DateTimeField(
+        auto_now_add=True
+    )
+
+    class Meta:
+        ordering = ["changed_at"]
+
+def dispatch_invoice_upload_path(instance, filename):
+
+    invoice_id = instance.dispatch_request.invoice.id
+
+    return (
+        f"dispatchs/"
+        f"{timezone.now().year}/"
+        f"{timezone.now().month}/"
+        f"invoice_{invoice_id}/"
+        f"invoices/"
+        f"{filename}"
+    )
+
+class DispatchInvoice(models.Model):
+
+    dispatch_request = models.OneToOneField(
+        DispatchRequest,
+        related_name="invoice_file",
+        on_delete=models.CASCADE
+    )
+
+    pdf = models.FileField(
+        upload_to=dispatch_invoice_upload_path
+    )
+
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        on_delete=models.SET_NULL
+    )
+
+    uploaded_at = models.DateTimeField(
+        auto_now_add=True
+    )

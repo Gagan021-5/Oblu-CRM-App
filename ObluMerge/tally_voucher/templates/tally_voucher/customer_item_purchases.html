@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Items Purchased</title>
+
+<style>
+    body {
+        background: #3a3a3a;
+        font-family: "Poppins", sans-serif;
+        color: white;
+        padding: 25px;
+    }
+
+    /* Accordion Button */
+    .accordion {
+        background-color: #1e1e1e;
+        color: white;
+        cursor: pointer;
+        padding: 15px;
+        width: 100%;
+        border: none;
+        text-align: left;
+        outline: none;
+        font-size: 17px;
+        border-radius: 10px;
+        transition: background 0.3s ease;
+        margin-top: 10px;
+        position: relative;
+    }
+
+    .accordion:hover,
+    .accordion.active {
+        background-color: #333;
+    }
+
+    .accordion::after {
+        content: "▼";
+        position: absolute;
+        right: 15px;
+        top: 50%;
+        transform: translateY(-50%);
+        font-size: 16px;
+        transition: transform 0.3s ease;
+    }
+
+    .accordion.active::after {
+        transform: translateY(-50%) rotate(180deg);
+    }
+
+    .panel {
+        padding: 0 18px;
+        display: none;
+        background-color: #2c2c2c;
+        overflow: hidden;
+        border-radius: 10px;
+        margin-bottom: 10px;
+    }
+
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 10px;
+    }
+
+    th, td {
+        text-align: left;
+        padding: 10px;
+        color: white;
+    }
+
+    thead {
+        background: #000;
+    }
+
+    tbody tr:nth-child(odd) {
+        background: #3a3a3a;
+    }
+
+    tbody tr:nth-child(even) {
+        background: #4a4a4a;
+    }
+
+    .back-btn {
+        display: inline-block;
+        background: #1e1e1e;
+        padding: 10px 20px;
+        border-radius: 8px;
+        color: white;
+        border: 1px solid #444;
+        margin-top: 20px;
+        text-decoration: none;
+    }
+
+    .back-btn:hover {
+        background: #333;
+    }
+
+    /* RESPONSIVE */
+    @media (max-width: 700px) {
+        body {
+            padding: 15px;
+        }
+        h2 {
+            font-size: 20px;
+        }
+        .accordion {
+            font-size: 15px;
+            padding: 12px;
+        }
+        th, td {
+            padding: 8px;
+            font-size: 14px;
+        }
+    }
+</style>
+
+</head>
+
+<body>
+
+<h2 style="text-align:center; margin-bottom:20px;"> Items Purchased by {{ customer.name }}</h2>
+
+{% for key, row in items_summary.items %}
+
+<button class="accordion">
+    {{ key }}
+</button>
+
+<div class="panel">
+
+    <!-- OLD SUMMARY TABLE (unchanged) -->
+    <table>
+        <thead>
+            <tr>
+                <th>Detail</th>
+                <th>Value</th>
+            </tr>
+        </thead>
+
+        <tbody>
+            <tr>
+                <td>Total Quantity</td>
+                <td>{{ row.total_qty }}</td>
+            </tr>
+            <tr>
+                <td>Total Value</td>
+                <td>₹{{ row.total_value|floatformat:2 }}</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <!-- NEW DATE-WISE PURCHASE TABLE -->
+    <table style="margin-top:20px;">
+        <thead>
+            <tr>
+                <th>Date</th>
+                <th>Qty</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for entry in row.entries %}
+            <tr>
+                <td>{{ entry.date }}</td>
+                <td>{{ entry.qty }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+</div>
+
+{% endfor %}
+
+<a href="javascript:history.back()" class="back-btn">← Back</a>
+
+<script>
+    const acc = document.getElementsByClassName("accordion");
+
+    for (let i = 0; i < acc.length; i++) {
+        acc[i].addEventListener("click", function() {
+
+            this.classList.toggle("active"); // rotates arrow
+
+            const panel = this.nextElementSibling;
+            if (panel.style.display === "block") {
+                panel.style.display = "none";
+            } else {
+                panel.style.display = "block";
+            }
+        });
+    }
+</script>
+
+</body>
+</html>

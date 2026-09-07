@@ -1,0 +1,69 @@
+{%extends 'quotations/base.html'%}
+{% block content %}
+  <style>
+    @media (max-width: 600px) {
+      table th, table td {
+        padding: 8px;
+        font-size: 0.85rem;
+      }
+
+      h1 {
+        font-size: 1.6rem;
+      }
+    }
+  </style>
+
+<div class="container">
+    <div class="table-container">
+      <h1>Products</h1>
+      {% if request.user.is_accountant %}
+        <div class="top-actions">
+          <a href="{% url 'home'  %}" class="btn-secondary">Back to Home</a>
+          <a href="{% url 'create_product'  %}" class="btn-secondary">+ Create Product</a>
+        </div>
+      {% endif %}
+
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Name</th>
+            <th>Price</th>
+            <th>Tax rate</th>
+            <th>Min Req</th>
+            <th>Dynamic Pricing</th>
+            {% if request.user.is_accountant %}
+              <th>Action</th>
+            {% endif %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for product in products %}
+            <tr>
+              <td>{{ product.id }}</td>
+              <td>{{ product.name }}</td>
+              <td>₹{{ product.price_per_unit }}</td>
+              <td>{{ product.tax_rate }}%</td>
+              <td>{{ product.min_requirement }}</td>
+              {% if product.has_dynamic_pricing %}
+                <td>Yes</td>
+              {% else %}
+                <td>-</td>
+              {% endif %}
+              {% if request.user.is_accountant %}
+                <td>
+                  <a href="{% url 'edit_product' product.id %}" class="btn-secondary">Edit</a>
+                </td>
+              {% endif %}
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="6" style="text-align:center; padding:20px;">No quotations found.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+{% endblock content %}

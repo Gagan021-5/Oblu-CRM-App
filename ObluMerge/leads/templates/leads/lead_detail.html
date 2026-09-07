@@ -1,0 +1,423 @@
+{% block title %}{{ lead.name }} – Lead Detail{% endblock %}
+
+{% block extra_css %}
+<style>
+  :root {
+    --accent:#4f46e5; --success:#10b981; --danger:#ef4444; --warn:#f59e0b;
+    --border:#e2e8f0; --bg:#f8fafc; --text:#1e293b; --muted:#64748b;
+    --card-shadow: 0 1px 6px rgba(0,0,0,.07);
+  }
+  body { background: var(--bg); }
+
+  .detail-wrap { max-width: 960px; margin: 0 auto; padding: 24px 16px; }
+
+  /* ── HEADER ── */
+  .lead-header {
+    background: linear-gradient(135deg, #4f46e5, #7c3aed);
+    border-radius: 14px; padding: 22px 24px;
+    color: #fff; margin-bottom: 22px;
+    display: flex; align-items: flex-start; gap: 18px;
+  }
+  .lead-header .avatar {
+    width: 54px; height: 54px; border-radius: 50%;
+    background: rgba(255,255,255,.2);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.4rem; font-weight: 800; flex-shrink: 0;
+  }
+  .lead-header .info h1 { font-size: 1.25rem; font-weight: 800; margin: 0 0 4px; }
+  .lead-header .info p  { font-size: .82rem; opacity: .8; margin: 0; }
+  .lead-header .spacer { flex: 1; }
+  .lead-header .badges { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+  .lh-badge {
+    font-size: .73rem; font-weight: 700; padding: 4px 10px;
+    border-radius: 20px; background: rgba(255,255,255,.18);
+  }
+  .lh-badge.won    { background: rgba(16,185,129,.3); }
+  .lh-badge.lost   { background: rgba(239,68,68,.3); }
+  .lh-badge.junk   { background: rgba(100,116,139,.3); }
+  .header-actions { display: flex; gap: 8px; margin-top: 14px; }
+  .btn-hdr {
+    padding: 7px 14px; border-radius: 8px; font-size: .78rem;
+    font-weight: 600; cursor: pointer; border: 1px solid rgba(255,255,255,.35);
+    background: rgba(255,255,255,.15); color: #fff; text-decoration: none;
+    transition: background .15s;
+  }
+  .btn-hdr:hover { background: rgba(255,255,255,.28); }
+  .btn-hdr.call-btn { background: #10b981; border-color: #10b981; }
+
+  /* ── GRID ── */
+  .detail-grid { display: grid; grid-template-columns: 1fr 320px; gap: 18px; }
+  @media(max-width:720px) { .detail-grid { grid-template-columns: 1fr; } }
+
+  /* ── CARD ── */
+  .detail-card {
+    background: #fff; border-radius: 12px; border: 1px solid var(--border);
+    box-shadow: var(--card-shadow); margin-bottom: 16px;
+    overflow: hidden;
+  }
+  .detail-card-header {
+    padding: 12px 16px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .detail-card-header h3 { font-size: .85rem; font-weight: 700; color: var(--text); margin: 0; flex: 1; }
+  .detail-card-body { padding: 16px; }
+
+  /* ── STAGE SELECTOR ── */
+  .stage-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .stage-chip {
+    padding: 5px 12px; border-radius: 20px;
+    font-size: .74rem; font-weight: 700;
+    border: 2px solid transparent; cursor: pointer;
+    transition: all .15s;
+  }
+  .stage-chip.current { border-color: var(--accent); color: var(--accent); background: #eef2ff; }
+  .stage-chip:not(.current):hover { opacity: .75; }
+
+  /* ── TIMELINE (calls + remarks) ── */
+  .timeline { display: flex; flex-direction: column; gap: 0; }
+  .tl-item { display: flex; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+  .tl-item:last-child { border-bottom: none; }
+  .tl-icon {
+    width: 32px; height: 32px; border-radius: 50%; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1rem;
+  }
+  .tl-icon.call     { background: #ecfdf5; }
+  .tl-icon.remark   { background: #ede9fe; }
+  .tl-icon.stage    { background: #fef3c7; }
+  .tl-body { flex: 1; }
+  .tl-meta {
+    font-size: .7rem; color: var(--muted);
+    display: flex; gap: 10px; margin-bottom: 4px; flex-wrap: wrap;
+  }
+  .tl-meta .tl-type { font-weight: 700; color: var(--text); }
+  .tl-text { font-size: .82rem; color: var(--text); }
+  .tl-sub  { font-size: .74rem; color: var(--muted); margin-top: 3px; }
+  .tl-badge {
+    font-size: .68rem; font-weight: 700; padding: 2px 7px;
+    border-radius: 20px; display: inline-block;
+  }
+  .tl-badge.connected  { background:#ecfdf5; color:#065f46; }
+  .tl-badge.failed     { background:#fee2e2; color:#991b1b; }
+  .tl-badge.relevant   { background:#ede9fe; color:#5b21b6; }
+  .tl-badge.spam       { background:#f3f4f6; color:#6b7280; }
+
+  /* ── ADD REMARK INLINE ── */
+  .remark-quick {
+    background: #f8fafc; border-radius: 10px;
+    border: 1px solid var(--border); padding: 14px;
+    margin-bottom: 14px;
+  }
+  .remark-quick textarea {
+    width: 100%; border: 1px solid var(--border);
+    border-radius: 8px; padding: 8px 12px; font-size: .83rem;
+    resize: vertical; min-height: 70px; color: var(--text);
+    margin-bottom: 10px;
+  }
+  .remark-quick textarea:focus { outline:none; border-color:var(--accent); }
+  .remark-quick-row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .remark-quick-row select {
+    flex: 1; padding: 7px 10px; border: 1px solid var(--border);
+    border-radius: 8px; font-size: .8rem; color: var(--text);
+    min-width: 120px;
+  }
+  .btn-sm {
+    padding: 7px 14px; border-radius: 8px; font-size: .78rem; font-weight: 700;
+    cursor: pointer; border: none; transition: opacity .15s;
+  }
+  .btn-sm:hover { opacity: .85; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-outline { background: #fff; color: var(--text); border: 1px solid var(--border) !important; border: none; }
+
+  /* ── FOLLOW-UP FORM ── */
+  .followup-form { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; }
+  .followup-form .fg { flex: 1; min-width: 120px; }
+  .followup-form label { font-size: .74rem; font-weight: 600; color: var(--text); display: block; margin-bottom: 4px; }
+  .followup-form input,
+  .followup-form textarea {
+    width: 100%; padding: 7px 10px; border: 1px solid var(--border);
+    border-radius: 8px; font-size: .8rem; color: var(--text);
+  }
+
+  /* ── INFO GRID ── */
+  .info-row { display: flex; gap: 0; border-bottom: 1px solid var(--border); }
+  .info-row:last-child { border-bottom: none; }
+  .info-label { font-size: .73rem; font-weight: 700; color: var(--muted); padding: 9px 12px; width: 110px; flex-shrink: 0; }
+  .info-value { font-size: .82rem; color: var(--text); padding: 9px 12px; flex: 1; word-break: break-word; }
+
+  /* ── STAGE HISTORY ── */
+  .sh-item {
+    display: flex; align-items: center; gap: 8px;
+    font-size: .78rem; padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .sh-item:last-child { border-bottom: none; }
+  .sh-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
+  .sh-stages { flex: 1; color: var(--text); font-weight: 600; }
+  .sh-stages span { color: var(--muted); font-weight: 400; }
+  .sh-time { font-size: .7rem; color: var(--muted); white-space: nowrap; }
+  .sh-spent {
+    font-size: .7rem; padding: 2px 7px; border-radius: 20px;
+    background: #f1f5f9; color: var(--muted);
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="detail-wrap">
+
+  <!-- BREADCRUMB -->
+  <div style="margin-bottom:14px; font-size:.8rem; color:var(--muted);">
+    <a href="{% url 'leads:kanban' %}" style="color:var(--accent);">Pipeline</a> › {{ lead.name }}
+  </div>
+
+  <!-- HEADER -->
+  <div class="lead-header">
+    <div class="avatar">{{ lead.name|first|upper }}</div>
+    <div class="info">
+      <h1>{{ lead.name }}</h1>
+      <p>
+        📞 {{ lead.phone }}
+        {% if lead.email %} · ✉ {{ lead.email }}{% endif %}
+        {% if lead.state %} · 📍 {{ lead.state }}{% if lead.district %}, {{ lead.district }}{% endif %}{% endif %}
+      </p>
+      {% if lead.source %}<p style="margin-top:4px;">Source: {{ lead.source.name }}</p>{% endif %}
+      <div class="header-actions">
+        <a href="{% url 'leads:add_call' lead.pk %}" class="btn-hdr call-btn">📞 Log a Call</a>
+        <a href="{% url 'leads:lead_edit' lead.pk %}" class="btn-hdr">✏ Edit</a>
+      </div>
+    </div>
+    <div class="spacer"></div>
+    <div class="badges">
+      <span class="lh-badge {% if lead.status == 'WON' %}won{% elif lead.status == 'LOST' %}lost{% elif lead.status == 'JUNK' %}junk{% endif %}">
+        {{ lead.get_status_display }}
+      </span>
+      {% if lead.stage %}
+      <span class="lh-badge" style="background:rgba(255,255,255,.18);">{{ lead.stage.name }}</span>
+      {% endif %}
+      {% if lead.followup_date %}
+      <span class="lh-badge">📅 {{ lead.followup_date|date:"d M Y" }}</span>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- GRID -->
+  <div class="detail-grid">
+
+    <!-- LEFT COLUMN -->
+    <div>
+
+      <!-- STAGE CHANGER -->
+      <div class="detail-card">
+        <div class="detail-card-header">
+          <h3>📌 Pipeline Stage</h3>
+        </div>
+        <div class="detail-card-body">
+          <form method="POST">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="change_stage">
+            <div class="stage-chips">
+              {% for stage in stages %}
+              <button type="submit" name="stage_id" value="{{ stage.id }}"
+                class="stage-chip {% if lead.stage.id == stage.id %}current{% endif %}"
+                style="background:{{ stage.color }}22; color:{{ stage.color }}; border-color:{{ stage.color }}{% if lead.stage.id == stage.id %}; border-width:2px{% endif %};">
+                {{ stage.name }}
+              </button>
+              {% endfor %}
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- QUICK REMARK -->
+      <div class="detail-card">
+        <div class="detail-card-header">
+          <h3>📝 Add Remark</h3>
+        </div>
+        <div class="detail-card-body">
+          <form method="POST">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="add_remark">
+            <div class="remark-quick">
+              <textarea name="remark" placeholder="Add a note about this lead…"></textarea>
+              <div class="remark-quick-row">
+                <select name="reason_code" id="quick_reason" onchange="quickReasonChange(this)">
+                  <option value="">— Outcome —</option>
+                  {% for rc in remark_form.reason_code.field.queryset %}
+                  <option value="{{ rc.pk }}"
+                          data-req-price="{{ rc.requires_price_data|lower }}"
+                          data-req-why="{{ rc.requires_why|lower }}">
+                    {{ rc.label }}
+                  </option>
+                  {% endfor %}
+                </select>
+                <select name="relevance">
+                  <option value="">— Relevance —</option>
+                  {% for r in remark_form.relevance.field.queryset %}
+                  <option value="{{ r.pk }}">{{ r.label }}</option>
+                  {% endfor %}
+                </select>
+                <button type="submit" class="btn-sm btn-primary">Save</button>
+              </div>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- TIMELINE -->
+      <div class="detail-card">
+        <div class="detail-card-header">
+          <h3>📋 Activity Timeline</h3>
+        </div>
+        <div class="detail-card-body">
+          <div class="timeline">
+
+            {% for call in calls %}
+            <div class="tl-item">
+              <div class="tl-icon call">📞</div>
+              <div class="tl-body">
+                <div class="tl-meta">
+                  <span class="tl-type">Call</span>
+                  <span>{{ call.called_at|date:"d M Y, H:i" }}</span>
+                  {% if call.called_by %}<span>by {{ call.called_by.name }}</span>{% endif %}
+                  {% if call.duration_minutes %}<span>⏱ {{ call.duration_minutes }} min</span>{% endif %}
+                </div>
+                <span class="tl-badge {% if call.connection_status == 'CONNECTED' %}connected{% else %}failed{% endif %}">
+                  {{ call.get_connection_status_display }}
+                </span>
+                {% if call.remark %}
+                <div class="tl-text" style="margin-top:6px;">{{ call.remark.remark }}</div>
+                {% if call.remark.reason_code %}<div class="tl-sub">{{ call.remark.reason_code.label }}</div>{% endif %}
+                {% endif %}
+              </div>
+            </div>
+            {% endfor %}
+
+            {% for remark in remarks %}
+            {% if not remark.call %}
+            <div class="tl-item">
+              <div class="tl-icon remark">💬</div>
+              <div class="tl-body">
+                <div class="tl-meta">
+                  <span class="tl-type">Remark</span>
+                  <span>{{ remark.created_at|date:"d M Y, H:i" }}</span>
+                  {% if remark.made_by %}<span>by {{ remark.made_by.name }}</span>{% endif %}
+                </div>
+                <div class="tl-text">{{ remark.remark }}</div>
+                {% if remark.reason_code %}<div class="tl-sub">{{ remark.reason_code.label }}</div>{% endif %}
+                {% if remark.relevance %}
+                <span class="tl-badge {% if remark.relevance.level == 'SPAM' %}spam{% else %}relevant{% endif %}">
+                  {{ remark.relevance.label }}
+                </span>
+                {% endif %}
+              </div>
+            </div>
+            {% endif %}
+            {% endfor %}
+
+            {% if not calls and not remarks %}
+            <div style="text-align:center; padding:24px; color:var(--muted); font-size:.82rem;">
+              No activity yet. Log a call to get started.
+            </div>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- RIGHT COLUMN -->
+    <div>
+
+      <!-- LEAD INFO -->
+      <div class="detail-card">
+        <div class="detail-card-header"><h3>ℹ Lead Info</h3></div>
+        <div>
+          <div class="info-row"><div class="info-label">Phone</div><div class="info-value">{{ lead.phone }}</div></div>
+          {% if lead.email %}
+          <div class="info-row"><div class="info-label">Email</div><div class="info-value">{{ lead.email }}</div></div>
+          {% endif %}
+          {% if lead.state %}
+          <div class="info-row"><div class="info-label">State</div><div class="info-value">{{ lead.state }}{% if lead.district %}, {{ lead.district }}{% endif %}</div></div>
+          {% endif %}
+          {% if lead.address %}
+          <div class="info-row"><div class="info-label">Address</div><div class="info-value">{{ lead.address }}</div></div>
+          {% endif %}
+          {% if lead.source %}
+          <div class="info-row"><div class="info-label">Source</div><div class="info-value">{{ lead.source.name }}</div></div>
+          {% endif %}
+          {% if lead.salesperson %}
+          <div class="info-row"><div class="info-label">Assigned</div><div class="info-value">{{ lead.salesperson.name }}</div></div>
+          {% endif %}
+          {% if lead.effective_cost %}
+          <div class="info-row"><div class="info-label">CPL</div><div class="info-value">₹{{ lead.effective_cost }}</div></div>
+          {% endif %}
+          <div class="info-row"><div class="info-label">Created</div><div class="info-value">{{ lead.created_at|date:"d M Y" }}</div></div>
+        </div>
+      </div>
+
+      <!-- FOLLOW-UPS -->
+      <div class="detail-card">
+        <div class="detail-card-header"><h3>📅 Follow-ups</h3></div>
+        <div class="detail-card-body">
+          <form method="POST" style="margin-bottom:14px;">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="add_followup">
+            <div class="followup-form">
+              <div class="fg">
+                <label>Date</label>
+                <input type="date" name="followup_date" required>
+              </div>
+              <div class="fg" style="flex:2;">
+                <label>Note</label>
+                <input type="text" name="note" placeholder="Reminder note…">
+              </div>
+              <button type="submit" class="btn-sm btn-primary" style="margin-bottom:0;">Add</button>
+            </div>
+          </form>
+
+          {% for fu in followups %}
+          <div style="display:flex; align-items:center; gap:8px; padding:7px 0; border-bottom:1px solid var(--border); font-size:.8rem;">
+            <span style="font-weight:600; flex:1;">{{ fu.followup_date|date:"d M Y" }}</span>
+            <span style="color:var(--muted); flex:2;">{{ fu.note|default:"—" }}</span>
+            {% if fu.is_completed %}
+            <span style="color:var(--success); font-size:.7rem; font-weight:700;">✓ Done</span>
+            {% else %}
+            <form method="POST" style="margin:0;">
+              {% csrf_token %}
+              <input type="hidden" name="action" value="complete_followup">
+              <input type="hidden" name="followup_id" value="{{ fu.pk }}">
+              <button type="submit" class="btn-sm btn-outline" style="padding:4px 8px; font-size:.7rem;">✓</button>
+            </form>
+            {% endif %}
+          </div>
+          {% empty %}
+          <div style="font-size:.8rem; color:var(--muted); text-align:center; padding:12px 0;">No follow-ups scheduled.</div>
+          {% endfor %}
+        </div>
+      </div>
+
+      <!-- STAGE HISTORY -->
+      <div class="detail-card">
+        <div class="detail-card-header"><h3>🔄 Stage History</h3></div>
+        <div class="detail-card-body">
+          {% for sh in stage_history %}
+          <div class="sh-item">
+            <div class="sh-dot" style="{% if sh.to_stage %}background:{{ sh.to_stage.color }}{% endif %}"></div>
+            <div class="sh-stages">
+              {% if sh.from_stage %}{{ sh.from_stage.name }} <span>→</span> {% endif %}
+              {{ sh.to_stage.name|default:"?" }}
+            </div>
+            <span class="sh-spent">{{ sh.time_spent_display }}</span>
+          </div>
+          {% empty %}
+          <div style="font-size:.8rem; color:var(--muted);">No history yet.</div>
+          {% endfor %}
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+{% endblock %}

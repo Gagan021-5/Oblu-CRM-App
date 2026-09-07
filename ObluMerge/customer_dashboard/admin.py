@@ -1,0 +1,54 @@
+from django.contrib import admin
+from .models import SalesPerson, Customer, CustomerCreditProfile, CustomerFollowUp, CustomerRemark, PaymentDiscussionThread, CustomerVoucherStatus, PaymentRemark, PaymentExpectedDateHistory, PaymentTicketEvent
+
+
+
+
+@admin.register(SalesPerson)
+class SalesPersonAdmin(admin.ModelAdmin):
+    list_display = ("name", "user")
+    search_fields = ("name",)
+
+
+
+
+@admin.register(Customer)
+class CustomerAdmin(admin.ModelAdmin):
+    list_display = ("name", "phone", "state", "district", "salesperson")
+    list_filter = ("state", "salesperson")
+    search_fields = ("name", "phone", "email", "address")
+
+
+@admin.register(CustomerCreditProfile)
+class CustomerCreditProfileAdmin(admin.ModelAdmin):
+    list_display = ("customer","outstanding_balance","credit_period_days")
+
+
+@admin.register(CustomerFollowUp)
+class CustomerFollowUpAdmin(admin.ModelAdmin):
+    list_display = ("salesperson","customer","followup_date","is_completed")
+
+@admin.register(CustomerRemark)
+class CustomerRemarkAdmin(admin.ModelAdmin):
+    list_display = ("salesperson","customer","created_at")
+
+@admin.register(PaymentDiscussionThread)
+class PaymentDiscussionThreadAdmin(admin.ModelAdmin):
+    list_display = ("voucher_status","ticket_status","raised_by","raised_at")
+
+
+@admin.register(CustomerVoucherStatus)
+class CustomerVoucherStatusAdmin(admin.ModelAdmin):
+    list_display = ("id","customer","voucher")
+
+@admin.register(PaymentRemark)
+class PaymentRemarkAdmin(admin.ModelAdmin):
+    list_display = ("thread","created_by","created_at")
+
+@admin.register(PaymentExpectedDateHistory)
+class PaymentExpectedDateHistoryAdmin(admin.ModelAdmin):
+    list_display = ("thread","expected_date","set_by","created_at")
+
+@admin.register(PaymentTicketEvent)
+class PaymentTicketEventAdmin(admin.ModelAdmin):
+    list_display = ("thread","event_type","performed_by")

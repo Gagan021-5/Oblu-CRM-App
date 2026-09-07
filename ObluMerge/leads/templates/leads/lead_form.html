@@ -1,0 +1,129 @@
+{% comment %}──────── lead_form.html ────────{% endcomment %}
+{% block title %}{{ title }}{% endblock %}
+{% block extra_css %}
+<style>
+  :root { --accent:#4f46e5; --border:#e2e8f0; --bg:#f8fafc; --text:#1e293b; --muted:#64748b; }
+  body { background: var(--bg); }
+  .form-wrap { max-width: 640px; margin: 32px auto; padding: 0 16px; }
+  .form-card {
+    background: #fff; border-radius: 14px; border: 1px solid var(--border);
+    box-shadow: 0 2px 12px rgba(0,0,0,.06); overflow: hidden;
+  }
+  .form-card-header {
+    padding: 16px 20px; border-bottom: 1px solid var(--border);
+    background: linear-gradient(135deg, #4f46e5, #7c3aed); color: #fff;
+  }
+  .form-card-header h1 { font-size: 1rem; font-weight: 800; margin: 0; }
+  .form-card-body { padding: 20px; }
+  .form-section-title {
+    font-size: .72rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .06em; color: var(--muted); margin: 16px 0 10px;
+    border-bottom: 1px solid var(--border); padding-bottom: 6px;
+  }
+  .form-section-title:first-child { margin-top: 0; }
+  .form-row { display: flex; gap: 12px; }
+  .form-row .fg { flex: 1; }
+  .fg { margin-bottom: 12px; }
+  .fg label { font-size: .78rem; font-weight: 700; color: var(--text); display: block; margin-bottom: 5px; }
+  .fg input, .fg select, .fg textarea {
+    width: 100%; padding: 9px 12px; border: 1px solid var(--border);
+    border-radius: 8px; font-size: .85rem; color: var(--text); box-sizing: border-box;
+    transition: border-color .15s;
+  }
+  .fg input:focus, .fg select:focus, .fg textarea:focus {
+    outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(79,70,229,.1);
+  }
+  .fg .error { font-size: .72rem; color: #ef4444; margin-top: 4px; }
+  .form-actions {
+    padding: 16px 20px; border-top: 1px solid var(--border);
+    display: flex; gap: 10px; justify-content: flex-end;
+  }
+  .btn { padding: 9px 20px; border-radius: 8px; font-size: .83rem; font-weight: 700;
+         border: none; cursor: pointer; text-decoration: none; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-outline { background: #fff; color: var(--text); border: 1px solid var(--border) !important; }
+  .btn:hover { opacity: .88; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="form-wrap">
+  {% if lead %}
+  <div style="margin-bottom:12px; font-size:.8rem; color:var(--muted);">
+    <a href="{% url 'leads:kanban' %}" style="color:var(--accent);">Pipeline</a> ›
+    <a href="{% url 'leads:lead_detail' lead.pk %}" style="color:var(--accent);">{{ lead.name }}</a> › Edit
+  </div>
+  {% endif %}
+  <div class="form-card">
+    <div class="form-card-header"><h1>{{ title }}</h1></div>
+    <form method="POST">
+      {% csrf_token %}
+      <div class="form-card-body">
+
+        <div class="form-section-title">Contact Information</div>
+        <div class="form-row">
+          <div class="fg">
+            <label>Full Name *</label>
+            <input type="text" name="name" value="{{ form.name.value|default:'' }}" required>
+            {% if form.name.errors %}<div class="error">{{ form.name.errors|join:', ' }}</div>{% endif %}
+          </div>
+          <div class="fg">
+            <label>Phone *</label>
+            <input type="text" name="phone" value="{{ form.phone.value|default:'' }}" required>
+            {% if form.phone.errors %}<div class="error">{{ form.phone.errors|join:', ' }}</div>{% endif %}
+          </div>
+        </div>
+        <div class="fg">
+          <label>Email</label>
+          <input type="email" name="email" value="{{ form.email.value|default:'' }}">
+        </div>
+
+        <div class="form-section-title">Location</div>
+        <div class="form-row">
+          <div class="fg"><label>State</label><input type="text" name="state" value="{{ form.state.value|default:'' }}"></div>
+          <div class="fg"><label>District</label><input type="text" name="district" value="{{ form.district.value|default:'' }}"></div>
+        </div>
+        <div class="fg"><label>Address</label><textarea name="address" rows="2">{{ form.address.value|default:'' }}</textarea></div>
+
+        <div class="form-section-title">Assignment</div>
+        <div class="form-row">
+          <div class="fg">
+            <label>Salesperson</label>
+            {{ form.salesperson }}
+          </div>
+          <div class="fg">
+            <label>Source</label>
+            {{ form.source }}
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="fg">
+            <label>Stage</label>
+            {{ form.stage }}
+          </div>
+          <div class="fg">
+            <label>Status</label>
+            {{ form.status }}
+          </div>
+        </div>
+
+        <div class="form-section-title">Follow-up</div>
+        <div class="form-row">
+          <div class="fg">
+            <label>Follow-up Date</label>
+            <input type="date" name="followup_date" value="{{ form.followup_date.value|default:'' }}">
+          </div>
+          <div class="fg">
+            <label>Note</label>
+            <input type="text" name="followup_note" value="{{ form.followup_note.value|default:'' }}" placeholder="Brief note…">
+          </div>
+        </div>
+
+      </div>
+      <div class="form-actions">
+        <a href="{% url 'leads:kanban' %}" class="btn btn-outline">Cancel</a>
+        <button type="submit" class="btn btn-primary">Save Lead</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

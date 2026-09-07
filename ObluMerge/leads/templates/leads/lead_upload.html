@@ -1,0 +1,124 @@
+{% block title %}Upload Leads{% endblock %}
+{% block extra_css %}
+<style>
+  :root { --accent:#4f46e5; --border:#e2e8f0; --bg:#f8fafc; --text:#1e293b; --muted:#64748b; }
+  body { background: var(--bg); }
+  .upload-wrap { max-width: 540px; margin: 40px auto; padding: 0 16px; }
+  .upload-card {
+    background: #fff; border-radius: 14px; border: 1px solid var(--border);
+    box-shadow: 0 2px 12px rgba(0,0,0,.06); overflow: hidden;
+  }
+  .upload-header {
+    padding: 18px 22px; border-bottom: 1px solid var(--border);
+    background: linear-gradient(135deg, #4f46e5, #7c3aed); color: #fff;
+  }
+  .upload-header h1 { font-size: 1rem; font-weight: 800; margin: 0; }
+  .upload-header p  { font-size: .78rem; opacity: .8; margin: 4px 0 0; }
+  .upload-body { padding: 22px; }
+  .fg { margin-bottom: 16px; }
+  .fg label { font-size: .78rem; font-weight: 700; color: var(--text); display: block; margin-bottom: 6px; }
+  .fg select, .fg input[type=file] {
+    width: 100%; padding: 9px 12px; border: 1px solid var(--border);
+    border-radius: 8px; font-size: .85rem; color: var(--text);
+  }
+  .drop-zone {
+    border: 2px dashed var(--border); border-radius: 10px;
+    padding: 28px; text-align: center; cursor: pointer;
+    transition: border-color .15s, background .15s;
+  }
+  .drop-zone:hover, .drop-zone.drag-active {
+    border-color: var(--accent); background: #eef2ff;
+  }
+  .drop-zone .dz-icon { font-size: 2rem; margin-bottom: 8px; }
+  .drop-zone p { font-size: .82rem; color: var(--muted); margin: 0; }
+  .drop-zone p strong { color: var(--accent); }
+  .spec-box {
+    background: #f8fafc; border-radius: 8px; border: 1px solid var(--border);
+    padding: 12px 14px; margin-top: 14px;
+  }
+  .spec-box h4 { font-size: .75rem; font-weight: 700; margin: 0 0 6px; color: var(--text); }
+  .spec-box p  { font-size: .73rem; color: var(--muted); margin: 0; line-height: 1.6; }
+  .upload-actions { padding: 14px 22px; border-top: 1px solid var(--border); display:flex; gap:10px; justify-content:flex-end; }
+  .btn { padding: 9px 20px; border-radius: 8px; font-size: .83rem; font-weight: 700;
+         border: none; cursor: pointer; text-decoration: none; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-outline { background: #fff; color: var(--text); border: 1px solid var(--border) !important; }
+  .btn:hover { opacity: .88; }
+  .messages { margin-bottom: 16px; }
+  .msg { padding: 10px 14px; border-radius: 8px; font-size: .82rem; margin-bottom: 6px; }
+  .msg.success { background: #d1fae5; color: #065f46; }
+  .msg.warning { background: #fef3c7; color: #92400e; }
+  .msg.error   { background: #fee2e2; color: #991b1b; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="upload-wrap">
+  {% if messages %}
+  <div class="messages">
+    {% for message in messages %}
+    <div class="msg {{ message.tags }}">{{ message }}</div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <div class="upload-card">
+    <div class="upload-header">
+      <h1>↑ Bulk Lead Upload</h1>
+      <p>Upload a CSV or Excel file to import leads in bulk</p>
+    </div>
+    <form method="POST" enctype="multipart/form-data">
+      {% csrf_token %}
+      <div class="upload-body">
+        <div class="fg">
+          <label>File (CSV or Excel)</label>
+          <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
+            <div class="dz-icon">📁</div>
+            <p><strong>Click to choose</strong> or drag & drop</p>
+            <p id="fileName" style="margin-top:6px; font-weight:600; color:var(--accent);"></p>
+          </div>
+          <input type="file" name="file" id="fileInput" accept=".csv,.xlsx,.xls"
+                 style="display:none" onchange="showFileName(this)" required>
+        </div>
+        <div class="fg">
+          <label>Assign to Salesperson <span style="font-weight:400;color:var(--muted)">(optional)</span></label>
+          {{ form.salesperson }}
+        </div>
+        <div class="fg">
+          <label>Lead Source <span style="font-weight:400;color:var(--muted)">(optional)</span></label>
+          {{ form.source }}
+        </div>
+        <div class="spec-box">
+          <h4>📋 Required CSV/Excel columns:</h4>
+          <p>
+            <strong>name</strong> · <strong>phone</strong> · email (optional) · state (optional)
+            · district (optional) · address (optional)
+          </p>
+          <p style="margin-top:6px;">First row should be the header row. Duplicates (same name + phone) are skipped automatically.</p>
+        </div>
+      </div>
+      <div class="upload-actions">
+        <a href="{% url 'leads:lead_list' %}" class="btn btn-outline">Cancel</a>
+        <button type="submit" class="btn btn-primary">Upload Leads</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+{% block extra_js %}
+<script>
+function showFileName(input) {
+  document.getElementById("fileName").textContent = input.files[0]?.name || "";
+}
+const dz = document.getElementById("dropZone");
+dz.addEventListener("dragover", e => { e.preventDefault(); dz.classList.add("drag-active"); });
+dz.addEventListener("dragleave", () => dz.classList.remove("drag-active"));
+dz.addEventListener("drop", e => {
+  e.preventDefault(); dz.classList.remove("drag-active");
+  const fi = document.getElementById("fileInput");
+  fi.files = e.dataTransfer.files;
+  showFileName(fi);
+});
+</script>
+{% endblock %}
+
+

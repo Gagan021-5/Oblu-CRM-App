@@ -1,0 +1,797 @@
+{% extends 'proforma_invoice/base.html' %}
+{% load quotation_extras %}
+{% block content %}
+
+
+
+
+<style>
+    :root {
+        --primary: #ffc107; --bg-body: #121212; --bg-card: #1e1e1e;
+        --bg-header: #2d2d2d; --text-main: #e0e0e0; --border-color: #333;
+        --success: #28a745; --danger: #dc3545; --info: #17a2b8;
+    }
+
+    .pi-main-container { font-family: 'Inter', sans-serif; background-color: var(--bg-body); color: var(--text-main); padding: 15px; min-height: 100vh; }
+
+    /* --- FILTERS --- */
+    .filters-section {
+        background: var(--bg-card); padding: 15px; border-radius: 12px; margin-bottom: 20px;
+        display: flex; flex-wrap: wrap; gap: 10px; border: 1px solid var(--border-color); align-items: flex-end;
+    }
+    .filter-item { display: flex; flex-direction: column; gap: 4px; }
+    .filter-item label { font-size: 0.65rem; color: #888; text-transform: uppercase; font-weight: bold; }
+    .filter-item input, .filter-item select {
+        background: #2a2a2a; color: #fff; border: 1px solid #444; padding: 8px; border-radius: 6px; outline: none; font-size: 0.8rem;
+    }
+
+    /* --- TABLE UI --- */
+    .table-responsive-wrapper { background: var(--bg-card); border-radius: 12px; overflow: hidden; border: 1px solid var(--border-color); }
+    .table-scroll { overflow-x: auto; width: 100%; }
+    table { width: 100%; border-collapse: collapse; min-width: 1000px; }
+    th { background: var(--bg-header); color: #888; text-align: left; padding: 12px; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1px; }
+    tr.row-main { border-bottom: 1px solid var(--border-color); transition: 0.3s; }
+    tr.row-main:hover { background-color: rgba(255, 193, 7, 0.05); }
+    td { padding: 12px; vertical-align: middle; font-size: 0.85rem; }
+
+    /* --- ACTIONS --- */
+    .btn-group { display: flex; gap: 5px; }
+    .btn-core { padding: 6px 12px; border-radius: 5px; font-size: 0.7rem; font-weight: 700; cursor: pointer; border: none; color: white; text-decoration: none; display: inline-flex; align-items: center; transition: 0.2s; }
+    .btn-appr { background: var(--success); }
+    .btn-rejt { background: var(--danger); }
+    .btn-remk { background: var(--info); }
+    .btn-detl { background: #444; }
+    .btn-core:hover { transform: translateY(-1px); filter: brightness(1.1); }
+
+    /* --- NESTED TABLE --- */
+    .expand-row { display: none; background: #181818; }
+    .expand-row.active { display: table-row; }
+    .nested-container { padding: 20px; border-left: 3px solid var(--primary); margin: 10px; background: #111; border-radius: 0 8px 8px 0; }
+    .inner-table { width: 100%; background: #222; border-collapse: collapse; }
+    .inner-table th { background: #333; color: #aaa; padding: 10px; font-size: 0.75rem; text-transform: none; }
+    .inner-table td { padding: 10px; border-bottom: 1px solid #333; font-size: 0.8rem; }
+
+    /* Highlighted Courier Row */
+    .row-courier { background: rgba(23, 162, 184, 0.05); font-weight: bold; border-top: 2px solid #333; }
+
+
+    .badge-type {
+    font-size: 0.6rem;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-weight: bold;
+    text-transform: uppercase;
+    display: inline-block;
+    margin-bottom: 4px;
+}
+.bg-quotation {
+    background-color: #9b59b6; /* Purple for Quotation */
+    color: white;
+}
+.bg-proforma {
+    background-color: #2980b9; /* Blue for Proforma */
+    color: white;
+}
+
+
+    /* --- MODALS --- */
+/* Unified Modal Background */
+.custom-overlay {
+    display: none;
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: rgba(0,0,0,0.85);
+    z-index: 9999;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+/* Triggered by JS */
+.custom-overlay.active { display: flex; }
+
+/* Communication Bubbles */
+.bubble { padding: 10px 14px; border-radius: 12px; font-size: 13px; color: #fff; line-height: 1.4; max-width: 85%; margin-bottom: 8px; }
+.rtag { font-size: 9px; font-weight: 900; text-transform: uppercase; margin-bottom: 4px; display: block; letter-spacing: 0.5px; }
+
+.b-sales { background: #1e3a8a; border-left: 4px solid #3b82f6; align-self: flex-start; }
+.b-accounts { background: #064e3b; border-left: 4px solid #10b981; align-self: flex-start; }
+.b-admin { background: #450a0a; border-left: 4px solid #ef4444; align-self: flex-start; }
+
+/* Notification Dot Styling */
+.btn-blue { position: relative; } /* Needed for absolute positioning of dot */
+
+.notification-dot {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    width: 12px;
+    height: 12px;
+    background-color: #ff4d4d; /* Bright Red */
+    border: 2px solid white;
+    border-radius: 50%;
+    display: inline-block;
+    box-shadow: 0 0 5px rgba(255, 77, 77, 0.8);
+    animation: pulse-dot 1.5s infinite;
+}
+
+@keyframes pulse-dot {
+    0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 77, 77, 0.7); }
+    70% { transform: scale(1.2); box-shadow: 0 0 0 6px rgba(255, 77, 77, 0); }
+    100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 77, 77, 0); }
+}
+
+/* --- PAGINATION --- */
+.pagination-wrapper {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 20px;
+    padding: 12px 18px;
+    background: var(--bg-card);
+    border-radius: 10px;
+    border: 1px solid var(--border-color);
+}
+.pagination-info {
+    font-size: 0.8rem;
+    color: #888;
+}
+.pagination-info b {
+    color: var(--text-main);
+}
+.pagination-controls {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+.page-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 32px;
+    height: 32px;
+    padding: 0 8px;
+    border-radius: 6px;
+    background: #252525;
+    border: 1px solid #383838;
+    color: #bbb;
+    text-decoration: none;
+    font-size: 0.75rem;
+    font-weight: 600;
+    transition: background 0.2s, border-color 0.2s, color 0.2s;
+}
+.page-link:hover:not(.disabled) {
+    background: #333;
+    border-color: #555;
+    color: #fff;
+}
+.page-link.active {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: #000;
+    font-weight: 700;
+}
+.page-link.disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+.page-ellipsis {
+    padding: 0 6px;
+    color: #555;
+    font-size: 0.8rem;
+}
+
+</style>
+
+<div class="pi-main-container">
+    <div class="top-bar" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <h2 style="font-weight: 700; border-left: 4px solid var(--primary); padding-left: 15px; margin: 0;">Price Change Dashboard</h2>
+        <a href="{{ request.path }}" class="clear-btn" style="color: #888; text-decoration: none; font-size: 0.75rem; border: 1px solid #444; padding: 5px 10px; border-radius: 4px;">Reset Filters</a>
+    </div>
+
+        <!-- ADD MESSAGES SECTION HERE -->
+    {% if messages %}
+        <div class="messages-container" style="margin-bottom: 20px;">
+            {% for message in messages %}
+                <div class="alert" style="padding: 12px 20px; border-radius: 6px; font-size: 0.85rem; font-weight: 600; background: #fff3cd; color: #856404; border: 1px solid #ffeeba; display: flex; align-items: center; gap: 10px;">
+                    <span>⚠️</span> {{ message }}
+                </div>
+            {% endfor %}
+        </div>
+    {% endif %}
+
+
+    <!-- ---------------- FILTERS ---------------- -->
+    <form method="get" class="filters-section">
+        <div class="filter-item"><label>Invoice #</label><input type="text" name="f_inv" value="{{ request.GET.f_inv }}"></div>
+        <div class="filter-item"><label>User</label><input type="text" name="f_user" value="{{ request.GET.f_user }}"></div>
+        <div class="filter-item">
+            <label>Status</label>
+            <select name="f_status" onchange="this.form.submit()">
+                <option value="">All</option>
+                <option value="pending" {% if request.GET.f_status == 'pending' %}selected{% endif %}>Pending</option>
+                <option value="approved" {% if request.GET.f_status == 'approved' %}selected{% endif %}>Approved</option>
+                <option value="rejected" {% if request.GET.f_status == 'rejected' %}selected{% endif %}>Rejected</option>
+            </select>
+        </div>
+        <button type="submit" class="btn-core btn-appr" style="background: var(--primary); color: #000; height: 36px; margin-left: 10px; padding: 0 20px;">Apply</button>
+    </form>
+
+    <div class="table-responsive-wrapper">
+        <div class="table-scroll">
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Inv # / Customer</th>
+                        <th>Courier Charge</th>
+                        <th>Requested By</th>
+                        <th>Status</th>
+                        <th>Duration</th>
+                        <th>Reviewed By</th>
+                        <th>Actions</th>
+
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for group in grouped_requests %}
+                        {% with invoice=group.invoice requests_in_group=group.requests first_req=group.requests.0 %}
+
+                        <!-- ---------------- MAIN ROW (PER INVOICE/QUOTATION) ---------------- -->
+                        <tr class="row-main">
+                            <!-- Unique ID for Table column -->
+                        <td style="text-align: center; vertical-align: middle;">
+                            <div style="font-size: 0.6rem; padding: 2px 6px; border-radius: 4px; display: inline-block; margin-bottom: 4px; font-weight: 800;
+                                {% if group.display_type == 'Quotation' %}
+                                    background: #9b59b6; color: white; /* Purple */
+                                {% else %}
+                                    background: #2980b9; color: white; /* Blue */
+                                {% endif %}">
+                                {{ group.display_type|upper }}
+                            </div>
+                            <br>
+                            <span style="color: var(--primary); font-weight: bold; font-size: 1rem;">#{{ invoice.id }}</span>
+                        </td>
+
+                            <!-- 2. UPDATED COLUMN 2: TYPE PREFIX + CUSTOMER NAME -->
+                            <td>
+                                <div style="font-weight: 700; font-size: 0.95rem;">
+                                    <span style="opacity: 0.5; font-weight: 400; font-size: 0.8rem;">{{ group.display_type }}:</span>
+                                    {{ invoice.customer.name }}
+                                </div>
+                                <div style="font-size: 0.72rem; color: #aaa; margin-top: 4px; display: flex; align-items: center; gap: 5px;">
+                                    <span>📋</span> Includes {{ requests_in_group|length }} change request(s)
+                                </div>
+                            </td>
+
+                            <td>
+                                {% for r in requests_in_group %}
+                                    {% if not r.is_product_request and r.requested_courier_charge is not None %}
+                                        <div style="margin-bottom: 2px;">
+                                            <span style="text-decoration: line-through; opacity: 0.4; font-size: 0.75rem;">₹{{ invoice.courier_charge|floatformat:0 }}</span>
+                                            <b style="color: var(--info); font-size: 0.8rem;"> → ₹{{ r.requested_courier_charge|floatformat:0 }}</b>
+                                        </div>
+                                    {% endif %}
+                                {% endfor %}
+                            </td>
+
+                            <td>{{ first_req.requested_by.username }}</td>
+
+                            <td>
+                                {% if group.is_pending %}
+                                    <span style="font-size: 0.65rem; font-weight: 800; border: 1px solid; padding: 3px 8px; border-radius: 50px; color: #ffc107; border-color: #ffc107;">PENDING</span>
+                                {% else %}
+                                    <span style="font-size: 0.65rem; font-weight: 800; border: 1px solid; padding: 3px 8px; border-radius: 50px; color: #28a745; border-color: #28a745;">REVIEWED</span>
+                                {% endif %}
+
+                                <!-- Using is_under_msrp from individual requests in the group -->
+                                {% if first_req.is_under_msrp %}
+                                    <br><small style="color: var(--danger); font-size: 0.6rem;">⚠️ CONTAINS BELOW MSRP</small>
+                                {% endif %}
+                            </td>
+
+                            <td>
+                                <small style="color: {% if group.is_running %}var(--primary){% else %}#888{% endif %}; font-weight: bold;">
+                                    {{ group.duration_display }} {% if group.is_running %}(Running){% endif %}
+                                </small>
+                            </td>
+
+                            <td>
+                                {% if group.unique_reviewers %}
+                                    <div style="display: flex; flex-direction: column; gap: 2px;">
+                                        {% for name in group.unique_reviewers %}
+                                            <span style="color: #eee; font-size: 0.75rem; font-weight: bold;">👤 {{ name }}</span>
+                                        {% endfor %}
+                                    </div>
+                                {% else %}
+                                    <span style="color: #444; font-size: 0.7rem; font-style: italic;">Pending Review</span>
+                                {% endif %}
+                            </td>
+
+                            <td>
+                                <div class="btn-group">
+                                    <button class="btn-core btn-remk" onclick="openRemarkModal('{{ invoice.id }}','{{ group.display_type }}')">
+                                        Remark
+                                        {% with last_remark=invoice.remarks.last %}
+                                            {% if last_remark and last_remark.user != request.user %}
+                                                <span class="notification-dot" id="dot-{{ group.display_type }}-{{ invoice.id }}"></span>
+                                            {% endif %}
+                                        {% endwith %}
+                                    </button>
+
+                                    <!-- Updated toggle ID to be unique -->
+                                    <button class="btn-core btn-detl" onclick="toggleDetails('det-{{ group.display_type }}-{{ invoice.id }}')">Details</button>
+
+                                    {% if user.is_superuser or user.is_accountant %}
+                                        <a
+                                            href="{% if group.display_type == 'Quotation' %}{% url 'quotation_detail' group.invoice.id %}{% else %}{% url 'proforma_detail' group.invoice.id %}{% endif %}"
+                                            target="_blank"
+                                            class="btn-core"
+                                            style="background: var(--secondary); color: white; text-decoration: none;">
+                                            View {{ group.display_type }}
+                                        </a>
+                                    {% endif %}
+                                </div>
+                            </td>
+                        </tr>
+
+                        <!-- ---------------- NESTED DETAILS ROW ---------------- -->
+                        <!-- Updated ID to be unique -->
+                        <tr id="det-{{ group.display_type }}-{{ invoice.id }}" class="expand-row">
+                            <td colspan="8">
+                                <div class="nested-container">
+                                    <table class="inner-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Requested Item</th>
+                                                <th style="text-align: center;">Qty</th>
+                                                <th style="text-align: center;">Decision</th>
+                                                <th style="text-align: right;">Recommended</th>
+                                                <th style="text-align: right;">Requested</th>
+                                                <th style="text-align: right;">MSRP</th>
+                                                <th style="text-align: center;">Action</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {% for req in requests_in_group %}
+                                            <tr>
+                                                <td>
+                                                    {% if req.is_product_request %}
+                                                        <strong>📦 Product:</strong> {{ req.product.name }}
+                                                    {% else %}
+                                                        <strong>🚚 Courier:</strong> Courier Charge Change
+                                                    {% endif %}
+                                                    <div style="font-size: 0.7rem; color: #888; font-style: italic; margin-top: 4px;">
+                                                        Reason: {{ req.reason|default:"No reason provided." }}
+                                                    </div>
+                                                </td>
+                                                <td style="text-align: center;">
+                                                    {% if req.is_product_request %}
+                                                        {{ req.quantity|default:"-" }}
+                                                    {% else %}
+                                                        <span style="color: #888;">-</span>
+                                                    {% endif %}
+                                                </td>
+                                                <td style="text-align: center;" id="decision-cell-{{ req.id }}">
+                                                    {% if req.status == 'pending' %}
+                                                        {% if req.accountant_approved and not user.is_superuser %}
+                                                            <div style="color: #ffc107; font-weight: bold; font-size: 0.7rem;">⏳ SENT TO ADMIN</div>
+                                                        {% else %}
+                                                            <form action="{% url 'proforma_price_change_approve' req.id %}" method="post" id="ajax-form-{{ req.id }}" class="ajax-form">
+                                                                {% csrf_token %}
+                                                                <label style="font-size: 0.7rem;"><input type="radio" name="status_{{ req.id }}" value="approved" checked> Appr</label>
+                                                                <label style="font-size: 0.7rem;"><input type="radio" name="status_{{ req.id }}" value="rejected"> Rej</label>
+                                                            </form>
+                                                        {% endif %}
+                                                    {% else %}
+                                                        <span style="font-weight: bold; color: {% if req.status == 'approved' %}#28a745{% else %}#dc3545{% endif %};">
+                                                            {{ req.status|upper }}
+                                                        </span>
+                                                    {% endif %}
+                                                </td>
+<!--                                                <td style="text-align: right; opacity: 0.5;">₹{{ req.recommended_price|floatformat:2 }}</td>-->
+                                                <td style="text-align: right; opacity: 0.5;">₹{{ req.recommended_price|default:invoice.courier_charge }}</td>
+<!--                                                <td style="text-align: right; color: var(&#45;&#45;info); font-weight: bold;">₹{{ req.requested_price|default:req.requested_courier_charge|floatformat:2 }}</td>-->
+                                                <td style="text-align: right; color: var(--info); font-weight: bold;">
+                                                    {% if req.is_product_request %}
+                                                        ₹{{ req.requested_price|floatformat:2 }}
+                                                    {% else %}
+                                                        ₹{{ req.requested_courier_charge|floatformat:2 }}
+                                                    {% endif %}
+                                                </td>
+                                                <td style="text-align: right; {% if req.is_under_msrp %}color: var(--danger); font-weight: bold;{% endif %}">
+                                                    {% if req.is_product_request %}
+                                                        {% if req.msrp_snapshot %}₹{{ req.msrp_snapshot|floatformat:0 }}{% else %}-{% endif %}
+                                                    {% else %}
+                                                        <!-- Courier limit display (50%) -->
+                                                        <small style="opacity: 0.5;">Min: ₹{{ req.recommended_price|default:invoice.courier_charge|divide:2|floatformat:0 }}</small>
+                                                    {% endif %}
+                                                </td>
+                                        <td style="text-align: center;" id="action-cell-{{ req.id }}">
+                                            {% if req.status == 'pending' %}
+                                                {% if not user.is_superuser %}
+                                                    {% if req.accountant_approved %}
+                                                        <!-- Case 1: Already Notified -->
+                                                        <button class="btn-core" style="background: #444; color: #888; cursor: not-allowed; border: 1px solid #555; width: 100px;" disabled>NOTIFIED</button>
+                                                    {% else %}
+                                                        <!-- Case 2: Check for violations to show Notify Admin -->
+                                                        {% if req.is_product_request and req.requested_price < req.msrp_snapshot or not req.is_product_request and req.requested_courier_charge < req.recommended_price|default:invoice.courier_charge|divide:2 %}
+                                                            <button type="submit" form="ajax-form-{{ req.id }}" class="btn-core" style="background: green; color: white; border: none; width: 60px; font-size: 0.6rem; font-weight: 800;">
+                                                                NOTIFY ADMIN
+                                                            </button>
+                                                        {% else %}
+                                                            <!-- Case 3: Safe price, standard submit -->
+                                                            <button type="submit" form="ajax-form-{{ req.id }}" class="btn-core btn-appr" style="padding: 4px 12px; font-size: 0.65rem; width: 60px;">SUBMIT</button>
+                                                        {% endif %}
+                                                    {% endif %}
+                                                {% else %}
+                                                    <!-- Case 4: Superuser always sees Submit -->
+                                                    <form action="{% url 'proforma_price_change_approve' req.id %}" method="post" id="form-{{ req.id }}" style="display: inline;">
+                                                        {% csrf_token %}
+                                                        <button type="submit" form="ajax-form-{{ req.id }}" class="btn-core btn-appr" style="padding: 4px 12px; font-size: 0.65rem; width: 60px;">SUBMIT</button>
+                                                    </form>
+                                                {% endif %}
+                                            {% endif %}
+                                        </td>
+                                            </tr>
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endwith %}
+                    {% endfor %}
+                </tbody>
+
+            </table>
+
+        </div>
+    </div>
+    <!-- 2. PAGINATION (Directly below table container) -->
+<!-- UPDATED: Robust Pagination with Dynamic Filter Persistence -->
+    {% if is_paginated %}
+    <div class="pagination-wrapper">
+        <div class="pagination-info">
+            Showing page <b>{{ page_obj.number }}</b> of <b>{{ paginator.num_pages }}</b>
+            <span style="opacity: 0.5;">({{ paginator.count }} total orders/proposals)</span>
+        </div>
+
+        <div class="pagination-controls">
+            <!-- First Page -->
+            <a href="?page=1{{ preserved_filters }}"
+               class="page-link {% if not page_obj.has_previous %}disabled{% endif %}" title="First Page">«</a>
+
+            <!-- Prev Page -->
+            <a href="{% if page_obj.has_previous %}?page={{ page_obj.previous_page_number }}{{ preserved_filters }}{% else %}#{% endif %}"
+               class="page-link {% if not page_obj.has_previous %}disabled{% endif %}" title="Previous Page">‹</a>
+
+            <!-- Page Number Windows -->
+            {% for num in paginator.page_range %}
+                {% if page_obj.number == num %}
+                    <span class="page-link active">{{ num }}</span>
+                {% elif num > page_obj.number|add:'-3' and num < page_obj.number|add:'3' %}
+                    <a href="?page={{ num }}{{ preserved_filters }}" class="page-link">{{ num }}</a>
+                {% endif %}
+            {% endfor %}
+
+            <!-- Next Page -->
+            <a href="{% if page_obj.has_next %}?page={{ page_obj.next_page_number }}{{ preserved_filters }}{% else %}#{% endif %}"
+               class="page-link {% if not page_obj.has_next %}disabled{% endif %}" title="Next Page">›</a>
+
+            <!-- Last Page -->
+            <a href="?page={{ paginator.num_pages }}{{ preserved_filters }}"
+               class="page-link {% if not page_obj.has_next %}disabled{% endif %}" title="Last Page">»</a>
+        </div>
+    </div>
+    {% endif %}
+
+</div>
+
+
+<!--     UNIFIED REMARK MODAL (Add to all 3 files)-->
+<!--     ========================================== &ndash;&gt;-->
+<!-- UNIFIED REMARK MODAL -->
+<div id="globalRemarkModal" class="custom-overlay">
+    <div style="background:#1e1e1e; width:100%; max-width:450px; padding:20px; border-radius:12px; border:1px solid #444; color: #fff;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; border-bottom: 1px solid #333; padding-bottom: 10px;">
+            <h5 style="margin:0; color: #ffc107;">💬 Communication Hub</h5>
+            <button onclick="closeRemarkModal()" style="background:none; border:none; color:#888; cursor:pointer; font-size:24px;">&times;</button>
+        </div>
+
+        <div id="modalChatHistory" style="height:320px; overflow-y:auto; background:#111; padding:15px; border-radius:8px; margin-bottom:15px; display:flex; flex-direction:column; border:1px solid #333;">
+            <!-- History loads here -->
+        </div>
+
+        <!-- FIXED: Hidden Inputs -->
+        <input type="hidden" id="modalInvoiceId">
+        <input type="hidden" id="modalObjectType">
+
+        <textarea id="modalRemarkInput" style="width:100%; background:#2a2a2a; color:#fff; border:1px solid #444; border-radius:8px; padding:10px; outline:none; resize:none;" rows="3" placeholder="Message Sales or Accounts..."></textarea>
+
+        <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:15px;">
+            <button type="button" class="btn btn-sm btn-secondary" onclick="closeRemarkModal()">Cancel</button>
+            <button type="button" class="btn btn-sm btn-warning fw-bold" id="sendBtn" onclick="submitGlobalRemark()">Send Message</button>
+        </div>
+    </div>
+</div>
+<!-- REJECT MODAL -->
+<div id="rejectOverlay" class="custom-overlay">
+    <div class="modal-box" style="border-color: var(--danger);">
+        <h3 style="color: var(--danger);">Reject Request</h3>
+        <p id="rejectInfo" style="font-size: 0.8rem; color: #888; margin-bottom: 10px;"></p>
+        <form id="rejectForm" method="post">
+            {% csrf_token %}
+            <textarea name="review_remark" id="rejectInput" class="remark-textarea" rows="4" required placeholder="Enter rejection reason..."></textarea>
+            <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
+                <button type="button" class="btn-core btn-detl" onclick="closeReject()">Cancel</button>
+                <button type="submit" class="btn-core btn-rejt">Confirm Reject</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+
+
+
+<script>
+
+// --- PREVIOUS LOGIC (KEEP) ---
+function toggleDetails(id) { document.getElementById(id).classList.toggle('active'); }
+
+function triggerReject(reqId, invId) {
+    document.getElementById('rejectForm').action = "{% url 'proforma_price_change_reject' 0 %}".replace('0', reqId);
+    document.getElementById('rejectInfo').innerHTML = "Rejecting Request for <b>ID #" + invId + "</b>";
+    document.getElementById('rejectInput').value = "";
+    document.getElementById('rejectOverlay').classList.add('active');
+}
+
+function closeReject() {
+    document.getElementById('rejectOverlay').classList.remove('active');
+}
+
+
+
+// --- NEW UNIFIED REMARK LOGIC ---
+function openRemarkModal(objId, objType) {
+    // Set values into hidden inputs
+    document.getElementById('modalInvoiceId').value = objId;
+    document.getElementById('modalObjectType').value = objType;
+
+    // Show the modal
+    const modal = document.getElementById('globalRemarkModal');
+    modal.classList.add('active');
+
+    // Reset and Load history
+    const historyBox = document.getElementById('modalChatHistory');
+    historyBox.innerHTML = '<div style="color:#666; text-align:center; padding-top:50px;">Loading conversation...</div>';
+
+    // Hide notification dot if it exists
+    const dot = document.getElementById('dot-' + objType + '-' + objId);
+    if (dot) dot.style.display = 'none';
+
+    loadRemarks(objId, objType);
+}
+function closeRemarkModal() {
+    document.getElementById('globalRemarkModal').classList.remove('active');
+}
+
+function loadRemarks(objId, objType) {
+    const baseUrl = "{% url 'manage_invoice_remark' 0 %}".replace('0', objId);
+    const getUrl = `${baseUrl}?obj_type=${objType}`;
+
+    fetch(getUrl)
+        .then(r => r.json())
+        .then(data => {
+            const historyBox = document.getElementById('modalChatHistory');
+            historyBox.innerHTML = "";
+
+            if (data.remarks.length === 0) {
+                historyBox.innerHTML = '<div style="color:#444; text-align:center; padding-top:50px;">No conversation yet.</div>';
+            }
+
+            data.remarks.forEach(r => {
+                const bClass = `b-${r.role}`;
+                historyBox.innerHTML += `
+                    <div class="bubble ${bClass}">
+                        <span class="rtag">${r.role} • ${r.time}</span>
+                        <strong>${r.user}:</strong> ${r.text}
+                    </div>`;
+            });
+            historyBox.scrollTop = historyBox.scrollHeight;
+        });
+}
+
+function submitGlobalRemark() {
+    const objId = document.getElementById('modalInvoiceId').value;
+    const objType = document.getElementById('modalObjectType').value;
+    const text = document.getElementById('modalRemarkInput').value.trim();
+    if (!text) return;
+
+    const btn = document.getElementById('sendBtn');
+    btn.disabled = true;
+
+    const formData = new FormData();
+    formData.append('invoice_id', objId);
+    formData.append('obj_type', objType);
+    formData.append('remark', text);
+    formData.append('csrfmiddlewaretoken', '{{ csrf_token }}');
+
+    const postUrl = "{% url 'manage_invoice_remark' 0 %}".replace('0', objId);
+
+    fetch(postUrl, {
+        method: 'POST',
+        body: formData,
+        headers: {'X-Requested-With': 'XMLHttpRequest'}
+    })
+    .then(r => r.json())
+    .then(data => {
+        if(data.status === 'ok') {
+            document.getElementById('modalRemarkInput').value = "";
+            loadRemarks(objId, objType);
+        }
+    })
+    .catch(error => alert("Error sending message"))
+    .finally(() => btn.disabled = false);
+}
+function closeRemarkModal() {
+    document.getElementById('globalRemarkModal').classList.remove('active');
+}
+
+
+// Close modals when clicking outside
+window.onclick = function(e) {
+    const remarkModal = document.getElementById('globalRemarkModal');
+    const rejectModal = document.getElementById('rejectOverlay');
+    if (e.target == remarkModal) closeRemarkModal();
+    if (e.target == rejectModal) closeReject();
+}
+
+// --- NEW: TRACK PROGRESS MODAL LOGIC (Missing from your last script) ---
+
+// Helper for Status Badge colors in the tracking table
+function getStatusBadge(status) {
+    status = status.toLowerCase();
+    if (status === 'approved') return 'bg-success';
+    if (status === 'rejected') return 'bg-danger';
+    return 'bg-warning text-dark'; // Pending
+}
+
+function openRejectedModal(objId, objType) {
+    const modal = document.getElementById('detailsModal');
+    const content = document.getElementById('detailsContent');
+    document.getElementById('detInvId').innerText = objId;
+
+    modal.classList.add('active');
+    content.innerHTML = '<div class="text-center p-5"><p>Fetching all request statuses...</p></div>';
+
+    // Determine the correct API endpoint based on type (Quotation or Proforma)
+    let apiPath = objType === 'Quotation' ? 'quotation' : 'proforma';
+    const apiUrl = `/proforma/api/${apiPath}/request-details/${objId}/`;
+
+    fetch(apiUrl)
+        .then(response => {
+            if (!response.ok) throw new Error('Request Failed or No Data Found');
+            return response.json();
+        })
+        .then(data => {
+            let html = '';
+
+            // 1. Courier Requests Section
+            if (data.courier_history && data.courier_history.length > 0) {
+                html += `<h6 class="fw-bold mb-2 text-secondary">🚚 Courier Change History</h6>
+                <table class="rej-table border mb-4">
+                    <thead>
+                        <tr>
+                            <th>Recommended</th>
+                            <th>Requested</th>
+                            <th>Reviewer</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>`;
+                data.courier_history.forEach(c => {
+                    html += `
+                        <tr>
+                            <td class="text-muted">₹${c.recommended || c.original}</td>
+                            <td class="fw-bold text-primary">₹${c.requested}</td>
+                            <td class="small">${c.reviewed_by}</td>
+                            <td><span class="badge ${getStatusBadge(c.status)}">${c.status}</span></td>
+                        </tr>
+                        <tr><td colspan="4" class="small text-muted" style="border-top:none; padding-top:0;">Reason: ${c.reason}</td></tr>`;
+                });
+                html += `</tbody></table>`;
+            }
+
+            // 2. Product Decisions Section
+            html += `<h6 class="fw-bold mb-2 text-secondary">📦 Product Price Tracking</h6>
+            <table class="rej-table border">
+                <thead>
+                    <tr>
+                        <th>Product</th>
+                        <th>Requested</th>
+                        <th>Reviewer</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>`;
+
+            data.products.forEach(p => {
+                html += `
+                    <tr>
+                        <td style="font-size: 0.75rem;">
+                            ${p.name}<br>
+                            <small class="text-muted">MSRP: ₹${p.msrp} | Reason: ${p.reason}</small>
+                        </td>
+                        <td class="text-primary fw-bold">₹${p.requested_price}</td>
+                        <td class="small">${p.reviewed_by}</td>
+                        <td><span class="badge ${getStatusBadge(p.status)}">${p.status}</span></td>
+                    </tr>`;
+            });
+
+            if (data.products.length === 0 && (!data.courier_history || data.courier_history.length === 0)) {
+                html = '<div class="alert alert-info">No product or courier requests found for this ID.</div>';
+            } else {
+                html += `</tbody></table>`;
+            }
+
+            content.innerHTML = html;
+        })
+        .catch(err => {
+            content.innerHTML = `<div class="alert alert-danger">Error: ${err.message}</div>`;
+        });
+}
+
+function closeDetailsModal() {
+    document.getElementById('detailsModal').classList.remove('active');
+}
+
+document.addEventListener('submit', function(e) {
+    if (e.target.classList.contains('ajax-form')) {
+        e.preventDefault();
+        const form = e.target;
+        const formData = new FormData(form);
+
+        // Correct way to get the ID from ajax-form-123
+        const reqId = form.id.replace('ajax-form-', '');
+
+        fetch(form.action, {
+            method: 'POST',
+            body: formData,
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        })
+        .then(response => {
+            // If the server redirects (302) or errors, response.json() will fail.
+            // We need to catch that.
+            if (!response.ok) throw new Error('Network response was not ok');
+            return response.json();
+        })
+        .then(data => {
+            const decisionCell = document.getElementById(`decision-cell-${reqId}`);
+            const actionCell = document.getElementById(`action-cell-${reqId}`);
+
+            if (data.status === 'ok') {
+                const color = data.decision === 'approved' ? '#28a745' : '#dc3545';
+                decisionCell.innerHTML = `<span style="font-weight:bold; color:${color}">${data.decision.toUpperCase()}</span>`;
+                actionCell.innerHTML = `<span style="color:#888; font-size:0.7rem;">PROCESSED</span>`;
+            } else if (data.status === 'admin_notified') {
+                decisionCell.innerHTML = `<div style="color: #ffc107; font-weight: bold; font-size: 0.7rem;">⏳ SENT TO ADMIN</div>`;
+                actionCell.innerHTML = `<button class="btn-core" style="background:#444; color:#888;" disabled>NOTIFIED</button>`;
+            } else {
+                alert("Error: " + (data.message || "Unknown error"));
+            }
+        })
+        .catch(error => {
+            console.error("Error:", error);
+            alert("Error: Server didn't respond correctly. Is your View updated?");
+        });
+    }
+});
+
+
+
+</script>
+{% endblock %} <!-- 👈 ADD THIS AT THE VERY BOTTOM -->

@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Product Sales Analysis | Dashboard</title>
+    
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Google Fonts: Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+
+    <style>
+        :root {
+            --bg-body: #f8fafc;
+            --sidebar-bg: #ffffff;
+            --accent: #6366f1;
+            --text-main: #1e293b;
+            --text-muted: #64748b;
+            --card-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-body);
+            color: var(--text-main);
+            overflow-x: hidden;
+        }
+
+        /* --- SIDEBAR RESPONSIVENESS --- */
+        .sidebar-categories {
+            background-color: var(--sidebar-bg);
+            border-right: 1px solid #e2e8f0;
+            padding: 2rem 1.5rem;
+        }
+
+        @media (min-width: 992px) {
+            .sidebar-categories {
+                min-height: 100vh;
+                position: sticky;
+                top: 0;
+            }
+        }
+
+        @media (max-width: 991px) {
+            .sidebar-categories {
+                border-right: none;
+                border-bottom: 1px solid #e2e8f0;
+                min-height: auto;
+                padding: 1.5rem;
+            }
+        }
+
+        .category-item { margin-bottom: 1.5rem; }
+        .category-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
+        .category-name { font-size: 0.85rem; font-weight: 600; }
+        .category-perc { font-size: 0.75rem; font-weight: 700; color: var(--accent); }
+        .progress-custom { height: 6px; background-color: #f1f5f9; border-radius: 10px; overflow: hidden; }
+
+        .bar-1 { background-color: #6366f1; }
+        .bar-2 { background-color: #06b6d4; }
+        .bar-3 { background-color: #10b981; }
+        .bar-4 { background-color: #f59e0b; }
+        .bar-5 { background-color: #f43f5e; }
+
+        /* --- MAIN CONTENT RESPONSIVENESS --- */
+        .main-workspace { padding: 1.5rem; }
+        @media (min-width: 992px) { .main-workspace { padding: 2rem 3rem; } }
+
+        .glass-header {
+            background: white;
+            padding: 1.25rem;
+            border-radius: 16px;
+            box-shadow: var(--card-shadow);
+            margin-bottom: 2rem;
+        }
+
+        .calendar-input {
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 0.5rem;
+            font-size: 0.85rem;
+            width: 100%;
+        }
+
+        .kpi-card {
+            background: white;
+            border-radius: 16px;
+            padding: 1.25rem;
+            box-shadow: var(--card-shadow);
+            height: 100%;
+        }
+
+        .kpi-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 0.75rem;
+        }
+
+        .product-container {
+            background: white;
+            border-radius: 16px;
+            box-shadow: var(--card-shadow);
+            margin-top: 2rem;
+        }
+
+        /* Mobile table text size */
+        @media (max-width: 768px) {
+            .table { font-size: 0.85rem; }
+            .btn-action { padding: 0.4rem 0.8rem; font-size: 0.75rem; }
+            h3 { font-size: 1.5rem; }
+        }
+
+        .badge-soft { background-color: #eef2ff; color: #4338ca; font-weight: 600; padding: 0.3rem 0.6rem; border-radius: 6px; font-size: 0.75rem; }
+    </style>
+</head>
+<body>
+
+<div class="container-fluid p-0">
+    <div class="row g-0">
+
+        <!-- LEFT SIDEBAR -->
+        <aside class="col-lg-3 col-xl-2 sidebar-categories">
+            <div class="d-flex align-items-center mb-4">
+                <div class="bg-primary p-2 rounded-3 me-2 text-white"><i class="bi bi-bar-chart-fill"></i></div>
+                <h5 class="fw-bold mb-0">SalesPro</h5>
+            </div>
+
+            <p class="text-muted small fw-bold text-uppercase mb-3">Category Metrics</p>
+
+            <div class="row row-cols-1 row-cols-md-2 row-cols-lg-1">
+                {% for cat in category_stats %}
+                <div class="col category-item">
+                    <div class="category-header">
+                        <span class="category-name text-truncate">{{ cat.name|default:cat.item__category__name|default:"General" }}</span>
+                        <span class="category-perc">{{ cat.percentage|floatformat:1 }}%</span>
+                    </div>
+                    <div class="progress progress-custom">
+                        <div class="progress-bar {% cycle 'bar-1' 'bar-2' 'bar-3' 'bar-4' 'bar-5' %}" style="width: {{ cat.percentage }}%"></div>
+                    </div>
+                    <div class="d-flex justify-content-between mt-1">
+                        <span class="text-muted" style="font-size: 0.7rem;">Value</span>
+                        <span class="text-dark fw-medium" style="font-size: 0.7rem;">₹{{ cat.total_sales|floatformat:0 }}</span>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+
+            <div class="mt-4 pt-3 border-top">
+                <div class="p-3 rounded-4 bg-light">
+                    <h6 class="fw-bold small mb-1">Grand Total</h6>
+                    <div class="h5 fw-bold mb-0 text-primary">₹{{ grand_total|floatformat:0 }}</div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- MAIN CONTENT -->
+        <main class="col-lg-9 col-xl-10 main-workspace">
+
+            <!-- Responsive Filter Section -->
+            <section class="glass-header">
+                <form method="GET" class="row g-3 align-items-center">
+                    <div class="col-12 col-md-4">
+                        <div class="input-group">
+                            <span class="input-group-text bg-white border-end-0"><i class="bi bi-search"></i></span>
+                            <input type="text" name="search" value="{{ search|default:'' }}" class="form-control border-start-0" placeholder="Search product...">
+                        </div>
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <input type="date" name="start_date" value="{{ start_date }}" class="calendar-input">
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <input type="date" name="end_date" value="{{ end_date }}" class="calendar-input">
+                    </div>
+                    <div class="col-12 col-md-2">
+                        <button type="submit" class="btn btn-dark w-100 fw-bold shadow-sm py-2">Update</button>
+                    </div>
+                </form>
+            </section>
+
+            <!-- KPI Row -->
+            <div class="row g-3 g-lg-4">
+                <div class="col-12 col-md-4">
+                    <div class="kpi-card">
+                        <div class="kpi-icon bg-indigo-subtle text-primary"><i class="bi bi-wallet2"></i></div>
+                        <p class="text-muted small fw-bold text-uppercase mb-1">Revenue</p>
+                        <h3 class="fw-bold mb-0">₹{{ grand_total|floatformat:2 }}</h3>
+                    </div>
+                </div>
+                <div class="col-12 col-md-4">
+                    <div class="kpi-card">
+                        <div class="kpi-icon bg-emerald-subtle text-success"><i class="bi bi-award"></i></div>
+                        <p class="text-muted small fw-bold text-uppercase mb-1">Top Item</p>
+                        <h3 class="fw-bold mb-0 h5 text-truncate">{{ product_stats.0.name|default:product_stats.0.item__name|default:"N/A" }}</h3>
+                    </div>
+                </div>
+                <div class="col-12 col-md-4">
+                    <div class="kpi-card">
+                        <div class="kpi-icon bg-amber-subtle text-warning"><i class="bi bi-box-seam"></i></div>
+                        <p class="text-muted small fw-bold text-uppercase mb-1">Total Items</p>
+                        <h3 class="fw-bold mb-0">{{ product_stats|length }} Products</h3>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Product Rankings Table -->
+            <div class="product-container mt-4">
+                <div class="px-3 py-3 border-bottom d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-2">
+                    <h5 class="fw-bold mb-0">Sales Rankings</h5>
+                    <span class="badge bg-light text-primary border px-3 py-2 rounded-pill fw-bold">
+                        Period Total: ₹{{ grand_total|floatformat:2 }}
+                    </span>
+                </div>
+                <div class="table-responsive">
+                    <table class="table align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th class="ps-3">Product</th>
+                                <th class="d-none d-md-table-cell">Category</th>
+                                <th class="text-end">Value</th>
+                                <th class="d-none d-sm-table-cell" style="width: 20%">Share</th>
+                                <th class="text-center">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for p in product_stats %}
+                            <tr>
+                                <td class="ps-3">
+                                    <div class="fw-bold">{{ p.name|default:p.item__name }}</div>
+                                    <div class="text-muted x-small">ID: #{{ p.prod_pk|default:p.item__id }}</div>
+                                </td>
+                                <td class="d-none d-md-table-cell">
+                                    <span class="badge-soft">{{ p.item__category__name|default:"General" }}</span>
+                                </td>
+                                <td class="text-end fw-bold">₹{{ p.total_sales|floatformat:0 }}</td>
+                                <td class="d-none d-sm-table-cell">
+                                    <div class="progress" style="height: 4px;">
+                                        <div class="progress-bar bg-primary" style="width: {{ p.percentage }}%"></div>
+                                    </div>
+                                    <span class="x-small fw-bold">{{ p.percentage|floatformat:1 }}%</span>
+                                </td>
+                                <td class="text-center">
+                                    <a href="{% url 'product_sales_history' p.prod_pk|default:p.item__id %}?start_date={{ start_date }}&end_date={{ end_date }}"
+                                       class="btn btn-action btn-sm">View</a>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+        </main>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

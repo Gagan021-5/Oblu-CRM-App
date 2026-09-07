@@ -1,0 +1,153 @@
+{% comment %}
+  ── LEAD LIST  (lead_list.html)
+{% endcomment %}
+{% block title %}All Leads{% endblock %}
+{% block extra_css %}
+<style>
+  :root { --accent:#4f46e5; --border:#e2e8f0; --bg:#f8fafc; --text:#1e293b; --muted:#64748b; }
+  body { background: var(--bg); }
+  .list-wrap { max-width: 1100px; margin: 0 auto; padding: 24px 16px; }
+  .page-title { font-size: 1.2rem; font-weight: 800; color: var(--text); margin-bottom: 18px; }
+  .filter-bar {
+    background: #fff; border: 1px solid var(--border); border-radius: 12px;
+    padding: 14px 16px; margin-bottom: 18px;
+    display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end;
+  }
+  .filter-bar .fg { flex: 1; min-width: 130px; }
+  .filter-bar label { font-size: .72rem; font-weight: 700; color: var(--muted); display: block; margin-bottom: 4px; }
+  .filter-bar select, .filter-bar input {
+    width: 100%; padding: 7px 10px; border: 1px solid var(--border);
+    border-radius: 8px; font-size: .82rem; color: var(--text);
+  }
+  .btn { padding: 8px 16px; border-radius: 8px; font-size: .8rem; font-weight: 700;
+         border: none; cursor: pointer; text-decoration: none; display: inline-block; }
+  .btn-accent { background: var(--accent); color: #fff; }
+  .btn-outline { background: #fff; color: var(--text); border: 1px solid var(--border) !important; }
+  .lead-table { width: 100%; border-collapse: collapse; background: #fff;
+                border-radius: 12px; overflow: hidden; border: 1px solid var(--border); }
+  .lead-table th { background: #f8fafc; font-size: .72rem; text-transform: uppercase;
+                   letter-spacing: .05em; color: var(--muted); padding: 10px 12px;
+                   text-align: left; border-bottom: 1px solid var(--border); font-weight: 700; }
+  .lead-table td { padding: 10px 12px; font-size: .82rem; color: var(--text);
+                   border-bottom: 1px solid var(--border); vertical-align: middle; }
+  .lead-table tr:last-child td { border-bottom: none; }
+  .lead-table tr:hover td { background: #f8fafc; }
+  .status-badge { font-size:.68rem; font-weight:700; padding:2px 8px; border-radius:20px; display:inline-block; }
+  .status-OPEN    { background:#dbeafe; color:#1d4ed8; }
+  .status-WON     { background:#d1fae5; color:#065f46; }
+  .status-LOST    { background:#fee2e2; color:#991b1b; }
+  .status-JUNK    { background:#f3f4f6; color:#6b7280; }
+  .status-ON_HOLD { background:#fef3c7; color:#92400e; }
+  .stage-pill { font-size:.7rem; font-weight:600; padding:2px 8px; border-radius:12px; display:inline-block; }
+  .action-link { font-size:.75rem; font-weight:600; color:var(--accent); text-decoration:none; margin-right:8px; }
+  .action-link:hover { text-decoration:underline; }
+  .pagination { margin-top:16px; display:flex; gap:6px; justify-content:center; }
+  .pagination a, .pagination span {
+    padding: 6px 12px; border-radius: 8px; font-size: .8rem; font-weight: 600;
+    border: 1px solid var(--border); background: #fff; color: var(--text); text-decoration: none;
+  }
+  .pagination .current { background: var(--accent); color: #fff; border-color: var(--accent); }
+</style>
+{% endblock %}
+{% block content %}
+<div class="list-wrap">
+  <div style="display:flex; align-items:center; gap:12px; margin-bottom:18px;">
+    <div class="page-title">📊 All Leads</div>
+    <div style="flex:1;"></div>
+    <a href="{% url 'leads:lead_create' %}" class="btn btn-accent">+ Add Lead</a>
+    <a href="{% url 'leads:lead_upload' %}" class="btn btn-outline">↑ Upload</a>
+    <a href="{% url 'leads:kanban' %}" class="btn btn-outline">Kanban View</a>
+  </div>
+
+  <form method="GET" class="filter-bar">
+    <div class="fg">
+      <label>Search</label>
+      <input type="text" name="search" value="{{ request.GET.search }}" placeholder="Name or phone…">
+    </div>
+    <div class="fg">
+      <label>Salesperson</label>
+      <select name="salesperson">
+        <option value="">All</option>
+        {% for sp in salespersons %}
+        <option value="{{ sp.id }}" {% if request.GET.salesperson == sp.id|stringformat:'s' %}selected{% endif %}>{{ sp.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="fg">
+      <label>Stage</label>
+      <select name="stage">
+        <option value="">All Stages</option>
+        {% for s in stages %}
+        <option value="{{ s.id }}" {% if request.GET.stage == s.id|stringformat:'s' %}selected{% endif %}>{{ s.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="fg">
+      <label>Status</label>
+      <select name="status">
+        <option value="">All</option>
+        {% for val, label in status_choices %}
+        <option value="{{ val }}" {% if request.GET.status == val %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="fg">
+      <label>Source</label>
+      <select name="source">
+        <option value="">All Sources</option>
+        {% for src in sources %}
+        <option value="{{ src.id }}" {% if request.GET.source == src.id|stringformat:'s' %}selected{% endif %}>{{ src.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button type="submit" class="btn btn-accent">Filter</button>
+    <a href="{% url 'leads:lead_list' %}" class="btn btn-outline">Clear</a>
+  </form>
+
+  <table class="lead-table">
+    <thead>
+      <tr>
+        <th>Name</th><th>Phone</th><th>State</th><th>Source</th>
+        <th>Assigned To</th><th>Stage</th><th>Status</th><th>Created</th><th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for lead in leads %}
+      <tr>
+        <td><a href="{% url 'leads:lead_detail' lead.pk %}" style="font-weight:700; color:var(--accent); text-decoration:none;">{{ lead.name }}</a></td>
+        <td>{{ lead.phone }}</td>
+        <td>{{ lead.state|default:"—" }}</td>
+        <td style="font-size:.75rem; color:var(--muted);">{{ lead.source.name|default:"—" }}</td>
+        <td>{{ lead.salesperson.name|default:"—" }}</td>
+        <td>
+          {% if lead.stage %}
+          <span class="stage-pill" style="background:{{ lead.stage.color }}22; color:{{ lead.stage.color }};">{{ lead.stage.name }}</span>
+          {% else %}—{% endif %}
+        </td>
+        <td><span class="status-badge status-{{ lead.status }}">{{ lead.get_status_display }}</span></td>
+        <td style="color:var(--muted); font-size:.75rem;">{{ lead.created_at|date:"d M Y" }}</td>
+        <td>
+          <a href="{% url 'leads:lead_detail' lead.pk %}" class="action-link">View</a>
+          <a href="{% url 'leads:add_call' lead.pk %}" class="action-link">Call</a>
+          <a href="{% url 'leads:lead_edit' lead.pk %}" class="action-link">Edit</a>
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="9" style="text-align:center; padding:32px; color:var(--muted);">No leads found.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {% if is_paginated %}
+  <div class="pagination">
+    {% if page_obj.has_previous %}
+    <a href="?{{ querystring }}&page={{ page_obj.previous_page_number }}">← Prev</a>
+    {% endif %}
+    <span class="current">{{ page_obj.number }} / {{ page_obj.paginator.num_pages }}</span>
+    {% if page_obj.has_next %}
+    <a href="?{{ querystring }}&page={{ page_obj.next_page_number }}">Next →</a>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

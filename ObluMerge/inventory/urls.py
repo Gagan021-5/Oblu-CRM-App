@@ -1,0 +1,66 @@
+from django.contrib import admin
+from django.urls import path
+from .views import Index, SignUpView, LogoutView, Dashboard, Dashboard2, AddItem, EditItem, DeleteItem, \
+    stock_chart_view, predict_min_stock_view, ShowProductData, stock_chart_view_2, predict_min_stock_2, \
+    ShowProductStockHistory, stock_chart_view_3, predict_min_stock_from_daily, CategoryDashboard, CategoryListView, \
+    search_items, InventoryReportView, MonthlyStockChartView, PredictMinStockView, LowStockReportView, \
+    DailyStockChartView, DeadStockDashboardView, SalesComparisonDashboardView, get_inventory_by_category, \
+    PurchaseOrderView, TopCustomersAPIView, PurchaseOrderViewPrev  # this Index is name of the class we created in views
+from django.contrib.auth import views as auth_views
+from . import views
+
+urlpatterns = [
+    path('', Index.as_view(), name="index"),
+    path('dashboard/', Dashboard.as_view(), name="dashboard"),
+    path('dashboard-test/', Dashboard2.as_view(), name="dashboard-test"),
+    path('add-item/',AddItem.as_view(), name='add-item'),
+    # path('edit-item/<int:pk>', EditItem.as_view(), name='edit-item'),
+    # path('delete-item/<int:pk>',DeleteItem.as_view(), name='delete-item'),
+    path('charts/stock/', stock_chart_view, name='stock_chart'),
+    path('predict/min-stock/', predict_min_stock_view, name='predict_min_stock'),
+    path('showdata/<int:pk>/', ShowProductData.as_view(), name='showdata'),
+    path('charts/<int:pk>/', DailyStockChartView.as_view(), name='stock_chart_2'),
+    path('predict/<int:pk>/', PredictMinStockView.as_view() , name='predict_min_stock'),
+    path('history/<int:pk>/',ShowProductStockHistory.as_view(), name='history'),
+    path('dashboard/<int:category>/',CategoryDashboard.as_view(), name='category_dashboard'),
+    path('categories/',CategoryListView.as_view(), name='categories'),
+    path('search/', search_items, name='search_items'),
+    path('report/', InventoryReportView.as_view(), name='inventory_report'),
+    path("stock/monthly/<int:pk>/", MonthlyStockChartView.as_view(), name="monthly-stock-chart"),
+    path('low-stock-outwards-trend/', LowStockReportView.as_view(), name='low_stock_report'),
+    path('dead-stock/', DeadStockDashboardView.as_view() , name='dead_stock'),
+    path('sales-comparison/', SalesComparisonDashboardView.as_view(), name='sales_comparison'),
+    path("api/inventory_by_category/", get_inventory_by_category, name="get_inventory_by_category"),
+    path('purchase-order/', PurchaseOrderView.as_view(), name='purchase_order'),
+    path('purchase-order-prev/', PurchaseOrderViewPrev.as_view(), name='purchase_order_prev'),
+    path("purchase-order/top-customers/", TopCustomersAPIView.as_view(), name="po_top_customers"),
+    path("purchase-orders/tally/", views.TallyPurchaseOrderListView.as_view(), name="tally_po_list"),
+    path("purchase-orders/tally/<int:voucher_id>/track/", views.create_po_tracking, name="create_po_tracking"),
+
+    path("purchase-orders/tracked/", views.PurchaseOrderTrackingListView.as_view(), name="po_tracking_list"),
+    path("purchase-orders/tracked/<int:pk>/", views.PurchaseOrderTrackingDetailView.as_view(), name="po_tracking_detail"),
+    path("purchase-orders/tracked/<int:pk>/quantities/", views.update_arrived_quantities, name="update_arrived_quantities"),
+
+    path("purchase-orders/stages/", views.PurchaseOrderStageListView.as_view(), name="po_stage_list"),
+    path("purchase-orders/stages/add/", views.PurchaseOrderStageCreateView.as_view(), name="po_stage_create"),
+    path("purchase-orders/stages/<int:pk>/edit/", views.PurchaseOrderStageUpdateView.as_view(), name="po_stage_update"),
+
+    path("purchase-orders/tracked/<int:po_pk>/stage/add/", views.PurchaseOrderStageLogCreateView.as_view(), name="po_stage_log_create"),
+    path("purchase-orders/stage-log/<int:pk>/edit/", views.PurchaseOrderStageLogUpdateView.as_view(), name="po_stage_log_update"),
+    path('sales-dashboard/', views.ProductContributionSummaryView.as_view(), name='product_contribution_summary'),
+    path('sales-dashboard/item/<int:item_id>/', views.ProductSalesHistoryDetailView.as_view(),
+         name='product_sales_history'),
+    path(
+        "analytics/",
+        views.ProductAnalyticsCategoryView.as_view(),
+        name="product_analytics_category",
+    ),
+
+    # Full product intelligence page
+    path(
+        "analytics/<int:item_id>/",
+        views.ProductAnalyticsDetailView.as_view(),
+        name="product_analytics_detail",
+    ),
+
+]

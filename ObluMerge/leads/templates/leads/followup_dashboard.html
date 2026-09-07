@@ -1,0 +1,97 @@
+{% block title %}Lead Follow-ups{% endblock %}
+{% block extra_css %}
+<style>
+  :root { --accent:#4f46e5; --border:#e2e8f0; --bg:#f8fafc; --text:#1e293b; --muted:#64748b;
+          --danger:#ef4444; --success:#10b981; --warn:#f59e0b; }
+  body { background: var(--bg); }
+  .fu-wrap { max-width: 800px; margin: 0 auto; padding: 24px 16px; }
+  .page-title { font-size: 1.1rem; font-weight: 800; color: var(--text); margin-bottom: 20px; }
+  .fu-section { margin-bottom: 22px; }
+  .fu-section h3 {
+    font-size: .78rem; font-weight: 800; text-transform: uppercase;
+    letter-spacing: .06em; color: var(--muted); margin: 0 0 10px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .fu-section h3 .count {
+    background: var(--border); color: var(--text); font-size: .68rem;
+    padding: 1px 7px; border-radius: 12px; font-weight: 700;
+  }
+  .fu-card {
+    background: #fff; border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px 16px; margin-bottom: 8px;
+    display: flex; align-items: center; gap: 14px;
+    box-shadow: 0 1px 4px rgba(0,0,0,.05);
+  }
+  .fu-card .fu-date {
+    font-size: .78rem; font-weight: 700; color: var(--muted);
+    min-width: 70px; text-align: center;
+  }
+  .fu-card.overdue .fu-date { color: var(--danger); }
+  .fu-card.today   .fu-date { color: var(--success); }
+  .fu-card .fu-lead { font-size: .88rem; font-weight: 700; color: var(--text); }
+  .fu-card .fu-note { font-size: .78rem; color: var(--muted); margin-top: 2px; }
+  .fu-card .fu-stage { font-size: .72rem; font-weight: 600; }
+  .fu-card .spacer { flex: 1; }
+  .btn-sm { padding: 5px 12px; border-radius: 7px; font-size: .75rem; font-weight: 700;
+            border: none; cursor: pointer; text-decoration: none; background: var(--accent); color: #fff; }
+  .btn-sm:hover { opacity: .85; }
+  .empty { font-size: .82rem; color: var(--muted); padding: 16px; text-align: center; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="fu-wrap">
+  <div class="page-title">📅 Lead Follow-ups{% if sp %} – {{ sp.name }}{% endif %}</div>
+
+  {% if followups_overdue %}
+  <div class="fu-section">
+    <h3>⚠ Overdue <span class="count">{{ followups_overdue|length }}</span></h3>
+    {% for fu in followups_overdue %}
+    <div class="fu-card overdue">
+      <div class="fu-date">{{ fu.followup_date|date:"d M" }}</div>
+      <div>
+        <div class="fu-lead"><a href="{% url 'leads:lead_detail' fu.lead.pk %}">{{ fu.lead.name }}</a></div>
+        <div class="fu-note">{{ fu.note|default:"No note" }}</div>
+        {% if fu.lead.stage %}<div class="fu-stage" style="color:{{ fu.lead.stage.color }};">{{ fu.lead.stage.name }}</div>{% endif %}
+      </div>
+      <div class="spacer"></div>
+      <a href="{% url 'leads:lead_detail' fu.lead.pk %}" class="btn-sm">Open</a>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <div class="fu-section">
+    <h3>✅ Today <span class="count">{{ followups_today|length }}</span></h3>
+    {% for fu in followups_today %}
+    <div class="fu-card today">
+      <div class="fu-date">Today</div>
+      <div>
+        <div class="fu-lead"><a href="{% url 'leads:lead_detail' fu.lead.pk %}">{{ fu.lead.name }}</a></div>
+        <div class="fu-note">{{ fu.note|default:"No note" }}</div>
+      </div>
+      <div class="spacer"></div>
+      <a href="{% url 'leads:lead_detail' fu.lead.pk %}" class="btn-sm">Open</a>
+    </div>
+    {% empty %}
+    <div class="empty">No follow-ups scheduled for today.</div>
+    {% endfor %}
+  </div>
+
+  <div class="fu-section">
+    <h3>📆 Upcoming <span class="count">{{ followups_upcoming|length }}</span></h3>
+    {% for fu in followups_upcoming %}
+    <div class="fu-card">
+      <div class="fu-date">{{ fu.followup_date|date:"d M" }}</div>
+      <div>
+        <div class="fu-lead"><a href="{% url 'leads:lead_detail' fu.lead.pk %}">{{ fu.lead.name }}</a></div>
+        <div class="fu-note">{{ fu.note|default:"No note" }}</div>
+      </div>
+      <div class="spacer"></div>
+      <a href="{% url 'leads:lead_detail' fu.lead.pk %}" class="btn-sm">Open</a>
+    </div>
+    {% empty %}
+    <div class="empty">No upcoming follow-ups.</div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

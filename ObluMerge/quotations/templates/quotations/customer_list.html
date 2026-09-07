@@ -1,0 +1,31 @@
+{%extends 'quotations/base.html'%}
+{% block content %}
+
+<div class="main-container">
+  <div class="form-container">
+    <h1>My Customers</h1>
+
+    {% if customers %}
+      <div class="customer-grid">
+        {% for customer in customers %}
+          <div class="customer-card">
+            <div class="customer-name">{{ customer.name }}</div>
+            <div class="customer-detail"><strong>City:</strong> {{ customer.city }}</div>
+            <div class="customer-detail"><strong>Phone:</strong> {{ customer.phone }}</div>
+            <div class="customer-detail"><strong>Email:</strong> {{ customer.email|default:"-" }}</div>
+            <div class="customer-detail"><strong>Pin Code:</strong> {{ customer.pin_code }}</div>
+            <div class="customer-detail"><strong>Created By</strong> {{ customer.created_by }}</div>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p style="text-align:center; margin-top:20px;">No customers found.</p>
+    {% endif %}
+
+    <div style="text-align:center; margin-top:30px;">
+      <a href="{% url 'create_customer' %}" class="btn-secondary">+ Add New Customer</a> {# changed class name from primary to secondary #}
+      <a href="{% url 'home' %}" class="btn-secondary">Back to home</a> {# changed class name from primary to secondary #}
+    </div>
+  </div>
+</div>
+{% endblock content %}

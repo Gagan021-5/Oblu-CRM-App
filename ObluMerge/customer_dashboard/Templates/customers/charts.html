@@ -1,0 +1,167 @@
+{% extends 'customers/base.html' %}
+{% block content %}
+
+<style>
+body {
+  background-color: #f8f9fa;
+  color: #212529;
+}
+.card {
+  background-color: #ffffff;
+  border: 1px solid #dee2e6;
+  border-radius: 10px;
+  box-shadow: 0 3px 10px rgba(0,0,0,0.05);
+}
+h2 {
+  color: #212529;
+  font-weight: 700;
+}
+h5 {
+  color: #495057;
+  font-weight: 500;
+}
+canvas {
+  max-height: 360px;
+}
+</style>
+
+<h2 class="text-center mb-4">📊 Customer Analytics Dashboard</h2>
+
+<!-- Summary Cards -->
+<div class="row mb-4 text-center">
+
+  <div class="col-md-4 mb-3">
+    <div class="card p-3">
+      <h5>Total Customers</h5>
+      <h2 class="text-primary fw-bold">{{ total_customers }}</h2>
+    </div>
+  </div>
+
+  <div class="col-md-4 mb-3">
+    <div class="card p-3">
+      <h5>Salespersons</h5>
+      <h2 class="text-success fw-bold">{{ unique_salespersons }}</h2>
+    </div>
+  </div>
+
+  <div class="col-md-4 mb-3">
+    <div class="card p-3">
+      <h5>States Covered</h5>
+      <h2 class="text-info fw-bold">{{ total_states }}</h2>
+    </div>
+  </div>
+
+  <!-- ✅ ADDED HERE (as requested) -->
+  <div class="col-md-4 mb-3">
+    <div class="card p-3">
+      <h5>Active Customers</h5>
+      <h2 class="text-success fw-bold">{{ active_customers_total }}</h2>
+    </div>
+  </div>
+
+  <div class="col-md-4 mb-3">
+    <div class="card p-3">
+      <h5>Inactive Customers</h5>
+      <h2 class="text-danger fw-bold">{{ inactive_customers_total }}</h2>
+    </div>
+  </div>
+
+</div>
+
+<!-- Chart Grid -->
+<div class="row g-4">
+
+  <div class="col-md-6">
+    <div class="card p-3">
+      <h5 class="text-center mb-3">Customers per Salesperson</h5>
+      <canvas id="salespersonBar"></canvas>
+    </div>
+  </div>
+
+  <div class="col-md-6">
+    <div class="card p-3">
+      <h5 class="text-center mb-3">Top 10 States by Customers</h5>
+      <canvas id="stateBar"></canvas>
+    </div>
+  </div>
+
+  <div class="col-md-6">
+    <div class="card p-3">
+      <h5 class="text-center mb-3">Salesperson Share</h5>
+      <canvas id="salespersonPie"></canvas>
+    </div>
+  </div>
+
+  <div class="col-md-6">
+    <div class="card p-3">
+      <h5 class="text-center mb-3">State Share</h5>
+      <canvas id="statePie"></canvas>
+    </div>
+  </div>
+
+</div>
+
+<!-- JS PART UNCHANGED -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+const salespersonChart = JSON.parse('{{ salesperson_chart_json|escapejs }}');
+const stateChart = JSON.parse('{{ state_chart_json|escapejs }}');
+const activeData = JSON.parse('{{ active_customers_json|escapejs }}');
+const inactiveData = JSON.parse('{{ inactive_customers_json|escapejs }}');
+
+const chartOptions = {
+  responsive: true,
+  maintainAspectRatio: false,
+  plugins: {
+    legend: {
+      labels: { color: '#212529', font: { size: 12 } }
+    }
+  },
+  scales: {
+    x: { ticks: { color: '#495057' }, grid: { color: 'rgba(0,0,0,0.05)' } },
+    y: { ticks: { color: '#495057' }, grid: { color: 'rgba(0,0,0,0.05)' } }
+  }
+};
+
+new Chart(document.getElementById('salespersonBar'), {
+  type: 'bar',
+  data: {
+    labels: salespersonChart.map(d => d.name),
+    datasets: [
+      { label: 'Total Customers', data: salespersonChart.map(d => d.total), backgroundColor: '#0d6efd', borderRadius: 6 },
+      { label: 'Active Customers', data: salespersonChart.map(d => d.active), backgroundColor: '#198754', borderRadius: 6 }
+    ]
+  },
+  options: chartOptions
+});
+
+new Chart(document.getElementById('stateBar'), {
+  type: 'bar',
+  data: {
+    labels: stateChart.map(d => d.state),
+    datasets: [
+      { label: 'Total Customers', data: stateChart.map(d => d.total), backgroundColor: '#dc3545', borderRadius: 6 },
+      { label: 'Active Customers', data: stateChart.map(d => d.active), backgroundColor: '#20c997', borderRadius: 6 }
+    ]
+  },
+  options: chartOptions
+});
+
+new Chart(document.getElementById('salespersonPie'), {
+  type: 'doughnut',
+  data: {
+    labels: salespersonChart.map(d => d.name),
+    datasets: [{ data: salespersonChart.map(d => d.total) }]
+  }
+});
+
+new Chart(document.getElementById('statePie'), {
+  type: 'pie',
+  data: {
+    labels: stateChart.map(d => d.state),
+    datasets: [{ data: stateChart.map(d => d.total) }]
+  }
+});
+</script>
+
+{% endblock %}
