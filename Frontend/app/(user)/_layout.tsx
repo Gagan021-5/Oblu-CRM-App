@@ -13,7 +13,7 @@ export default function UserLayout() {
       screenOptions={{
         headerShown: false,
         contentStyle: { backgroundColor: colors.background },
-        animation: "fade",
+        animation: "none",
       }}
     />
   );

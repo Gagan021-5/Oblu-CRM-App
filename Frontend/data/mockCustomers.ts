@@ -23,7 +23,14 @@ export interface CustomerPayment {
   invoiceNumber: string;
   amount: string;
   dueDate: string;
+  expectedDate?: string;
+  isDateCrossed?: boolean;
   status: "paid" | "pending" | "overdue";
+  ticketStatus?: "NONE" | "RAISED" | "SOLVED";
+  ticketRaisedAt?: string;
+  emailSent?: boolean;
+  emailRecipient?: string;
+  emailSentAt?: string;
 }
 
 export interface Customer {
@@ -109,7 +116,14 @@ const INITIAL_CUSTOMERS: Customer[] = [
         invoiceNumber: "INV-2026-894",
         amount: "₹1,45,000",
         dueDate: "15 Sep 2026",
+        expectedDate: "07 Sep 2026",
+        isDateCrossed: true,
         status: "pending",
+        ticketStatus: "RAISED",
+        ticketRaisedAt: "08 Sep 2026, 09:00 AM",
+        emailSent: true,
+        emailRecipient: "gagan.sharma@nexuscorp.com, abhijay.obluhc@gmail.com",
+        emailSentAt: "08 Sep 2026, 09:01 AM",
       },
       {
         id: "pay-302",
@@ -117,6 +131,7 @@ const INITIAL_CUSTOMERS: Customer[] = [
         amount: "₹2,10,000",
         dueDate: "10 Aug 2026",
         status: "paid",
+        ticketStatus: "NONE",
       },
     ],
   },
@@ -167,7 +182,14 @@ const INITIAL_CUSTOMERS: Customer[] = [
         invoiceNumber: "INV-2026-778",
         amount: "₹82,500",
         dueDate: "30 Aug 2026",
+        expectedDate: "05 Sep 2026",
+        isDateCrossed: true,
         status: "overdue",
+        ticketStatus: "RAISED",
+        ticketRaisedAt: "06 Sep 2026, 09:00 AM",
+        emailSent: true,
+        emailRecipient: "gagan.sharma@nexuscorp.com, finance@oblutools.com",
+        emailSentAt: "06 Sep 2026, 09:02 AM",
       },
       {
         id: "pay-304",
@@ -175,6 +197,7 @@ const INITIAL_CUSTOMERS: Customer[] = [
         amount: "₹1,15,000",
         dueDate: "15 Jul 2026",
         status: "paid",
+        ticketStatus: "NONE",
       },
     ],
   },
@@ -678,6 +701,88 @@ export async function scheduleMockCustomerFollowUp(
   customer.followUps.unshift(newFollowUp);
   customer.nextFollowUp = `${newFollowUp.date}, ${newFollowUp.time}`;
   return newFollowUp;
+}
+
+/**
+ * Raise a payment ticket when expected date is crossed
+ */
+export async function raiseMockPaymentTicket(
+  customerId: string,
+  paymentId: string
+): Promise<CustomerPayment> {
+  const customer = customersStore.find((c) => c.id === customerId);
+  if (!customer) throw new Error(`Customer with ID ${customerId} not found`);
+
+  const payment = customer.payments.find((p) => p.id === paymentId);
+  if (!payment) throw new Error(`Payment with ID ${paymentId} not found`);
+
+  payment.ticketStatus = "RAISED";
+  payment.ticketRaisedAt = new Date().toLocaleString([], {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  payment.emailSent = true;
+  payment.emailRecipient = "gagan.sharma@nexuscorp.com, finance@oblutools.com";
+  payment.emailSentAt = new Date().toLocaleString([], {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+  return { ...payment };
+}
+
+/**
+ * Solve / mark resolved a payment ticket
+ */
+export async function solveMockPaymentTicket(
+  customerId: string,
+  paymentId: string
+): Promise<CustomerPayment> {
+  const customer = customersStore.find((c) => c.id === customerId);
+  if (!customer) throw new Error(`Customer with ID ${customerId} not found`);
+
+  const payment = customer.payments.find((p) => p.id === paymentId);
+  if (!payment) throw new Error(`Payment with ID ${paymentId} not found`);
+
+  payment.ticketStatus = "SOLVED";
+  return { ...payment };
+}
+
+/**
+ * Send or resend payment reminder email (simulates Gmail automation)
+ */
+export async function sendMockPaymentReminderEmail(
+  customerId: string,
+  paymentId: string
+): Promise<{ success: boolean; recipient: string; sentAt: string }> {
+  const customer = customersStore.find((c) => c.id === customerId);
+  if (!customer) throw new Error(`Customer with ID ${customerId} not found`);
+
+  const payment = customer.payments.find((p) => p.id === paymentId);
+  if (!payment) throw new Error(`Payment with ID ${paymentId} not found`);
+
+  const sentAt = new Date().toLocaleString([], {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  payment.emailSent = true;
+  payment.emailRecipient = `${customer.email}, finance@oblutools.com, gagan.sharma@nexuscorp.com`;
+  payment.emailSentAt = sentAt;
+
+  return {
+    success: true,
+    recipient: payment.emailRecipient,
+    sentAt,
+  };
 }
 
 /**

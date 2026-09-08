@@ -14,7 +14,7 @@ interface TimelineItemProps {
   onPress?: () => void;
 }
 
-export const TimelineItem: React.FC<TimelineItemProps> = ({
+const TimelineItemComponent: React.FC<TimelineItemProps> = ({
   time,
   title,
   subtitle,
@@ -144,6 +144,8 @@ export const TimelineItem: React.FC<TimelineItemProps> = ({
     </TouchableOpacity>
   );
 };
+
+export const TimelineItem = React.memo(TimelineItemComponent);
 
 const styles = StyleSheet.create({
   container: {

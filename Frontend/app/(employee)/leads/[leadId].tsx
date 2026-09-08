@@ -25,6 +25,7 @@ import {
   Lead,
   LeadStage,
 } from "@/data/mockLeads";
+import { scheduleFollowUpNotifications } from "@/services/followUpNotificationService";
 
 type LeadTab = "overview" | "activity" | "notes" | "followups";
 
@@ -108,6 +109,15 @@ export default function LeadDetailScreen() {
           }
         : null
     );
+
+    // Schedule 1-day before outer mobile & in-app notification
+    await scheduleFollowUpNotifications({
+      customerName: lead.companyName,
+      followUpDate: data.date,
+      followUpTime: data.time,
+      purpose: data.purpose,
+      notes: data.notes,
+    });
   };
 
   if (!lead) {
@@ -311,7 +321,7 @@ export default function LeadDetailScreen() {
             >
               <Ionicons
                 name="call"
-                size={16}
+                size={18}
                 color={isDark ? "#35D6A0" : "#00A879"}
               />
               <Text
@@ -319,6 +329,8 @@ export default function LeadDetailScreen() {
                   styles.actionBtnText,
                   { color: isDark ? "#35D6A0" : "#00A879" },
                 ]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
               >
                 Call
               </Text>
@@ -337,7 +349,7 @@ export default function LeadDetailScreen() {
             >
               <Ionicons
                 name="document-text-outline"
-                size={16}
+                size={18}
                 color={isDark ? "#F1F7F4" : "#101513"}
               />
               <Text
@@ -345,6 +357,8 @@ export default function LeadDetailScreen() {
                   styles.actionBtnText,
                   { color: isDark ? "#F1F7F4" : "#101513" },
                 ]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
               >
                 Add Note
               </Text>
@@ -363,7 +377,7 @@ export default function LeadDetailScreen() {
             >
               <Ionicons
                 name="calendar-outline"
-                size={16}
+                size={18}
                 color={isDark ? "#F1F7F4" : "#101513"}
               />
               <Text
@@ -371,6 +385,8 @@ export default function LeadDetailScreen() {
                   styles.actionBtnText,
                   { color: isDark ? "#F1F7F4" : "#101513" },
                 ]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
               >
                 Follow-up
               </Text>
@@ -932,17 +948,20 @@ const styles = StyleSheet.create({
   },
   actionBtn: {
     flex: 1,
-    flexDirection: "row",
+    flexDirection: "column",
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 9,
-    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 4,
+    borderRadius: 14,
     borderWidth: 1,
     gap: 5,
+    minHeight: 58,
   },
   actionBtnText: {
-    fontSize: FontSizes.caption,
+    fontSize: 11,
     fontFamily: Typography.semiBold,
+    textAlign: "center",
   },
   pipelineCard: {
     borderRadius: 18,

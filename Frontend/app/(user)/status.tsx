@@ -30,6 +30,15 @@ import {
 import { registerBackgroundSync } from "@/services/backgroundSync";
 import { Ionicons } from "@expo/vector-icons";
 import { Shadows, Typography, FontSizes, Spacing, Radius } from "@/constants/theme";
+import { FloatingTabBar } from "@/components/employee/FloatingTabBar";
+import { QuickActionModal } from "@/components/employee/QuickActionModal";
+import { AddCustomerRemarkModal } from "@/components/employee/AddCustomerRemarkModal";
+import { ScheduleFollowUpModal } from "@/components/employee/ScheduleFollowUpModal";
+import { AddLeadModal } from "@/components/employee/AddLeadModal";
+import { addMockCustomerRemark, scheduleMockCustomerFollowUp } from "@/data/mockCustomers";
+import { createMockLead } from "@/data/mockLeads";
+import { scheduleFollowUpNotifications } from "@/services/followUpNotificationService";
+import { mockEmployee } from "@/data/mockEmployee";
 
 const themeModes: Array<{ key: ThemeMode; label: string; icon: keyof typeof Ionicons.glyphMap }> = [
   { key: "light", label: "Light", icon: "sunny-outline" },
@@ -38,22 +47,62 @@ const themeModes: Array<{ key: ThemeMode; label: string; icon: keyof typeof Ioni
 ];
 
 export default function StatusScreen() {
-  const { from } = useLocalSearchParams<{ from?: string }>();
-
-  useEffect(() => {
-    if (from !== "workspace") {
-      router.replace("/(employee)" as any);
-    }
-  }, [from]);
-
   const insets = useSafeAreaInsets();
   const { user, logout } = useAuth();
   const { colors, isDark, mode, setMode } = useTheme();
+
+  const avatarInitials = user?.username
+    ? user.username.slice(0, 2).toUpperCase()
+    : mockEmployee.avatarInitials;
 
   const [lastSync, setLastSync] = useState<string | null>(null);
   const [permissionActive, setPermissionActive] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [syncingNow, setSyncingNow] = useState(false);
+
+  // Quick Action Modal states for full navigation parity with Employee Workspace
+  const [quickActionVisible, setQuickActionVisible] = useState(false);
+  const [remarkModalVisible, setRemarkModalVisible] = useState(false);
+  const [followUpModalVisible, setFollowUpModalVisible] = useState(false);
+  const [leadModalVisible, setLeadModalVisible] = useState(false);
+
+  const handleSyncCallsFromModal = async () => {
+    await performSync();
+    await refreshStats();
+  };
+
+  const handleSaveRemark = async (text: string) => {
+    try {
+      await addMockCustomerRemark("cust-001", text);
+    } catch {
+      // Ignored
+    }
+  };
+
+  const handleScheduleFollowUp = async (data: any) => {
+    try {
+      await scheduleMockCustomerFollowUp("cust-001", data);
+      await scheduleFollowUpNotifications({
+        customerName: "Orion Systems",
+        customerId: "cust-001",
+        followUpDate: data.date,
+        followUpTime: data.time,
+        purpose: data.purpose,
+        notes: data.notes,
+      });
+    } catch {
+      // Ignored
+    }
+  };
+
+  const handleCreateLead = async (data: any) => {
+    try {
+      const created = await createMockLead(data);
+      router.push(`/(employee)/leads/${created.id}` as any);
+    } catch {
+      // Ignored
+    }
+  };
 
   const syncInProgress = useRef(false);
 
@@ -186,25 +235,26 @@ export default function StatusScreen() {
   const topPadding = Math.max(insets.top, 20);
 
   return (
-    <ScrollView
-      style={[styles.container, { backgroundColor: colors.background }]}
-      contentContainerStyle={[
-        styles.scrollContent,
-        {
-          paddingTop: topPadding + 14,
-          paddingBottom: Math.max(insets.bottom, 24) + 32,
-        },
-      ]}
-      showsVerticalScrollIndicator={false}
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={onPullRefresh}
-          tintColor={colors.primary}
-          colors={[colors.primary]}
-        />
-      }
-    >
+    <View style={[styles.rootContainer, { backgroundColor: colors.background }]}>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={[
+          styles.scrollContent,
+          {
+            paddingTop: topPadding + 14,
+            paddingBottom: insets.bottom + 104,
+          },
+        ]}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onPullRefresh}
+            tintColor={colors.primary}
+            colors={[colors.primary]}
+          />
+        }
+      >
       {/* Header */}
       <View style={styles.topRow}>
         <View style={styles.userHeaderLeft}>
@@ -236,89 +286,51 @@ export default function StatusScreen() {
           </View>
         </View>
 
-        <TouchableOpacity
-          style={[
-            styles.logoutButton,
-            {
-              backgroundColor: colors.card,
-              borderColor: colors.cardBorder,
-            },
-          ]}
-          onPress={() => {
-            Alert.alert("Sign Out", "Are you sure you want to sign out?", [
-              { text: "Cancel", style: "cancel" },
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          {/* Top Right Appearance / Theme Mode Toggle */}
+          <TouchableOpacity
+            style={[
+              styles.actionButton,
               {
-                text: "Sign Out",
-                style: "destructive",
-                onPress: async () => {
-                  await logout();
-                  router.replace("/(auth)/login");
-                },
+                backgroundColor: colors.card,
+                borderColor: colors.cardBorder,
               },
-            ]);
-          }}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        >
-          <Ionicons name="log-out-outline" size={20} color={colors.textSecondary} />
-        </TouchableOpacity>
-      </View>
-
-      {/* Prominent Banner to Open Employee Workspace */}
-      <TouchableOpacity
-        style={{
-          flexDirection: "row",
-          alignItems: "center",
-          justifyContent: "space-between",
-          backgroundColor: isDark ? "#15221D" : "#DDF4EA",
-          borderColor: isDark ? "#35D6A0" : "#00A879",
-          borderWidth: 1.5,
-          borderRadius: 16,
-          paddingHorizontal: 16,
-          paddingVertical: 14,
-          marginBottom: 16,
-        }}
-        onPress={() => router.replace("/(employee)" as any)}
-        activeOpacity={0.85}
-      >
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 12, flex: 1 }}>
-          <View
-            style={{
-              width: 40,
-              height: 40,
-              borderRadius: 12,
-              backgroundColor: isDark ? "rgba(53, 214, 160, 0.2)" : "#00A879",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
+            ]}
+            onPress={() => setMode(isDark ? "light" : "dark")}
+            activeOpacity={0.75}
+            accessibilityLabel="Toggle Dark / Light Theme"
           >
-            <Ionicons name="grid" size={20} color={isDark ? "#35D6A0" : "#FFFFFF"} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={{ fontSize: 15, fontFamily: Typography.bold, color: isDark ? "#F1F7F4" : "#101513" }}>
-              Employee Workspace Hub
+            <Ionicons
+              name={isDark ? "sunny-outline" : "moon-outline"}
+              size={18}
+              color={isDark ? "#35D6A0" : "#00A879"}
+            />
+          </TouchableOpacity>
+
+          {/* Profile Avatar Button (Navigates to profile where employee details and sign out are located) */}
+          <TouchableOpacity
+            style={[
+              styles.avatarButton,
+              {
+                backgroundColor: isDark ? "#1B2B25" : "#00A879",
+                borderColor: isDark ? "#35D6A0" : "rgba(0, 168, 121, 0.3)",
+              },
+            ]}
+            onPress={() => router.push("/(employee)/profile" as any)}
+            activeOpacity={0.8}
+            accessibilityLabel="View Profile"
+          >
+            <Text
+              style={[
+                styles.avatarText,
+                { color: isDark ? "#35D6A0" : "#FFFFFF" },
+              ]}
+            >
+              {avatarInitials}
             </Text>
-            <Text style={{ fontSize: 12, fontFamily: Typography.regular, color: isDark ? "#8FA09A" : "#5E6964", marginTop: 2 }}>
-              Customer Dashboard, Leads & Momentum
-            </Text>
-          </View>
+          </TouchableOpacity>
         </View>
-        <View
-          style={{
-            backgroundColor: isDark ? "#35D6A0" : "#00A879",
-            paddingHorizontal: 12,
-            paddingVertical: 6,
-            borderRadius: 10,
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 4,
-          }}
-        >
-          <Text style={{ fontSize: 12, fontFamily: Typography.semiBold, color: isDark ? "#080C0B" : "#FFFFFF" }}>
-            Open
-          </Text>
-          <Ionicons name="arrow-forward" size={14} color={isDark ? "#080C0B" : "#FFFFFF"} />
-        </View>
-      </TouchableOpacity>
+      </View>
 
       {/* Primary Connection Status Card */}
       <View
@@ -413,65 +425,6 @@ export default function StatusScreen() {
             </>
           )}
         </TouchableOpacity>
-      </View>
-
-      {/* ── Theme Mode Switcher ──────────────────────────────── */}
-      <View style={styles.sectionHeader}>
-        <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>
-          APPEARANCE & THEME
-        </Text>
-      </View>
-
-      <View
-        style={[
-          styles.themeCard,
-          {
-            backgroundColor: colors.card,
-            borderColor: colors.cardBorder,
-          },
-          Shadows.card,
-        ]}
-      >
-        <View style={styles.themeRow}>
-          {themeModes.map((item) => {
-            const isSelected = mode === item.key;
-            return (
-              <TouchableOpacity
-                key={item.key}
-                activeOpacity={0.75}
-                onPress={() => setMode(item.key)}
-                style={[
-                  styles.themeBtn,
-                  {
-                    backgroundColor: isSelected
-                      ? colors.mintTintedSurface
-                      : colors.secondarySurface,
-                    borderColor: isSelected
-                      ? colors.primaryBorder
-                      : colors.borderLight,
-                  },
-                ]}
-              >
-                <Ionicons
-                  name={item.icon}
-                  size={18}
-                  color={isSelected ? colors.primary : colors.textMuted}
-                />
-                <Text
-                  style={[
-                    styles.themeBtnText,
-                    {
-                      color: isSelected ? colors.primary : colors.textSecondary,
-                      fontFamily: isSelected ? Typography.semiBold : Typography.regular,
-                    },
-                  ]}
-                >
-                  {item.label}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
       </View>
 
       {/* ── Status Diagnostics Card ──────────────────────────── */}
@@ -600,11 +553,51 @@ export default function StatusScreen() {
           </View>
         </TouchableOpacity>
       </View>
-    </ScrollView>
+      </ScrollView>
+
+      {/* Persistent Floating Bottom Navigation Dock */}
+      <FloatingTabBar
+        onQuickActionPress={() => setQuickActionVisible(true)}
+      />
+
+      {/* Global Quick Actions Modal */}
+      <QuickActionModal
+        visible={quickActionVisible}
+        onClose={() => setQuickActionVisible(false)}
+        onAddRemark={() => setRemarkModalVisible(true)}
+        onScheduleFollowUp={() => setFollowUpModalVisible(true)}
+        onAddLead={() => setLeadModalVisible(true)}
+        onSyncCalls={handleSyncCallsFromModal}
+      />
+
+      {/* Action Sub-Modals */}
+      <AddCustomerRemarkModal
+        visible={remarkModalVisible}
+        onClose={() => setRemarkModalVisible(false)}
+        onSave={handleSaveRemark}
+        customerName="Orion Systems"
+      />
+
+      <ScheduleFollowUpModal
+        visible={followUpModalVisible}
+        onClose={() => setFollowUpModalVisible(false)}
+        onSchedule={handleScheduleFollowUp}
+        targetName="Orion Systems"
+      />
+
+      <AddLeadModal
+        visible={leadModalVisible}
+        onClose={() => setLeadModalVisible(false)}
+        onCreate={handleCreateLead}
+      />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  rootContainer: {
+    flex: 1,
+  },
   container: {
     flex: 1,
   },
@@ -656,13 +649,26 @@ const styles = StyleSheet.create({
     fontFamily: Typography.semiBold,
     fontSize: FontSizes.caption,
   },
-  logoutButton: {
-    width: 42,
-    height: 42,
-    borderRadius: Radius.lg,
+  actionButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
     borderWidth: 1,
     justifyContent: "center",
     alignItems: "center",
+  },
+  avatarButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    borderWidth: 1.5,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  avatarText: {
+    fontSize: FontSizes.caption,
+    fontFamily: Typography.bold,
+    letterSpacing: 0.5,
   },
   heroCard: {
     borderRadius: Radius.xl,

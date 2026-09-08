@@ -28,18 +28,8 @@ export default function EmployeeHomeScreen() {
     setRefreshing(false);
   }, []);
 
-  const handleNotificationPress = () => {
-    Alert.alert(
-      "Workspace Notifications",
-      "You have 7 follow-ups scheduled for today and 1 payment overdue by 3 days."
-    );
-  };
-
   const handleProfilePress = () => {
-    Alert.alert(
-      "Employee Profile",
-      "Gagan Sharma\nSales Executive • North Region\nID: emp-001"
-    );
+    router.push("/(employee)/profile" as any);
   };
 
   return (
@@ -61,7 +51,6 @@ export default function EmployeeHomeScreen() {
       >
         {/* Workspace Header */}
         <WorkspaceHeader
-          onNotificationPress={handleNotificationPress}
           onProfilePress={handleProfilePress}
         />
 
@@ -90,14 +79,14 @@ export default function EmployeeHomeScreen() {
           {/* Customer Dashboard & Leads Bento Cards */}
           <SubAppCard
             type="customers"
-            onPress={() => router.push("/(employee)/customers" as any)}
+            onPress={() => router.replace("/(employee)/customers" as any)}
             customersCount={128}
             followUpsCount={7}
           />
 
           <SubAppCard
             type="leads"
-            onPress={() => router.push("/(employee)/leads" as any)}
+            onPress={() => router.replace("/(employee)/leads" as any)}
             leadsCount={34}
             pipelineValue="₹4.2L"
           />
@@ -106,7 +95,7 @@ export default function EmployeeHomeScreen() {
           <SubAppCard
             type="call_tracker"
             onPress={() =>
-              router.push({ pathname: "/(user)/status", params: { from: "workspace" } } as any)
+              router.replace({ pathname: "/(user)/status", params: { from: "workspace" } } as any)
             }
             callsCount={12}
             syncStatusText="Active • 12 calls synced today"
@@ -245,7 +234,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   heroSection: {
-    paddingHorizontal: 4,
+    paddingHorizontal: 0,
     marginBottom: 20,
   },
   heroHeading: {
@@ -266,7 +255,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingHorizontal: 4,
+    paddingHorizontal: 0,
     marginBottom: 12,
   },
   sectionTitle: {

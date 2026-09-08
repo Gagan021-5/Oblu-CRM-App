@@ -3,7 +3,7 @@
  * Handles light, dark, and system follow modes with persistent storage.
  */
 
-import React, { createContext, useContext, useState, useEffect, useMemo } from "react";
+import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from "react";
 import { useColorScheme } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { LightTheme, DarkTheme, ThemeColors } from "@/constants/theme";
@@ -46,14 +46,11 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     })();
   }, []);
 
-  const setMode = async (newMode: ThemeMode) => {
+  const setMode = useCallback(async (newMode: ThemeMode) => {
     setModeState(newMode);
-    try {
-      await AsyncStorage.setItem(STORAGE_KEY, newMode);
-    } catch {
-      // Storage error ignored
-    }
-  };
+    // Non-blocking disk persistence so UI responds instantly
+    AsyncStorage.setItem(STORAGE_KEY, newMode).catch(() => {});
+  }, []);
 
   const isDark = useMemo(() => {
     if (mode === "system") {
@@ -73,7 +70,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       colors,
       setMode,
     }),
-    [mode, isDark, colors]
+    [mode, isDark, colors, setMode]
   );
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;

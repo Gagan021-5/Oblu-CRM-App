@@ -9,6 +9,7 @@ import { ScheduleFollowUpModal } from "@/components/employee/ScheduleFollowUpMod
 import { AddLeadModal } from "@/components/employee/AddLeadModal";
 import { addMockCustomerRemark, scheduleMockCustomerFollowUp } from "@/data/mockCustomers";
 import { createMockLead } from "@/data/mockLeads";
+import { scheduleFollowUpNotifications } from "@/services/followUpNotificationService";
 
 export default function EmployeeLayout() {
   const { colors } = useTheme();
@@ -36,6 +37,14 @@ export default function EmployeeLayout() {
   const handleScheduleFollowUp = async (data: any) => {
     try {
       await scheduleMockCustomerFollowUp("cust-001", data);
+      await scheduleFollowUpNotifications({
+        customerName: "Orion Systems",
+        customerId: "cust-001",
+        followUpDate: data.date,
+        followUpTime: data.time,
+        purpose: data.purpose,
+        notes: data.notes,
+      });
     } catch {
       // Ignored
     }
@@ -56,14 +65,15 @@ export default function EmployeeLayout() {
         screenOptions={{
           headerShown: false,
           contentStyle: { backgroundColor: colors.background },
-          animation: "fade",
+          animation: "none",
         }}
       >
-        <Stack.Screen name="index" />
-        <Stack.Screen name="customers/index" />
-        <Stack.Screen name="customers/[customerId]" />
-        <Stack.Screen name="leads/index" />
-        <Stack.Screen name="leads/[leadId]" />
+        <Stack.Screen name="index" options={{ animation: "none" }} />
+        <Stack.Screen name="profile" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen name="customers/index" options={{ animation: "none" }} />
+        <Stack.Screen name="customers/[customerId]" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen name="leads/index" options={{ animation: "none" }} />
+        <Stack.Screen name="leads/[leadId]" options={{ animation: "slide_from_right" }} />
       </Stack>
 
       {/* Persistent Floating Bottom Navigation */}

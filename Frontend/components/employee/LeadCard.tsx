@@ -11,7 +11,7 @@ interface LeadCardProps {
   onPress: () => void;
 }
 
-export const LeadCard: React.FC<LeadCardProps> = ({ lead, onPress }) => {
+const LeadCardComponent: React.FC<LeadCardProps> = ({ lead, onPress }) => {
   const { colors, isDark } = useTheme();
 
   const handleCall = (e: any) => {
@@ -235,6 +235,8 @@ export const LeadCard: React.FC<LeadCardProps> = ({ lead, onPress }) => {
     </TouchableOpacity>
   );
 };
+
+export const LeadCard = React.memo(LeadCardComponent);
 
 const styles = StyleSheet.create({
   card: {

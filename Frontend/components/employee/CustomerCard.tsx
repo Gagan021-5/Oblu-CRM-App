@@ -11,7 +11,7 @@ interface CustomerCardProps {
   onPress: () => void;
 }
 
-export const CustomerCard: React.FC<CustomerCardProps> = ({ customer, onPress }) => {
+const CustomerCardComponent: React.FC<CustomerCardProps> = ({ customer, onPress }) => {
   const { colors, isDark } = useTheme();
 
   const handleCall = (e: any) => {
@@ -211,6 +211,8 @@ export const CustomerCard: React.FC<CustomerCardProps> = ({ customer, onPress })
     </TouchableOpacity>
   );
 };
+
+export const CustomerCard = React.memo(CustomerCardComponent);
 
 const styles = StyleSheet.create({
   card: {

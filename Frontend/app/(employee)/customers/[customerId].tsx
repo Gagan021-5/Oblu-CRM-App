@@ -21,8 +21,13 @@ import {
   getMockCustomerById,
   addMockCustomerRemark,
   scheduleMockCustomerFollowUp,
+  raiseMockPaymentTicket,
+  solveMockPaymentTicket,
+  sendMockPaymentReminderEmail,
   Customer,
 } from "@/data/mockCustomers";
+import { scheduleFollowUpNotifications } from "@/services/followUpNotificationService";
+import { useNotifications } from "@/contexts/NotificationContext";
 
 type SegmentTab = "overview" | "remarks" | "followups" | "payments";
 
@@ -30,6 +35,7 @@ export default function CustomerDetailScreen() {
   const { customerId } = useLocalSearchParams<{ customerId: string }>();
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useTheme();
+  const { notifyPaymentTicket } = useNotifications();
 
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [activeTab, setActiveTab] = useState<SegmentTab>("overview");
@@ -41,6 +47,58 @@ export default function CustomerDetailScreen() {
     const data = await getMockCustomerById(customerId);
     if (data) setCustomer(data);
   }, [customerId]);
+
+  const handleRaiseTicket = async (
+    paymentId: string,
+    invoiceNum: string,
+    amount: string,
+    expDate: string
+  ) => {
+    if (!customer) return;
+    try {
+      await raiseMockPaymentTicket(customer.id, paymentId);
+      await notifyPaymentTicket({
+        customerName: customer.name,
+        customerId: customer.id,
+        invoiceNumber: invoiceNum,
+        amount: amount,
+        expectedDate: expDate || "Crossed",
+        recipientEmail: "finance@oblutools.com, " + (customer.email || ""),
+      });
+      await fetchCustomer();
+      Alert.alert(
+        "Payment Ticket Raised",
+        `Ticket for Invoice #${invoiceNum} (${amount}) has been RAISED.\n\nAutomated Gmail notification dispatched to accounts team and ${customer.assignedSalesperson}.`
+      );
+    } catch {
+      Alert.alert("Error", "Could not raise payment ticket.");
+    }
+  };
+
+  const handleSolveTicket = async (paymentId: string) => {
+    if (!customer) return;
+    try {
+      await solveMockPaymentTicket(customer.id, paymentId);
+      await fetchCustomer();
+      Alert.alert("Ticket Resolved", "Payment ticket marked as SOLVED.");
+    } catch {
+      Alert.alert("Error", "Could not resolve payment ticket.");
+    }
+  };
+
+  const handleSendReminderEmail = async (paymentId: string, invoiceNum: string) => {
+    if (!customer) return;
+    try {
+      const res = await sendMockPaymentReminderEmail(customer.id, paymentId);
+      await fetchCustomer();
+      Alert.alert(
+        "Automated Gmail Sent",
+        `Payment reminder for Invoice #${invoiceNum} successfully sent via Gmail automation to:\n${res.recipient}\n\nTimestamp: ${res.sentAt}`
+      );
+    } catch {
+      Alert.alert("Error", "Could not send payment reminder email.");
+    }
+  };
 
   useEffect(() => {
     fetchCustomer();
@@ -88,6 +146,16 @@ export default function CustomerDetailScreen() {
           }
         : null
     );
+
+    // Schedule 1-day before outer mobile & in-app notification
+    await scheduleFollowUpNotifications({
+      customerName: customer.name,
+      customerId: customer.id,
+      followUpDate: data.date,
+      followUpTime: data.time,
+      purpose: data.purpose,
+      notes: data.notes,
+    });
   };
 
   if (!customer) {
@@ -256,7 +324,7 @@ export default function CustomerDetailScreen() {
             >
               <Ionicons
                 name="call"
-                size={16}
+                size={18}
                 color={isDark ? "#35D6A0" : "#00A879"}
               />
               <Text
@@ -264,6 +332,8 @@ export default function CustomerDetailScreen() {
                   styles.actionBtnText,
                   { color: isDark ? "#35D6A0" : "#00A879" },
                 ]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
               >
                 Call
               </Text>
@@ -282,7 +352,7 @@ export default function CustomerDetailScreen() {
             >
               <Ionicons
                 name="chatbubble-outline"
-                size={16}
+                size={18}
                 color={isDark ? "#F1F7F4" : "#101513"}
               />
               <Text
@@ -290,6 +360,8 @@ export default function CustomerDetailScreen() {
                   styles.actionBtnText,
                   { color: isDark ? "#F1F7F4" : "#101513" },
                 ]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
               >
                 Message
               </Text>
@@ -308,7 +380,7 @@ export default function CustomerDetailScreen() {
             >
               <Ionicons
                 name="add-outline"
-                size={16}
+                size={18}
                 color={isDark ? "#F1F7F4" : "#101513"}
               />
               <Text
@@ -316,6 +388,8 @@ export default function CustomerDetailScreen() {
                   styles.actionBtnText,
                   { color: isDark ? "#F1F7F4" : "#101513" },
                 ]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
               >
                 Remark
               </Text>
@@ -334,7 +408,7 @@ export default function CustomerDetailScreen() {
             >
               <Ionicons
                 name="calendar-outline"
-                size={16}
+                size={18}
                 color={isDark ? "#F1F7F4" : "#101513"}
               />
               <Text
@@ -342,6 +416,8 @@ export default function CustomerDetailScreen() {
                   styles.actionBtnText,
                   { color: isDark ? "#F1F7F4" : "#101513" },
                 ]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
               >
                 Follow-up
               </Text>
@@ -398,6 +474,8 @@ export default function CustomerDetailScreen() {
                         : Typography.medium,
                     },
                   ]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
                 >
                   {tab.label}
                 </Text>
@@ -682,53 +760,206 @@ export default function CustomerDetailScreen() {
                 No pending or past invoices recorded for this customer.
               </Text>
             ) : (
-              customer.payments.map((p) => (
-                <View
-                  key={p.id}
-                  style={[
-                    styles.paymentRow,
-                    {
-                      backgroundColor: isDark ? "#121F1B" : "#F7F9F8",
-                      borderColor: isDark ? "#1C2D26" : "#E8EFEB",
-                    },
-                  ]}
-                >
-                  <View style={styles.paymentLeft}>
-                    <Text
-                      style={[
-                        styles.invoiceNum,
-                        { color: isDark ? "#F1F7F4" : "#101513" },
-                      ]}
-                    >
-                      {p.invoiceNumber}
-                    </Text>
-                    <Text
-                      style={[
-                        styles.paymentDueDate,
-                        { color: isDark ? "#8FA09A" : "#5E6964" },
-                      ]}
-                    >
-                      Due {p.dueDate}
-                    </Text>
-                  </View>
+              customer.payments.map((p) => {
+                const isTicketRaised = p.ticketStatus === "RAISED";
+                const isSolved = p.ticketStatus === "SOLVED";
 
-                  <View style={styles.paymentRight}>
-                    <Text
-                      style={[
-                        styles.paymentAmount,
-                        { color: isDark ? "#F1F7F4" : "#101513" },
-                      ]}
-                    >
-                      {p.amount}
-                    </Text>
-                    <StatusPill
-                      label={p.status}
-                      variant={p.status}
-                      size="small"
-                    />
+                return (
+                  <View
+                    key={p.id}
+                    style={[
+                      styles.paymentCard,
+                      {
+                        backgroundColor: isDark ? "#121F1B" : "#F7F9F8",
+                        borderColor: isTicketRaised
+                          ? "#FF4D4F"
+                          : p.isDateCrossed
+                          ? "#FFA940"
+                          : isDark
+                          ? "#1C2D26"
+                          : "#E8EFEB",
+                      },
+                    ]}
+                  >
+                    {/* Header Row: Invoice & Status Pill / Ticket Pill */}
+                    <View style={styles.paymentCardHeader}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                        <Ionicons
+                          name="receipt-outline"
+                          size={18}
+                          color={isDark ? "#35D6A0" : "#00A879"}
+                        />
+                        <Text
+                          style={[
+                            styles.invoiceNum,
+                            { color: isDark ? "#F1F7F4" : "#101513" },
+                          ]}
+                        >
+                          {p.invoiceNumber}
+                        </Text>
+                      </View>
+
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                        {isTicketRaised && (
+                          <View style={styles.ticketBadgeRaised}>
+                            <Ionicons name="alert-circle" size={11} color="#FF4D4F" />
+                            <Text style={styles.ticketBadgeRaisedText}>TICKET RAISED</Text>
+                          </View>
+                        )}
+                        {isSolved && (
+                          <View style={styles.ticketBadgeSolved}>
+                            <Ionicons name="checkmark-circle" size={11} color="#35D6A0" />
+                            <Text style={styles.ticketBadgeSolvedText}>RESOLVED</Text>
+                          </View>
+                        )}
+                        <StatusPill label={p.status} variant={p.status} size="small" />
+                      </View>
+                    </View>
+
+                    {/* Amount & Due Date Details */}
+                    <View style={styles.paymentDetailRow}>
+                      <View>
+                        <Text style={[styles.paymentSubLabel, { color: isDark ? "#8FA09A" : "#5E6964" }]}>
+                          Amount
+                        </Text>
+                        <Text style={[styles.paymentAmountLarge, { color: isDark ? "#F1F7F4" : "#101513" }]}>
+                          {p.amount}
+                        </Text>
+                      </View>
+                      <View style={{ alignItems: "flex-end" }}>
+                        <Text style={[styles.paymentSubLabel, { color: isDark ? "#8FA09A" : "#5E6964" }]}>
+                          Due Date
+                        </Text>
+                        <Text style={[styles.paymentDetailValue, { color: isDark ? "#F1F7F4" : "#101513" }]}>
+                          {p.dueDate}
+                        </Text>
+                      </View>
+                    </View>
+
+                    {/* Expected Date Warning Banner */}
+                    {p.expectedDate && (
+                      <View
+                        style={[
+                          styles.expectedDateBox,
+                          {
+                            backgroundColor: p.isDateCrossed
+                              ? isDark ? "rgba(255, 77, 79, 0.12)" : "#FFF1F0"
+                              : isDark ? "#162821" : "#EEF5F1",
+                            borderColor: p.isDateCrossed
+                              ? isDark ? "rgba(255, 77, 79, 0.3)" : "#FFCCC7"
+                              : isDark ? "#294039" : "#D8E0DC",
+                          },
+                        ]}
+                      >
+                        <Ionicons
+                          name={p.isDateCrossed ? "warning" : "calendar-outline"}
+                          size={15}
+                          color={p.isDateCrossed ? "#FF4D4F" : isDark ? "#35D6A0" : "#00A879"}
+                        />
+                        <View style={{ flex: 1 }}>
+                          <Text
+                            style={[
+                              styles.expectedDateText,
+                              {
+                                color: p.isDateCrossed
+                                  ? "#FF4D4F"
+                                  : isDark ? "#F1F7F4" : "#101513",
+                              },
+                            ]}
+                          >
+                            Expected Date: {p.expectedDate}
+                            {p.isDateCrossed ? " (Crossed - Overdue)" : ""}
+                          </Text>
+                          {p.ticketRaisedAt && (
+                            <Text style={[styles.ticketRaisedSub, { color: isDark ? "#8FA09A" : "#5E6964" }]}>
+                              Auto-escalated ticket logged at {p.ticketRaisedAt}
+                            </Text>
+                          )}
+                        </View>
+                      </View>
+                    )}
+
+                    {/* Automated Gmail Notification Notice */}
+                    {p.emailSent && (
+                      <View
+                        style={[
+                          styles.gmailNoticeBox,
+                          {
+                            backgroundColor: isDark ? "rgba(53, 214, 160, 0.08)" : "#E6F7F0",
+                            borderColor: isDark ? "rgba(53, 214, 160, 0.25)" : "#B5E8D5",
+                          },
+                        ]}
+                      >
+                        <Ionicons
+                          name="mail-unread-outline"
+                          size={15}
+                          color={isDark ? "#35D6A0" : "#00A879"}
+                        />
+                        <View style={{ flex: 1 }}>
+                          <Text
+                            style={[
+                              styles.gmailNoticeTitle,
+                              { color: isDark ? "#35D6A0" : "#007A57" },
+                            ]}
+                          >
+                            Automated Gmail Alert Dispatched
+                          </Text>
+                          <Text
+                            style={[
+                              styles.gmailNoticeDetail,
+                              { color: isDark ? "#A0B5AC" : "#4A5E55" },
+                            ]}
+                            numberOfLines={2}
+                          >
+                            Sent to: {p.emailRecipient || "Finance & Sales Team"}
+                            {p.emailSentAt ? ` • ${p.emailSentAt}` : ""}
+                          </Text>
+                        </View>
+                      </View>
+                    )}
+
+                    {/* Action Buttons */}
+                    <View style={styles.paymentActionRow}>
+                      {isTicketRaised ? (
+                        <>
+                          <TouchableOpacity
+                            style={[styles.actionBtnSecondary, { borderColor: isDark ? "#294039" : "#D8E0DC" }]}
+                            onPress={() => handleSendReminderEmail(p.id, p.invoiceNumber)}
+                          >
+                            <Ionicons name="mail" size={13} color={isDark ? "#35D6A0" : "#00A879"} />
+                            <Text style={[styles.actionBtnSecondaryText, { color: isDark ? "#35D6A0" : "#00A879" }]}>
+                              Resend Gmail Alert
+                            </Text>
+                          </TouchableOpacity>
+
+                          <TouchableOpacity
+                            style={styles.actionBtnPrimary}
+                            onPress={() => handleSolveTicket(p.id)}
+                          >
+                            <Ionicons name="checkmark-done" size={13} color="#000" />
+                            <Text style={styles.actionBtnPrimaryText}>Mark Solved</Text>
+                          </TouchableOpacity>
+                        </>
+                      ) : p.isDateCrossed && !isSolved ? (
+                        <TouchableOpacity
+                          style={styles.actionBtnDanger}
+                          onPress={() =>
+                            handleRaiseTicket(
+                              p.id,
+                              p.invoiceNumber,
+                              p.amount,
+                              p.expectedDate || p.dueDate
+                            )
+                          }
+                        >
+                          <Ionicons name="alert-circle" size={14} color="#FFF" />
+                          <Text style={styles.actionBtnDangerText}>Raise Ticket & Send Gmail</Text>
+                        </TouchableOpacity>
+                      ) : null}
+                    </View>
                   </View>
-                </View>
-              ))
+                );
+              })
             )}
           </View>
         )}
@@ -777,6 +1008,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: 16,
+    paddingTop: 4,
   },
   profileCard: {
     borderRadius: 20,
@@ -838,17 +1070,20 @@ const styles = StyleSheet.create({
   },
   actionBtn: {
     flex: 1,
-    flexDirection: "row",
+    flexDirection: "column",
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 9,
-    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 4,
+    borderRadius: 14,
     borderWidth: 1,
     gap: 5,
+    minHeight: 58,
   },
   actionBtnText: {
-    fontSize: FontSizes.caption,
+    fontSize: 11,
     fontFamily: Typography.semiBold,
+    textAlign: "center",
   },
   segmentBar: {
     flexDirection: "row",
@@ -860,12 +1095,15 @@ const styles = StyleSheet.create({
   segmentItem: {
     flex: 1,
     paddingVertical: 8,
+    paddingHorizontal: 3,
     borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
+    minWidth: 0,
   },
   segmentText: {
-    fontSize: FontSizes.caption,
+    fontSize: 11,
+    textAlign: "center",
   },
   cardBox: {
     borderRadius: 18,
@@ -901,6 +1139,7 @@ const styles = StyleSheet.create({
   },
   paramItem: {
     width: "50%",
+    paddingRight: 8,
   },
   paramLabel: {
     fontSize: FontSizes.micro,
@@ -927,10 +1166,13 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
+    flex: 1,
+    marginRight: 8,
   },
   followUpDateText: {
     fontSize: FontSizes.caption,
     fontFamily: Typography.semiBold,
+    flexShrink: 1,
   },
   followUpPurpose: {
     fontSize: FontSizes.bodySmall,
@@ -950,7 +1192,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     marginBottom: 10,
   },
-  paymentLeft: {},
+  paymentLeft: {
+    flex: 1,
+    marginRight: 10,
+  },
   invoiceNum: {
     fontSize: FontSizes.bodySmall,
     fontFamily: Typography.semiBold,
@@ -963,6 +1208,7 @@ const styles = StyleSheet.create({
   paymentRight: {
     alignItems: "flex-end",
     gap: 4,
+    flexShrink: 0,
   },
   paymentAmount: {
     fontSize: FontSizes.body,
@@ -972,5 +1218,155 @@ const styles = StyleSheet.create({
     fontSize: FontSizes.bodySmall,
     fontFamily: Typography.regular,
     paddingVertical: 12,
+  },
+  paymentCard: {
+    borderRadius: 14,
+    borderWidth: 1.5,
+    padding: 14,
+    marginBottom: 12,
+  },
+  paymentCardHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  ticketBadgeRaised: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "rgba(255, 77, 79, 0.15)",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: "rgba(255, 77, 79, 0.3)",
+  },
+  ticketBadgeRaisedText: {
+    fontSize: 10,
+    fontFamily: Typography.bold,
+    color: "#FF4D4F",
+    letterSpacing: 0.5,
+  },
+  ticketBadgeSolved: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "rgba(53, 214, 160, 0.15)",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: "rgba(53, 214, 160, 0.3)",
+  },
+  ticketBadgeSolvedText: {
+    fontSize: 10,
+    fontFamily: Typography.bold,
+    color: "#35D6A0",
+    letterSpacing: 0.5,
+  },
+  paymentDetailRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-end",
+    marginBottom: 10,
+  },
+  paymentSubLabel: {
+    fontSize: 11,
+    fontFamily: Typography.medium,
+    marginBottom: 2,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  paymentAmountLarge: {
+    fontSize: FontSizes.sectionTitle,
+    fontFamily: Typography.bold,
+  },
+  paymentDetailValue: {
+    fontSize: FontSizes.bodySmall,
+    fontFamily: Typography.semiBold,
+  },
+  expectedDateBox: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    padding: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    marginBottom: 10,
+  },
+  expectedDateText: {
+    fontSize: FontSizes.caption,
+    fontFamily: Typography.semiBold,
+  },
+  ticketRaisedSub: {
+    fontSize: 10,
+    fontFamily: Typography.regular,
+    marginTop: 2,
+  },
+  gmailNoticeBox: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    padding: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    marginBottom: 10,
+  },
+  gmailNoticeTitle: {
+    fontSize: FontSizes.caption,
+    fontFamily: Typography.bold,
+  },
+  gmailNoticeDetail: {
+    fontSize: 11,
+    fontFamily: Typography.regular,
+    marginTop: 2,
+  },
+  paymentActionRow: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: 8,
+    marginTop: 4,
+  },
+  actionBtnSecondary: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  actionBtnSecondaryText: {
+    fontSize: FontSizes.caption,
+    fontFamily: Typography.semiBold,
+  },
+  actionBtnPrimary: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#35D6A0",
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 8,
+  },
+  actionBtnPrimaryText: {
+    fontSize: FontSizes.caption,
+    fontFamily: Typography.bold,
+    color: "#05130D",
+  },
+  actionBtnDanger: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#FF4D4F",
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  actionBtnDangerText: {
+    fontSize: FontSizes.caption,
+    fontFamily: Typography.bold,
+    color: "#FFFFFF",
   },
 });

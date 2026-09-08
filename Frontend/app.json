@@ -21,7 +21,8 @@
         "android.permission.RECEIVE_BOOT_COMPLETED",
         "android.permission.FOREGROUND_SERVICE",
         "android.permission.FOREGROUND_SERVICE_DATA_SYNC",
-        "android.permission.WAKE_LOCK"
+        "android.permission.WAKE_LOCK",
+        "android.permission.POST_NOTIFICATIONS"
       ],
       "package": "com.calltracer.app"
     },
@@ -43,6 +44,7 @@
         }
       ],
       "expo-background-task",
+      "expo-notifications",
       [
         "expo-font",
         {

@@ -16,6 +16,7 @@ import { Inter_700Bold } from "@expo-google-fonts/inter/700Bold";
 import { Inter_800ExtraBold } from "@expo-google-fonts/inter/800ExtraBold";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ThemeProvider, useTheme } from "@/contexts/ThemeContext";
+import { NotificationProvider } from "@/contexts/NotificationContext";
 import { Colors } from "@/constants/theme";
 import { View, ActivityIndicator } from "react-native";
 import { registerBackgroundSync } from "@/services/backgroundSync";
@@ -32,7 +33,7 @@ function RootContent() {
         screenOptions={{
           headerShown: false,
           contentStyle: { backgroundColor: colors.background },
-          animation: "fade",
+          animation: "none",
         }}
       />
     </>
@@ -90,7 +91,9 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <ThemeProvider>
         <AuthProvider>
-          <RootContent />
+          <NotificationProvider>
+            <RootContent />
+          </NotificationProvider>
         </AuthProvider>
       </ThemeProvider>
     </SafeAreaProvider>

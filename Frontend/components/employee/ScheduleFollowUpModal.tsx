@@ -313,6 +313,40 @@ export const ScheduleFollowUpModal: React.FC<ScheduleFollowUpModalProps> = ({
                     textAlignVertical="top"
                   />
 
+                  {/* 1-Day Prior Notification Assurance Capsule */}
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 8,
+                      backgroundColor: isDark ? "rgba(53, 214, 160, 0.1)" : "#EAF7F1",
+                      borderColor: isDark ? "rgba(53, 214, 160, 0.25)" : "rgba(0, 168, 121, 0.25)",
+                      borderWidth: 1,
+                      borderRadius: 12,
+                      paddingHorizontal: 12,
+                      paddingVertical: 10,
+                      marginTop: 14,
+                      marginBottom: 16,
+                    }}
+                  >
+                    <Ionicons
+                      name="notifications-circle"
+                      size={20}
+                      color={isDark ? "#35D6A0" : "#00A879"}
+                    />
+                    <Text
+                      style={{
+                        flex: 1,
+                        fontSize: 11,
+                        fontFamily: Typography.medium,
+                        color: isDark ? "#A4EED4" : "#007A58",
+                        lineHeight: 15,
+                      }}
+                    >
+                      Real-time outer mobile notification (heads-up style) & in-app reminder active 1 day prior.
+                    </Text>
+                  </View>
+
                   {/* Schedule Button */}
                   <TouchableOpacity
                     style={[

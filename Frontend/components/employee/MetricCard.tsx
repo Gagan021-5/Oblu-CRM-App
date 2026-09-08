@@ -12,7 +12,7 @@ interface MetricCardProps {
   isHighlight?: boolean;
 }
 
-export const MetricCard: React.FC<MetricCardProps> = ({
+const MetricCardComponent: React.FC<MetricCardProps> = ({
   label,
   value,
   subValue,
@@ -118,6 +118,8 @@ export const MetricCard: React.FC<MetricCardProps> = ({
     </View>
   );
 };
+
+export const MetricCard = React.memo(MetricCardComponent);
 
 const styles = StyleSheet.create({
   card: {

@@ -10,7 +10,7 @@ interface FloatingTabBarProps {
   onQuickActionPress: () => void;
 }
 
-export const FloatingTabBar: React.FC<FloatingTabBarProps> = ({
+const FloatingTabBarComponent: React.FC<FloatingTabBarProps> = ({
   onQuickActionPress,
 }) => {
   const insets = useSafeAreaInsets();
@@ -18,10 +18,18 @@ export const FloatingTabBar: React.FC<FloatingTabBarProps> = ({
   const pathname = usePathname();
 
   // Route active checks
-  const isHome = pathname === "/(employee)" || pathname === "/(employee)/";
-  const isCustomers = pathname.includes("/customers");
-  const isLeads = pathname.includes("/leads");
-  const isCalls = pathname.includes("/(user)");
+  const isHome =
+    pathname === "/(employee)" ||
+    pathname === "/(employee)/" ||
+    pathname === "/" ||
+    pathname === "/index" ||
+    pathname === "";
+  const isCustomers = pathname.includes("customers");
+  const isLeads = pathname.includes("leads");
+  const isCalls =
+    pathname.includes("status") ||
+    pathname.includes("(user)") ||
+    pathname.includes("calls");
 
   const navItems = [
     {
@@ -30,7 +38,11 @@ export const FloatingTabBar: React.FC<FloatingTabBarProps> = ({
       iconActive: "home" as const,
       iconInactive: "home-outline" as const,
       isActive: isHome,
-      onPress: () => router.push("/(employee)" as any),
+      onPress: () => {
+        if (!isHome) {
+          router.replace("/(employee)" as any);
+        }
+      },
     },
     {
       key: "customers",
@@ -38,7 +50,11 @@ export const FloatingTabBar: React.FC<FloatingTabBarProps> = ({
       iconActive: "people" as const,
       iconInactive: "people-outline" as const,
       isActive: isCustomers,
-      onPress: () => router.push("/(employee)/customers" as any),
+      onPress: () => {
+        if (!isCustomers) {
+          router.replace("/(employee)/customers" as any);
+        }
+      },
     },
   ];
 
@@ -49,7 +65,11 @@ export const FloatingTabBar: React.FC<FloatingTabBarProps> = ({
       iconActive: "trending-up" as const,
       iconInactive: "trending-up-outline" as const,
       isActive: isLeads,
-      onPress: () => router.push("/(employee)/leads" as any),
+      onPress: () => {
+        if (!isLeads) {
+          router.replace("/(employee)/leads" as any);
+        }
+      },
     },
     {
       key: "calls",
@@ -57,8 +77,11 @@ export const FloatingTabBar: React.FC<FloatingTabBarProps> = ({
       iconActive: "call" as const,
       iconInactive: "call-outline" as const,
       isActive: isCalls,
-      onPress: () =>
-        router.push({ pathname: "/(user)/status", params: { from: "workspace" } } as any),
+      onPress: () => {
+        if (!isCalls) {
+          router.replace({ pathname: "/(user)/status", params: { from: "workspace" } } as any);
+        }
+      },
     },
   ];
 
@@ -172,6 +195,8 @@ export const FloatingTabBar: React.FC<FloatingTabBarProps> = ({
     </View>
   );
 };
+
+export const FloatingTabBar = React.memo(FloatingTabBarComponent);
 
 const styles = StyleSheet.create({
   dockWrapper: {

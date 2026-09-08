@@ -16,7 +16,7 @@ interface SubAppCardProps {
   syncStatusText?: string;
 }
 
-export const SubAppCard: React.FC<SubAppCardProps> = ({
+const SubAppCardComponent: React.FC<SubAppCardProps> = ({
   type,
   onPress,
   customersCount = 128,
@@ -237,6 +237,8 @@ export const SubAppCard: React.FC<SubAppCardProps> = ({
     </TouchableOpacity>
   );
 };
+
+export const SubAppCard = React.memo(SubAppCardComponent);
 
 const styles = StyleSheet.create({
   bentoCard: {

@@ -5,16 +5,26 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { Typography, FontSizes } from "@/constants/theme";
 import { mockEmployee } from "@/data/mockEmployee";
 
+import { router } from "expo-router";
+import { useNotifications } from "@/contexts/NotificationContext";
+import { NotificationCenterModal } from "@/components/employee/NotificationCenterModal";
+
 interface WorkspaceHeaderProps {
   onNotificationPress?: () => void;
   onProfilePress?: () => void;
 }
 
-export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
+const WorkspaceHeaderComponent: React.FC<WorkspaceHeaderProps> = ({
   onNotificationPress,
   onProfilePress,
 }) => {
   const { colors, isDark, mode, setMode } = useTheme();
+  const {
+    unreadCount,
+    openNotificationCenter,
+    closeNotificationCenter,
+    isNotificationCenterVisible,
+  } = useNotifications();
 
   // Dynamic greeting based on time of day
   const hour = new Date().getHours();
@@ -32,40 +42,26 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
     setMode(isDark ? "light" : "dark");
   };
 
+  const handleNotificationClick = () => {
+    if (onNotificationPress) {
+      onNotificationPress();
+    } else {
+      openNotificationCenter();
+    }
+  };
+
+  const handleProfileClick = () => {
+    if (onProfilePress) {
+      onProfilePress();
+    } else {
+      router.push("/(employee)/profile" as any);
+    }
+  };
+
   return (
     <View style={styles.container}>
       <View style={styles.topRow}>
         <View style={styles.leftMeta}>
-          {/* Sync Status Capsule */}
-          <View
-            style={[
-              styles.syncCapsule,
-              {
-                backgroundColor: isDark
-                  ? "rgba(53, 214, 160, 0.12)"
-                  : "#DDF4EA",
-                borderColor: isDark
-                  ? "rgba(53, 214, 160, 0.28)"
-                  : "rgba(0, 168, 121, 0.25)",
-              },
-            ]}
-          >
-            <View
-              style={[
-                styles.syncDot,
-                { backgroundColor: isDark ? "#35D6A0" : "#00A879" },
-              ]}
-            />
-            <Text
-              style={[
-                styles.syncText,
-                { color: isDark ? "#35D6A0" : "#00A879" },
-              ]}
-            >
-              Synced
-            </Text>
-          </View>
-
           <Text
             style={[
               styles.dateText,
@@ -104,15 +100,39 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
                 borderColor: isDark ? "#294039" : "#D8E0DC",
               },
             ]}
-            onPress={onNotificationPress}
+            onPress={handleNotificationClick}
             activeOpacity={0.7}
           >
             <Ionicons
-              name="notifications-outline"
+              name={unreadCount > 0 ? "notifications" : "notifications-outline"}
               size={18}
-              color={isDark ? "#F1F7F4" : "#101513"}
+              color={
+                unreadCount > 0
+                  ? isDark
+                    ? "#35D6A0"
+                    : "#00A879"
+                  : isDark
+                  ? "#F1F7F4"
+                  : "#101513"
+              }
             />
-            <View style={styles.notificationBadge} />
+            {unreadCount > 0 && (
+              <View
+                style={[
+                  styles.notificationBadge,
+                  { backgroundColor: isDark ? "#35D6A0" : "#00A879" },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.badgeText,
+                    { color: isDark ? "#0A1612" : "#FFFFFF" },
+                  ]}
+                >
+                  {unreadCount > 9 ? "9+" : unreadCount}
+                </Text>
+              </View>
+            )}
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -123,7 +143,7 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
                 borderColor: isDark ? "#35D6A0" : "rgba(0, 168, 121, 0.3)",
               },
             ]}
-            onPress={onProfilePress}
+            onPress={handleProfileClick}
             activeOpacity={0.8}
           >
             <Text
@@ -147,13 +167,21 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
       >
         {greeting}, {mockEmployee.name.split(" ")[0]}
       </Text>
+
+      {/* Interactive Notification Center Modal */}
+      <NotificationCenterModal
+        visible={isNotificationCenterVisible}
+        onClose={closeNotificationCenter}
+      />
     </View>
   );
 };
 
+export const WorkspaceHeader = React.memo(WorkspaceHeaderComponent);
+
 const styles = StyleSheet.create({
   container: {
-    paddingHorizontal: 16,
+    paddingHorizontal: 0,
     paddingTop: 10,
     paddingBottom: 16,
   },
@@ -165,32 +193,11 @@ const styles = StyleSheet.create({
   },
   leftMeta: {
     flexDirection: "column",
-  },
-  syncCapsule: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 999,
-    borderWidth: 1,
-    alignSelf: "flex-start",
-    marginBottom: 4,
-  },
-  syncDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    marginRight: 6,
-  },
-  syncText: {
-    fontSize: FontSizes.micro,
-    fontFamily: Typography.semiBold,
-    letterSpacing: 0.3,
-    textTransform: "uppercase",
+    justifyContent: "center",
   },
   dateText: {
-    fontSize: FontSizes.caption,
-    fontFamily: Typography.medium,
+    fontSize: FontSizes.bodySmall,
+    fontFamily: Typography.semiBold,
   },
   rightActions: {
     flexDirection: "row",
@@ -208,12 +215,20 @@ const styles = StyleSheet.create({
   },
   notificationBadge: {
     position: "absolute",
-    top: 7,
-    right: 7,
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: "#19C997",
+    top: -4,
+    right: -4,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    paddingHorizontal: 3,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  badgeText: {
+    fontSize: 9,
+    fontFamily: Typography.bold,
+    textAlign: "center",
+    lineHeight: 11,
   },
   avatar: {
     width: 38,
