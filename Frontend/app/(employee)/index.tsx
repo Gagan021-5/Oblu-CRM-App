@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import {
   View,
   Text,
@@ -6,31 +6,52 @@ import {
   StyleSheet,
   RefreshControl,
   Alert,
+  TouchableOpacity,
 } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "@/contexts/ThemeContext";
-import { Typography, FontSizes, Spacing } from "@/constants/theme";
+import { useAuth } from "@/contexts/AuthContext";
+import { Ionicons } from "@expo/vector-icons";
+import { Typography, FontSizes, Spacing, Radius } from "@/constants/theme";
 import { WorkspaceHeader } from "@/components/employee/WorkspaceHeader";
 import { SubAppCard } from "@/components/employee/SubAppCard";
 import { MetricCard } from "@/components/employee/MetricCard";
 import { TimelineItem } from "@/components/employee/TimelineItem";
+import { fetchDashboardStatsApi, DashboardStats } from "@/services/customerService";
 
 export default function EmployeeHomeScreen() {
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useTheme();
+  const { user } = useAuth();
 
   const [refreshing, setRefreshing] = useState(false);
+  const [stats, setStats] = useState<DashboardStats | null>(null);
+
+  const loadStats = useCallback(async () => {
+    try {
+      const data = await fetchDashboardStatsApi();
+      setStats(data);
+    } catch {
+      // Fallback handled inside service
+    }
+  }, []);
+
+  useEffect(() => {
+    loadStats();
+  }, [loadStats]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await new Promise((res) => setTimeout(res, 600));
+    await loadStats();
     setRefreshing(false);
-  }, []);
+  }, [loadStats]);
 
   const handleProfilePress = () => {
     router.push("/(employee)/profile" as any);
   };
+
+  const isAdmin = user?.role === "admin";
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background, paddingTop: insets.top }]}>
@@ -53,6 +74,50 @@ export default function EmployeeHomeScreen() {
         <WorkspaceHeader
           onProfilePress={handleProfilePress}
         />
+
+        {/* Admin Direct Switcher Banner */}
+        {isAdmin && (
+          <TouchableOpacity
+            style={{
+              backgroundColor: isDark ? "rgba(139, 92, 246, 0.15)" : "#EDE9FE",
+              borderColor: isDark ? "#8B5CF6" : "#A78BFA",
+              borderWidth: 1.5,
+              borderRadius: Radius.lg,
+              paddingVertical: 12,
+              paddingHorizontal: 14,
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+              marginBottom: 16,
+            }}
+            onPress={() => router.push("/(admin)/users" as any)}
+            activeOpacity={0.8}
+          >
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
+              <View
+                style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: 18,
+                  backgroundColor: "#8B5CF6",
+                  justifyContent: "center",
+                  alignItems: "center",
+                }}
+              >
+                <Ionicons name="shield-checkmark" size={18} color="#FFFFFF" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontFamily: Typography.bold, fontSize: 13, color: isDark ? "#EDE9FE" : "#5B21B6" }}>
+                  Logged In As Admin ({user?.username})
+                </Text>
+                <Text style={{ fontFamily: Typography.regular, fontSize: 11, color: isDark ? "#C4B5FD" : "#7C3AED" }}>
+                  Tap to view Momentum, Lead Radar & Team Call Tracking
+                </Text>
+              </View>
+            </View>
+            <Ionicons name="arrow-forward-circle" size={24} color="#8B5CF6" />
+          </TouchableOpacity>
+        )}
 
         {/* Hero Section */}
         <View style={styles.heroSection}>
@@ -80,15 +145,15 @@ export default function EmployeeHomeScreen() {
           <SubAppCard
             type="customers"
             onPress={() => router.replace("/(employee)/customers" as any)}
-            customersCount={128}
-            followUpsCount={7}
+            customersCount={stats?.totalCustomers ?? 1214}
+            followUpsCount={stats?.followUpsDueCount ?? 18}
           />
 
           <SubAppCard
             type="leads"
             onPress={() => router.replace("/(employee)/leads" as any)}
-            leadsCount={34}
-            pipelineValue="₹4.2L"
+            leadsCount={stats?.totalLeadsCount ?? 3}
+            pipelineValue={stats?.totalOutstandingFormatted ?? "₹1.42 Cr"}
           />
 
           {/* Call Tracker Horizontal Wide Card */}
@@ -98,7 +163,7 @@ export default function EmployeeHomeScreen() {
               router.replace({ pathname: "/(user)/status", params: { from: "workspace" } } as any)
             }
             callsCount={12}
-            syncStatusText="Active • 12 calls synced today"
+            syncStatusText="Active • 100% Live Telephony Sync"
           />
         </View>
 

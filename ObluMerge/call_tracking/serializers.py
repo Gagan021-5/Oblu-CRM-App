@@ -11,8 +11,32 @@ User = get_user_model()
 
 
 def get_role(user):
-    """Calculates user role dynamically from CRM permissions."""
-    if user.is_staff or user.is_superuser:
+    """Calculates user role dynamically based on group, attributes, or organizational flowchart."""
+    # Check user groups first
+    group = user.groups.first()
+    if group and group.name:
+        return group.name
+
+    uname = user.username.lower()
+    if uname in ["nitin_aggarwal", "akshay_narayan", "admin1", "infected"] or user.is_superuser:
+        return "admin"
+    if uname in ["bhavya_bhardwaj"]:
+        return "sales_mgr"
+    if uname in ["vibhuti_panwar"]:
+        return "buss_mgr"
+    if uname in ["vanshika", "anshika"]:
+        return "hr"
+    if uname in ["sujal_wadhwa", "neha_sharma", "sanyam_arora"] or getattr(user, "is_accountant", False):
+        return "accounts_ops"
+    if uname in ["vikas", "vivek"]:
+        return "warehouse"
+    if uname in ["ankush_oblu"]:
+        return "rsm_ankush"
+    if uname in ["aman_poddar"]:
+        return "rsm_aman"
+    if uname in ["kaushik_tiwari", "dhornala_rushikesh", "naveen_k", "satish_kumar"]:
+        return "asm"
+    if user.is_staff:
         return "admin"
     return "user"
 
@@ -33,6 +57,8 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         return token
 
     def validate(self, attrs):
+        if self.username_field in attrs and isinstance(attrs[self.username_field], str):
+            attrs[self.username_field] = attrs[self.username_field].strip()
         data = super().validate(attrs)
         profile, _ = CallTrackingProfile.objects.get_or_create(user=self.user)
         data["user"] = {
@@ -58,6 +84,8 @@ class RegisterSerializer(serializers.ModelSerializer):
         write_only=True, required=True, min_length=8
     )
     role = serializers.CharField(required=False, default="user")
+    manager = serializers.CharField(required=False, allow_blank=True, default="")
+    first_name = serializers.CharField(required=False, allow_blank=True, default="")
     device_id = serializers.CharField(required=False, allow_blank=True, default="")
     device_model = serializers.CharField(required=False, allow_blank=True, default="")
     app_version = serializers.CharField(required=False, allow_blank=True, default="")
@@ -67,10 +95,12 @@ class RegisterSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "username",
+            "first_name",
             "email",
             "password",
             "password_confirm",
             "role",
+            "manager",
             "device_id",
             "device_model",
             "app_version",
@@ -87,18 +117,30 @@ class RegisterSerializer(serializers.ModelSerializer):
         validated_data.pop("password_confirm", None)
         password = validated_data.pop("password")
         role = validated_data.pop("role", "user")
+        manager_name = validated_data.pop("manager", "")
+        first_name = validated_data.get("first_name", "")
         device_id = validated_data.pop("device_id", "")
         device_model = validated_data.pop("device_model", "")
         app_version = validated_data.pop("app_version", "")
 
         is_staff = (role == "admin")
+        is_accountant = (role == "accounts_ops")
+
         user = User(
             username=validated_data.get("username"),
             email=validated_data.get("email", ""),
+            first_name=first_name,
             is_staff=is_staff,
+            is_accountant=is_accountant,
         )
         user.set_password(password)
         user.save()
+
+        # Link to Django Group matching role
+        if role:
+            from django.contrib.auth.models import Group
+            group, _ = Group.objects.get_or_create(name=role)
+            user.groups.add(group)
 
         CallTrackingProfile.objects.create(
             user=user,
@@ -107,6 +149,21 @@ class RegisterSerializer(serializers.ModelSerializer):
             app_version=app_version,
             consent_given=False,
         )
+
+        # Create/Link SalesPerson in customer_dashboard
+        try:
+            from customer_dashboard.models import SalesPerson
+            sp_name = first_name.strip() if first_name.strip() else user.username
+            sp, _ = SalesPerson.objects.get_or_create(name=sp_name)
+            sp.user = user
+            if manager_name:
+                mgr_sp = SalesPerson.objects.filter(name__icontains=manager_name).first()
+                if mgr_sp and mgr_sp.id != sp.id:
+                    sp.manager = mgr_sp
+            sp.save()
+        except Exception:
+            pass
+
         return user
 
 

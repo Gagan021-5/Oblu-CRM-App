@@ -25,6 +25,7 @@ import {
   Lead,
   LeadStage,
 } from "@/data/mockLeads";
+import { fetchLeadByIdFromApi, updateLeadStageApi } from "@/services/leadService";
 import { scheduleFollowUpNotifications } from "@/services/followUpNotificationService";
 
 type LeadTab = "overview" | "activity" | "notes" | "followups";
@@ -43,7 +44,7 @@ export default function LeadDetailScreen() {
 
   const fetchLead = useCallback(async () => {
     if (!leadId) return;
-    const data = await getMockLeadById(leadId);
+    const data = await fetchLeadByIdFromApi(leadId);
     if (data) setLead(data);
   }, [leadId]);
 
@@ -61,6 +62,7 @@ export default function LeadDetailScreen() {
 
   const handleStageChange = async (newStage: LeadStage) => {
     if (!lead || lead.stage === newStage) return;
+    await updateLeadStageApi(lead.id, newStage);
     await updateMockLeadStage(lead.id, newStage);
     setLead((prev) =>
       prev

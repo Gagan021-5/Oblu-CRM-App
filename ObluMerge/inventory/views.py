@@ -1544,13 +1544,13 @@ class PurchaseOrderView(AccountantRequiredMixin, View):
         """
         by_month = defaultdict(float)
         for row in sales_rows:
-            d = row["date"]
+            d = row["date"] # getting date from each sale  
             if not d:
+                continue #skip the date 
+            if from_date and d < from_date: # if already f_sal skip the older sales
                 continue
-            if from_date and d < from_date:
-                continue
-            by_month[d.strftime("%Y-%m")] += row["qty"]
-        return [{"month": m, "qty": q} for m, q in sorted(by_month.items())]
+            by_month[d.strftime("%Y-%m")] += row["qty"] #formatting in "2026 - 05" + quantaties added of same month
+        return [{"month": m, "qty": q} for m, q in sorted(by_month.items())] #ascending order months 
 
     # ─────────────────────────────────────────────────────────────────────────
     # Average daily sales (tally data, from April 2025)
@@ -1565,9 +1565,9 @@ class PurchaseOrderView(AccountantRequiredMixin, View):
         today      = datetime.date.today()
         total_qty  = sum(
             row["qty"] for row in sales_rows
-            if row["date"] and row["date"] >= APRIL_2025
+            if row["date"] and row["date"] >= APRIL_2025 # April | ---- -----| till now
         )
-        days_elapsed = (today - APRIL_2025).days or 1
+        days_elapsed = (today - APRIL_2025).days or 1 #days passed b/w last april - today
         return round(total_qty / days_elapsed, 4)
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -1589,20 +1589,20 @@ class PurchaseOrderView(AccountantRequiredMixin, View):
         by_month = defaultdict(float)
         for row in sales_rows:
             if row["date"]:
-                by_month[row["date"].strftime("%Y-%m")] += row["qty"]
+                by_month[row["date"].strftime("%Y-%m")] += row["qty"] # again add qty of same month 
 
         def _sum_window(offset_start, count):
             total = 0.0
             for i in range(offset_start, offset_start + count):
                 key = (today.replace(day=1) - relativedelta(months=i)).strftime("%Y-%m")
                 total += by_month.get(key, 0)
-            return total
+            return total                # determine the sales of prev groups month from curr
 
         r1y = _sum_window(0,  12);  p1y = _sum_window(12, 12)
         r3m = _sum_window(0,   3);  p3m = _sum_window(3,   3)
 
-        growth_1y = round((r1y - p1y) / p1y * 100, 1) if p1y else None
-        growth_3m = round((r3m - p3m) / p3m * 100, 1) if p3m else None
+        growth_1y = round((r1y - p1y) / p1y * 100, 1) if p1y else None # growth % of year
+        growth_3m = round((r3m - p3m) / p3m * 100, 1) if p3m else None # growth % of months 
         return growth_1y, growth_3m
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -1620,7 +1620,7 @@ class PurchaseOrderView(AccountantRequiredMixin, View):
             return None, None, None
 
         # Convert annual / 3-month growth to per-month growth rates
-        rates = []
+        rates = [] # per month GROWTH
         if growth_1y is not None:
             rates.append(growth_1y / 12 / 100)   # monthly equiv of yearly growth
         if growth_3m is not None:
@@ -1628,16 +1628,16 @@ class PurchaseOrderView(AccountantRequiredMixin, View):
 
         if not rates:
             # No growth data — flat forecast
-            base = round(avg_daily * 30)
+            base = round(avg_daily * 30) # constant so multiply * 30 
             return base, base, base
 
         monthly_growth = sum(rates) / len(rates)  # blended rate
 
-        base_monthly = avg_daily * 30
+        base_monthly = avg_daily * 30 
         m1 = max(0, round(base_monthly * (1 + monthly_growth)))
         m2 = max(0, round(base_monthly * (1 + monthly_growth) ** 2))
         m3 = max(0, round(base_monthly * (1 + monthly_growth) ** 3))
-        return m1, m2, m3
+        return m1, m2, m3  # monthly growth for eacah month base - (1 + calcu growth each month )
 
     # ─────────────────────────────────────────────────────────────────────────
     # Order calculation
@@ -1701,7 +1701,7 @@ class PurchaseOrderView(AccountantRequiredMixin, View):
         # ── Step 1: daily growth-adjusted demand projection (180 days horizon)
         horizon = 180
         daily_demand = []
-        for day in range(horizon):
+        for day in range(horizon):  #daily demand for the sales
             month_offset = day // 30
             rate = (1 + monthly_growth_rate) ** month_offset
             daily_demand.append(avg_daily * rate)
@@ -1713,7 +1713,7 @@ class PurchaseOrderView(AccountantRequiredMixin, View):
 
         # ── Step 3: simulate stock level day-by-day to find runway
         stock = float(current_stock)
-        runway_days = None
+        runway_days = None # when stock finishes
 
         graph_data = []   # for chart: day → {stock, demand_per_day}
         incoming_added = False
@@ -1728,8 +1728,8 @@ class PurchaseOrderView(AccountantRequiredMixin, View):
                 stock += incoming_qty
                 incoming_added = True
 
-            demand = daily_demand[day]
-            stock -= demand
+            demand = daily_demand[day]  # daily 10 units sales 
+            stock -= demand                # -10
             buffer_threshold = demand * 30 * 3 * BUFFER  # 3-month buffered demand
 
             graph_data.append({
@@ -1788,7 +1788,7 @@ class PurchaseOrderView(AccountantRequiredMixin, View):
             not incoming_added
         ):
             incoming_after_new_batch = incoming_qty
-
+        # Order Recommendation 
         shortfall = max(0, demand_3m_after - stock_at_arrival - incoming_after_new_batch)
 
         # ── Step 6: urgency
@@ -3287,7 +3287,7 @@ class PurchaseOrderViewPrev(AccountantRequiredMixin, View):
             incoming_qty = 0
             incoming_date = None
 
-            tracking_details = []
+            tracking_details = [] # ETA STORED HERE 
 
             tracking_items = tracking_item_map.get(item.id, [])
 
@@ -3327,7 +3327,7 @@ class PurchaseOrderViewPrev(AccountantRequiredMixin, View):
                     # print("eta:", po.eta)
 
                     print("Function ETA:", get_expected_arrival_date(po))
-                    incoming_date = get_expected_arrival_date(po)
+                    incoming_date = get_expected_arrival_date(po) # fn in utils.py
 
 
 
@@ -5155,7 +5155,7 @@ class PurchaseOrderView(AccountantRequiredMixin, View):
 
             for shipment in shipments
 
-            if shipment["arrival_day"] > new_batch_arrival_day
+            if shipment["arrival_day"] > new_batch_arrival_day #missing >=
 
         )
 
@@ -5388,12 +5388,12 @@ class PurchaseOrderView(AccountantRequiredMixin, View):
                     incoming_date = get_expected_arrival_date(po)
 
 
-
+                   # Start of ETA #             
                     incoming_qty = max(
                         0,
                         float(tracking_item.ordered_quantity)
                         - float(tracking_item.arrived_quantity or 0)
-                    )
+                    ) #   Incoming qty = ordered qty - arrived qty
 
                     print("=" * 50)
                     print("Item:", item.name)
@@ -5407,7 +5407,7 @@ class PurchaseOrderView(AccountantRequiredMixin, View):
                         "stage": current_stage.stage.name if current_stage else None,
                         "days_in_stage": (
                             float(days_in_stage)
-                            if days_in_stage is not None
+                            if days_in_stage is not None #ETA stored in tracking
                             else None
                         ),
 
@@ -5435,19 +5435,10 @@ class PurchaseOrderView(AccountantRequiredMixin, View):
             latest_gst = item_gst_rows[0] if item_gst_rows else None
 
             # ── Core order calculation
-            if tracking_items and tracking_details:
-                delivery_days = max(
-                    1,
-                    round(
-                        min(
-                            t["remaining_days"]
-                            for t in tracking_details
-                            if t["remaining_days"] is not None
-                        )
-                    )
-                )
-            else:
-                delivery_days = item.expected_delivery_days or 30
+           
+                # REMOVED REMAINING TIME HERE
+                
+            delivery_days = item.expected_delivery_days or 30
 
             total_incoming_qty = sum(
                 t["incoming_qty"]
@@ -5587,7 +5578,6 @@ class PurchaseOrderView(AccountantRequiredMixin, View):
             "hide_dead":            hide_dead,
         })
 
-from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib import messages
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse_lazy
@@ -5653,7 +5643,7 @@ def create_po_tracking(request, voucher_id):
                 inventory_item=stock_row.item,
                 item_name_text=stock_row.item_name_text,
                 ordered_quantity=stock_row.quantity,
-                arrived_quantity=stock_row.quantity,
+                arrived_quantity=0,  #this should be reintialised with 0 ..(Marked as fully received)
             )
 
         messages.success(request, "Purchase order tracking created successfully.")

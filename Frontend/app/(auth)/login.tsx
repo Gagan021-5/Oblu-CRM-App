@@ -23,16 +23,18 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import { Ionicons } from "@expo/vector-icons";
 import { Typography, FontSizes, Spacing, Radius, Shadows } from "@/constants/theme";
+import { ORG_ROLES, DummyTestUser } from "@/data/rolesData";
 
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
-  const { login } = useAuth();
+  const { login, mockLogin } = useAuth();
   const { colors, isDark } = useTheme();
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [selectedRoleFilter, setSelectedRoleFilter] = useState<string>("all");
 
   const handleLogin = async () => {
     if (!username.trim() || !password.trim()) {
@@ -46,14 +48,42 @@ export default function LoginScreen() {
       if (loggedUser?.role === "admin") {
         router.replace("/(admin)/users");
       } else {
-        router.replace("/(user)/status");
+        router.replace("/(employee)/profile" as any);
       }
     } catch (error: any) {
-      const msg =
-        error.response?.data?.detail ||
-        error.response?.data?.message ||
-        "Login failed. Please check your credentials and connection.";
-      Alert.alert("Sign In Failed", msg);
+      // Direct demo fallback for test users
+      try {
+        const mockU = await mockLogin(username.trim());
+        if (mockU?.role === "admin") {
+          router.replace("/(admin)/users");
+        } else {
+          router.replace("/(employee)/profile" as any);
+        }
+      } catch {
+        const msg =
+          error.response?.data?.detail ||
+          error.response?.data?.message ||
+          "Login failed. Please check your credentials and connection.";
+        Alert.alert("Sign In Failed", msg);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleQuickRoleLogin = async (user: DummyTestUser) => {
+    setUsername(user.username);
+    setPassword("test1234");
+    setLoading(true);
+    try {
+      const mockU = await mockLogin(user.username);
+      if (mockU?.role === "admin") {
+        router.replace("/(admin)/users");
+      } else {
+        router.replace("/(employee)/profile" as any);
+      }
+    } catch {
+      router.replace("/(employee)/profile" as any);
     } finally {
       setLoading(false);
     }
@@ -239,6 +269,212 @@ export default function LoginScreen() {
             </TouchableOpacity>
           </View>
         </View>
+
+        {/* 1-Tap Test Role Logins From Org Diagram */}
+        <View
+          style={[
+            styles.quickLoginCard,
+            {
+              backgroundColor: colors.card,
+              borderColor: isDark ? "rgba(245, 158, 11, 0.35)" : "rgba(245, 158, 11, 0.45)",
+            },
+          ]}
+        >
+          <View style={styles.quickHeader}>
+            <View style={styles.yellowBadge}>
+              <Ionicons name="flash" size={13} color="#D97706" />
+              <Text style={styles.yellowBadgeText}>TEST ROLES</Text>
+            </View>
+            <Text style={[styles.quickTitle, { color: colors.textPrimary }]}>
+              1-Tap Role Testing Logins
+            </Text>
+            <Text style={[styles.quickSubtitle, { color: colors.textMuted }]}>
+              Tap any employee below to instantly sign in and inspect their profile & yellow box permissions. All accounts use password <Text style={{ fontFamily: Typography.bold, color: isDark ? "#F59E0B" : "#B45309" }}>test1234</Text>.
+            </Text>
+          </View>
+
+          {ORG_ROLES.map((role) => (
+            <View key={role.key} style={styles.roleGroup}>
+              <View style={styles.roleGroupHeader}>
+                <View
+                  style={[
+                    styles.roleBadge,
+                    {
+                      backgroundColor: role.badgeColor + "20",
+                      borderColor: role.badgeColor + "55",
+                    },
+                  ]}
+                >
+                  <Text style={[styles.roleBadgeText, { color: role.badgeColor }]}>
+                    {role.shortTitle}
+                  </Text>
+                </View>
+                <Text style={[styles.roleGroupName, { color: colors.textSecondary }]}>
+                  {role.title}
+                </Text>
+              </View>
+
+              <View style={styles.userChipsRow}>
+                {role.users.map((u) => (
+                  <TouchableOpacity
+                    key={u.username}
+                    style={[
+                      styles.userChip,
+                      {
+                        backgroundColor: isDark ? "#121F1B" : "#F7FAF8",
+                        borderColor: isDark ? "#294039" : "#D8E0DC",
+                      },
+                    ]}
+                    onPress={() => handleQuickRoleLogin(u)}
+                    activeOpacity={0.7}
+                  >
+                    <View
+                      style={[
+                        styles.chipAvatar,
+                        { backgroundColor: role.badgeColor },
+                      ]}
+                    >
+                      <Text style={styles.chipAvatarText}>{u.avatarInitials}</Text>
+                    </View>
+                    <View style={styles.chipInfo}>
+                      <Text
+                        style={[styles.chipUserName, { color: colors.textPrimary }]}
+                        numberOfLines={1}
+                      >
+                        {u.name}
+                      </Text>
+                      <Text
+                        style={[
+                          styles.chipUsername,
+                          { color: isDark ? "#35D6A0" : "#00A879" },
+                        ]}
+                        numberOfLines={1}
+                      >
+                        @{u.username}
+                      </Text>
+                    </View>
+                    <View style={styles.loginArrow}>
+                      <Ionicons
+                        name="arrow-forward-circle"
+                        size={20}
+                        color={isDark ? "#35D6A0" : "#00A879"}
+                      />
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              {/* Sub-role branch UI (ASM under RSM Ankush & Aman) */}
+              {role.subRole && (
+                <View
+                  style={[
+                    styles.subRoleBox,
+                    {
+                      backgroundColor: isDark
+                        ? "rgba(20, 184, 166, 0.08)"
+                        : "rgba(20, 184, 166, 0.05)",
+                      borderColor: isDark
+                        ? "rgba(20, 184, 166, 0.35)"
+                        : "rgba(20, 184, 166, 0.30)",
+                    },
+                  ]}
+                >
+                  <View style={styles.subRoleHeader}>
+                    <Ionicons
+                      name="return-down-forward"
+                      size={16}
+                      color={isDark ? "#35D6A0" : "#00A879"}
+                    />
+                    <View
+                      style={[
+                        styles.subRoleBadge,
+                        {
+                          backgroundColor: role.subRole.badgeColor + "20",
+                          borderColor: role.subRole.badgeColor + "55",
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.subRoleBadgeText,
+                          { color: role.subRole.badgeColor },
+                        ]}
+                      >
+                        {role.subRole.shortTitle}
+                      </Text>
+                    </View>
+                    <Text
+                      style={[
+                        styles.subRoleTitle,
+                        { color: isDark ? "#A7F3D0" : "#065F46" },
+                      ]}
+                    >
+                      {role.subRole.title}
+                    </Text>
+                  </View>
+
+                  <View style={styles.userChipsRow}>
+                    {role.subRole.users.map((subUser) => (
+                      <TouchableOpacity
+                        key={subUser.username}
+                        style={[
+                          styles.userChip,
+                          styles.subUserChip,
+                          {
+                            backgroundColor: isDark ? "#0A1411" : "#FFFFFF",
+                            borderColor: isDark
+                              ? "rgba(20, 184, 166, 0.45)"
+                              : "#BCEBE1",
+                          },
+                        ]}
+                        onPress={() => handleQuickRoleLogin(subUser)}
+                        activeOpacity={0.7}
+                      >
+                        <View
+                          style={[
+                            styles.chipAvatar,
+                            { backgroundColor: role.subRole!.badgeColor },
+                          ]}
+                        >
+                          <Text style={styles.chipAvatarText}>
+                            {subUser.avatarInitials}
+                          </Text>
+                        </View>
+                        <View style={styles.chipInfo}>
+                          <Text
+                            style={[
+                              styles.chipUserName,
+                              { color: colors.textPrimary },
+                            ]}
+                            numberOfLines={1}
+                          >
+                            {subUser.name}
+                          </Text>
+                          <Text
+                            style={[
+                              styles.chipUsername,
+                              { color: isDark ? "#35D6A0" : "#00A879" },
+                            ]}
+                            numberOfLines={1}
+                          >
+                            @{subUser.username}
+                          </Text>
+                        </View>
+                        <View style={styles.loginArrow}>
+                          <Ionicons
+                            name="arrow-forward-circle"
+                            size={20}
+                            color={isDark ? "#35D6A0" : "#00A879"}
+                          />
+                        </View>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+              )}
+            </View>
+          ))}
+        </View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -362,5 +598,144 @@ const styles = StyleSheet.create({
   linkText: {
     fontFamily: Typography.semiBold,
     fontSize: FontSizes.bodySmall,
+  },
+  quickLoginCard: {
+    marginTop: 24,
+    borderRadius: Radius.xl,
+    borderWidth: 1.5,
+    padding: 18,
+    ...Shadows.card,
+  },
+  quickHeader: {
+    marginBottom: 16,
+  },
+  yellowBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    backgroundColor: "rgba(245, 158, 11, 0.15)",
+    borderWidth: 1,
+    borderColor: "rgba(245, 158, 11, 0.4)",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    gap: 4,
+    marginBottom: 8,
+  },
+  yellowBadgeText: {
+    fontSize: 10,
+    fontFamily: Typography.bold,
+    color: "#D97706",
+    letterSpacing: 0.6,
+  },
+  quickTitle: {
+    fontSize: 18,
+    fontFamily: Typography.headingSemi,
+    letterSpacing: -0.3,
+  },
+  quickSubtitle: {
+    fontSize: FontSizes.caption,
+    fontFamily: Typography.regular,
+    marginTop: 4,
+    lineHeight: 18,
+  },
+  roleGroup: {
+    marginTop: 14,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255, 255, 255, 0.08)",
+  },
+  roleGroupHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 8,
+  },
+  roleBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  roleBadgeText: {
+    fontSize: 10,
+    fontFamily: Typography.bold,
+    letterSpacing: 0.5,
+  },
+  roleGroupName: {
+    fontSize: 13,
+    fontFamily: Typography.semiBold,
+    flex: 1,
+  },
+  userChipsRow: {
+    gap: 8,
+  },
+  userChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 10,
+  },
+  chipAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  chipAvatarText: {
+    fontSize: 11,
+    fontFamily: Typography.bold,
+    color: "#FFFFFF",
+  },
+  chipInfo: {
+    flex: 1,
+  },
+  chipUserName: {
+    fontSize: 13,
+    fontFamily: Typography.semiBold,
+  },
+  chipUsername: {
+    fontSize: 11,
+    fontFamily: Typography.medium,
+    marginTop: 1,
+  },
+  loginArrow: {
+    paddingLeft: 4,
+  },
+  subRoleBox: {
+    marginTop: 10,
+    marginLeft: 10,
+    padding: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    gap: 8,
+  },
+  subRoleHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 4,
+  },
+  subRoleBadge: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  subRoleBadgeText: {
+    fontSize: 9,
+    fontFamily: Typography.bold,
+    letterSpacing: 0.5,
+  },
+  subRoleTitle: {
+    fontSize: 12,
+    fontFamily: Typography.semiBold,
+    flex: 1,
+  },
+  subUserChip: {
+    marginLeft: 6,
   },
 });

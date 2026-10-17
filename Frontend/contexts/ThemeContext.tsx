@@ -20,15 +20,15 @@ interface ThemeContextValue {
 const STORAGE_KEY = "@calltracer_theme_mode";
 
 const ThemeContext = createContext<ThemeContextValue>({
-  mode: "dark",
-  isDark: true,
-  colors: DarkTheme,
+  mode: "light",
+  isDark: false,
+  colors: LightTheme,
   setMode: async () => {},
 });
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const systemColorScheme = useColorScheme();
-  const [mode, setModeState] = useState<ThemeMode>("dark");
+  const [mode, setModeState] = useState<ThemeMode>("light");
   const [isLoaded, setIsLoaded] = useState(false);
 
   useEffect(() => {
@@ -37,9 +37,12 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
         const saved = await AsyncStorage.getItem(STORAGE_KEY);
         if (saved === "light" || saved === "dark" || saved === "system") {
           setModeState(saved);
+        } else {
+          setModeState("light");
         }
       } catch {
-        // Fallback to dark
+        // Fallback to light
+        setModeState("light");
       } finally {
         setIsLoaded(true);
       }

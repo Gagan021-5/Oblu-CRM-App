@@ -196,7 +196,7 @@ export const DarkTheme = {
 };
 
 // Default export alias for backwards-compatibility
-export const Colors = DarkTheme;
+export const Colors = LightTheme;
 
 export type ThemeColors = typeof DarkTheme;
 

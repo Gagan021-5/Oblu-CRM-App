@@ -26,6 +26,12 @@ import {
   sendMockPaymentReminderEmail,
   Customer,
 } from "@/data/mockCustomers";
+import {
+  fetchCustomerByIdFromApi,
+  addCustomerRemarkApi,
+  scheduleCustomerFollowUpApi,
+  handlePaymentTicketApi,
+} from "@/services/customerService";
 import { scheduleFollowUpNotifications } from "@/services/followUpNotificationService";
 import { useNotifications } from "@/contexts/NotificationContext";
 
@@ -44,7 +50,7 @@ export default function CustomerDetailScreen() {
 
   const fetchCustomer = useCallback(async () => {
     if (!customerId) return;
-    const data = await getMockCustomerById(customerId);
+    const data = await fetchCustomerByIdFromApi(customerId);
     if (data) setCustomer(data);
   }, [customerId]);
 
@@ -56,7 +62,7 @@ export default function CustomerDetailScreen() {
   ) => {
     if (!customer) return;
     try {
-      await raiseMockPaymentTicket(customer.id, paymentId);
+      await handlePaymentTicketApi(customer.id, paymentId, "raise");
       await notifyPaymentTicket({
         customerName: customer.name,
         customerId: customer.id,
@@ -68,7 +74,7 @@ export default function CustomerDetailScreen() {
       await fetchCustomer();
       Alert.alert(
         "Payment Ticket Raised",
-        `Ticket for Invoice #${invoiceNum} (${amount}) has been RAISED.\n\nAutomated Gmail notification dispatched to accounts team and ${customer.assignedSalesperson}.`
+        `Ticket for Invoice #${invoiceNum} (${amount}) has been RAISED.\n\nAutomated notification dispatched to accounts team and ${customer.assignedSalesperson}.`
       );
     } catch {
       Alert.alert("Error", "Could not raise payment ticket.");
@@ -78,7 +84,7 @@ export default function CustomerDetailScreen() {
   const handleSolveTicket = async (paymentId: string) => {
     if (!customer) return;
     try {
-      await solveMockPaymentTicket(customer.id, paymentId);
+      await handlePaymentTicketApi(customer.id, paymentId, "solve");
       await fetchCustomer();
       Alert.alert("Ticket Resolved", "Payment ticket marked as SOLVED.");
     } catch {
@@ -122,7 +128,7 @@ export default function CustomerDetailScreen() {
 
   const handleAddRemark = async (text: string) => {
     if (!customer) return;
-    const newRem = await addMockCustomerRemark(customer.id, text);
+    const newRem = await addCustomerRemarkApi(customer.id, text);
     setCustomer((prev) =>
       prev
         ? {
@@ -136,7 +142,7 @@ export default function CustomerDetailScreen() {
 
   const handleScheduleFollowUp = async (data: any) => {
     if (!customer) return;
-    const newFol = await scheduleMockCustomerFollowUp(customer.id, data);
+    const newFol = await scheduleCustomerFollowUpApi(customer.id, data);
     setCustomer((prev) =>
       prev
         ? {

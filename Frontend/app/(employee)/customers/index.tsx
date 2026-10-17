@@ -18,7 +18,8 @@ import { SkeletonCard } from "@/components/ui/SkeletonCard";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { CustomerCard } from "@/components/employee/CustomerCard";
 import { WeeklyActivityChart } from "@/components/employee/WeeklyActivityChart";
-import { getMockCustomers, Customer } from "@/data/mockCustomers";
+import { Customer } from "@/data/mockCustomers";
+import { fetchCustomersFromApi } from "@/services/customerService";
 
 type FilterTab = "all" | "followup_due" | "payment_pending" | "recently_contacted";
 
@@ -36,7 +37,10 @@ export default function CustomerDashboardScreen() {
   const loadData = useCallback(async (isPullToRefresh = false) => {
     if (!isPullToRefresh) setLoading(true);
     try {
-      const data = await getMockCustomers(isPullToRefresh ? 500 : 350);
+      const data = await fetchCustomersFromApi({
+        search: searchQuery,
+        filter: activeFilter,
+      });
       setCustomers(data);
     } catch {
       // Ignored
@@ -44,7 +48,7 @@ export default function CustomerDashboardScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [searchQuery, activeFilter]);
 
   useEffect(() => {
     loadData();

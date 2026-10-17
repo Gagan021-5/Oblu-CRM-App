@@ -19,7 +19,8 @@ import { SkeletonCard } from "@/components/ui/SkeletonCard";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { LeadCard } from "@/components/employee/LeadCard";
 import { MetricCard } from "@/components/employee/MetricCard";
-import { getMockLeads, Lead, LeadStage } from "@/data/mockLeads";
+import { Lead, LeadStage } from "@/data/mockLeads";
+import { fetchLeadsFromApi } from "@/services/leadService";
 
 type LeadFilter = "All" | LeadStage;
 
@@ -45,7 +46,10 @@ export default function LeadsDashboardScreen() {
   const loadLeads = useCallback(async (isPullToRefresh = false) => {
     if (!isPullToRefresh) setLoading(true);
     try {
-      const data = await getMockLeads(isPullToRefresh ? 500 : 350);
+      const data = await fetchLeadsFromApi({
+        stage: activeStage,
+        search: searchQuery,
+      });
       setLeads(data);
     } catch {
       // Ignored
@@ -53,7 +57,7 @@ export default function LeadsDashboardScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [activeStage, searchQuery]);
 
   useEffect(() => {
     loadLeads();

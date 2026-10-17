@@ -7,8 +7,8 @@ import { QuickActionModal } from "@/components/employee/QuickActionModal";
 import { AddCustomerRemarkModal } from "@/components/employee/AddCustomerRemarkModal";
 import { ScheduleFollowUpModal } from "@/components/employee/ScheduleFollowUpModal";
 import { AddLeadModal } from "@/components/employee/AddLeadModal";
-import { addMockCustomerRemark, scheduleMockCustomerFollowUp } from "@/data/mockCustomers";
-import { createMockLead } from "@/data/mockLeads";
+import { addCustomerRemarkApi, scheduleCustomerFollowUpApi } from "@/services/customerService";
+import { createLeadApi } from "@/services/leadService";
 import { scheduleFollowUpNotifications } from "@/services/followUpNotificationService";
 
 export default function EmployeeLayout() {
@@ -26,9 +26,8 @@ export default function EmployeeLayout() {
   };
 
   const handleSaveRemark = async (text: string) => {
-    // Default to first customer if triggered globally
     try {
-      await addMockCustomerRemark("cust-001", text);
+      await addCustomerRemarkApi("1", text);
     } catch {
       // Ignored
     }
@@ -36,10 +35,10 @@ export default function EmployeeLayout() {
 
   const handleScheduleFollowUp = async (data: any) => {
     try {
-      await scheduleMockCustomerFollowUp("cust-001", data);
+      await scheduleCustomerFollowUpApi("1", data);
       await scheduleFollowUpNotifications({
-        customerName: "Orion Systems",
-        customerId: "cust-001",
+        customerName: "3 D Align",
+        customerId: "1",
         followUpDate: data.date,
         followUpTime: data.time,
         purpose: data.purpose,
@@ -52,7 +51,7 @@ export default function EmployeeLayout() {
 
   const handleCreateLead = async (data: any) => {
     try {
-      const created = await createMockLead(data);
+      const created = await createLeadApi(data);
       router.push(`/(employee)/leads/${created.id}` as any);
     } catch {
       // Ignored

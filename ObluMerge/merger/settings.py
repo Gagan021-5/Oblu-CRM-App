@@ -198,6 +198,11 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 AUTH_USER_MODEL = 'inventory.User'
 
+AUTHENTICATION_BACKENDS = [
+    'merger.backends.CaseInsensitiveModelBackend',
+    'django.contrib.auth.backends.ModelBackend',
+]
+
 LOGIN_REDIRECT_URL = "/"
 LOGIN_URL="/login"
 LOGOUT_REDIRECT_URL = '/'

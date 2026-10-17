@@ -4,6 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router, usePathname } from "expo-router";
 import { useTheme } from "@/contexts/ThemeContext";
+import { useAuth } from "@/contexts/AuthContext";
 import { Typography, FontSizes, Shadows } from "@/constants/theme";
 
 interface FloatingTabBarProps {
@@ -15,12 +16,16 @@ const FloatingTabBarComponent: React.FC<FloatingTabBarProps> = ({
 }) => {
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useTheme();
+  const { user } = useAuth();
   const pathname = usePathname();
+
+  const isAdmin = user?.role === "admin";
 
   // Route active checks
   const isHome =
     pathname === "/(employee)" ||
     pathname === "/(employee)/" ||
+    pathname === "/(admin)/users" ||
     pathname === "/" ||
     pathname === "/index" ||
     pathname === "";
@@ -29,6 +34,7 @@ const FloatingTabBarComponent: React.FC<FloatingTabBarProps> = ({
   const isCalls =
     pathname.includes("status") ||
     pathname.includes("(user)") ||
+    pathname.includes("call-logs") ||
     pathname.includes("calls");
 
   const navItems = [
@@ -39,7 +45,9 @@ const FloatingTabBarComponent: React.FC<FloatingTabBarProps> = ({
       iconInactive: "home-outline" as const,
       isActive: isHome,
       onPress: () => {
-        if (!isHome) {
+        if (isAdmin) {
+          router.replace("/(admin)/users" as any);
+        } else if (!isHome) {
           router.replace("/(employee)" as any);
         }
       },
@@ -78,7 +86,9 @@ const FloatingTabBarComponent: React.FC<FloatingTabBarProps> = ({
       iconInactive: "call-outline" as const,
       isActive: isCalls,
       onPress: () => {
-        if (!isCalls) {
+        if (isAdmin) {
+          router.replace("/(admin)/call-logs" as any);
+        } else if (!isCalls) {
           router.replace({ pathname: "/(user)/status", params: { from: "workspace" } } as any);
         }
       },
@@ -245,3 +255,4 @@ const styles = StyleSheet.create({
     marginHorizontal: 6,
   },
 });
+

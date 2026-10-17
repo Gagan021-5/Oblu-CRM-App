@@ -22,13 +22,17 @@ import {
   Alert,
   Modal,
   ScrollView,
+  Dimensions,
 } from "react-native";
 import { useLocalSearchParams, router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import api from "@/services/api";
 import { Ionicons } from "@expo/vector-icons";
+import { LineChart } from "react-native-chart-kit";
 import { useTheme } from "@/contexts/ThemeContext";
 import { Typography, FontSizes, Spacing, Radius, Shadows } from "@/constants/theme";
+
+const screenWidth = Dimensions.get("window").width;
 
 interface CallLogItem {
   id: number;
@@ -55,6 +59,91 @@ export default function CallLogsScreen() {
   const [searchPhone, setSearchPhone] = useState("");
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
+
+  // Segmented Main Tab: Timeline vs Analytics
+  const [activeMainTab, setActiveMainTab] = useState<"timeline" | "analytics">("timeline");
+
+  // Analytics & Reports state
+  const [selectedStatsUser, setSelectedStatsUser] = useState<string>(params.user_id || "all");
+  const [stats, setStats] = useState<any>(null);
+  const [teamMembers, setTeamMembers] = useState<Array<{ id: number; username: string }>>([]);
+  const [statsLoading, setStatsLoading] = useState(false);
+
+  const fetchStats = useCallback(async () => {
+    try {
+      setStatsLoading(true);
+      const endpoint =
+        selectedStatsUser && selectedStatsUser !== "all"
+          ? `/admin/stats/${selectedStatsUser}/`
+          : "/admin/stats/";
+      const [statsRes, membersRes] = await Promise.all([
+        api.get(endpoint),
+        api.get("/admin/users/"),
+      ]);
+      setStats(statsRes.data);
+      setTeamMembers(membersRes.data.results || membersRes.data);
+    } catch {
+      // Silently handled
+    } finally {
+      setStatsLoading(false);
+    }
+  }, [selectedStatsUser]);
+
+  useEffect(() => {
+    fetchStats();
+  }, [fetchStats]);
+
+  const trendData = useMemo(() => {
+    const today = new Date();
+    const days: string[] = [];
+    const callsMap: Record<string, number> = {};
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(d.getDate() - i);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+        d.getDate()
+      ).padStart(2, "0")}`;
+      days.push(key);
+      callsMap[key] = 0;
+    }
+    if (stats?.daily_trend) {
+      for (const item of stats.daily_trend) {
+        if (item.date) callsMap[item.date] = item.calls || 0;
+      }
+    }
+    return {
+      labels: days.map((d) => {
+        const p = d.split("-");
+        return `${parseInt(p[1], 10)}/${parseInt(p[2], 10)}`;
+      }),
+      data: days.map((d) => callsMap[d] || 0),
+    };
+  }, [stats]);
+
+  const incomingCalls = stats?.calls_by_type?.incoming || 0;
+  const outgoingCalls = stats?.calls_by_type?.outgoing || 0;
+  const missedCalls = stats?.calls_by_type?.missed || 0;
+  const totalStatsCalls = stats?.total_calls || (incomingCalls + outgoingCalls + missedCalls) || 1;
+  const incomingPct = Math.round((incomingCalls / totalStatsCalls) * 100);
+  const outgoingPct = Math.round((outgoingCalls / totalStatsCalls) * 100);
+  const missedPct = Math.round((missedCalls / totalStatsCalls) * 100);
+
+  const chartConfig = {
+    backgroundGradientFrom: colors.card,
+    backgroundGradientTo: colors.card,
+    color: (opacity = 1) =>
+      isDark ? `rgba(53, 214, 160, ${opacity})` : `rgba(0, 168, 121, ${opacity})`,
+    labelColor: (opacity = 1) =>
+      isDark ? `rgba(143, 160, 154, ${opacity})` : `rgba(94, 105, 100, ${opacity})`,
+    strokeWidth: 2.5,
+    barPercentage: 0.55,
+    decimalPlaces: 0,
+    propsForDots: { r: "4", strokeWidth: "2", stroke: colors.primary },
+    propsForBackgroundLines: {
+      strokeDasharray: "4",
+      stroke: isDark ? "rgba(41, 64, 57, 0.6)" : "rgba(216, 224, 220, 0.8)",
+    },
+  };
 
   // Recorded Call Modal
   const [selectedCall, setSelectedCall] = useState<CallLogItem | null>(null);
@@ -173,7 +262,7 @@ export default function CallLogsScreen() {
         ]}
       >
         <Text style={[styles.screenHeading, { color: colors.textPrimary }]}>
-          Calls
+          Calls & Tracking
         </Text>
         <View style={styles.topBarRight}>
           <TouchableOpacity
@@ -181,175 +270,646 @@ export default function CallLogsScreen() {
               styles.iconBtn,
               { backgroundColor: colors.card, borderColor: colors.border },
             ]}
+            onPress={() => setActiveMainTab(activeMainTab === "timeline" ? "analytics" : "timeline")}
           >
-            <Ionicons name="filter-outline" size={18} color={colors.textPrimary} />
+            <Ionicons
+              name={activeMainTab === "timeline" ? "bar-chart-outline" : "list-outline"}
+              size={18}
+              color={colors.primary}
+            />
           </TouchableOpacity>
         </View>
       </View>
 
-      {/* ── Search Bar ─────────────────────────────────────────── */}
-      <View style={styles.searchSection}>
-        <View
+      {/* ── Segmented Navigation: Timeline vs Analytics & Reports ─ */}
+      <View style={styles.segmentContainer}>
+        <TouchableOpacity
+          activeOpacity={0.8}
+          onPress={() => setActiveMainTab("timeline")}
           style={[
-            styles.searchBox,
-            {
-              backgroundColor: colors.card,
-              borderColor: colors.cardBorder,
-            },
+            styles.segmentBtn,
+            activeMainTab === "timeline"
+              ? { backgroundColor: colors.primary }
+              : { backgroundColor: colors.card, borderColor: colors.borderLight, borderWidth: 1 },
           ]}
         >
-          <Ionicons name="search-outline" size={18} color={colors.textMuted} />
-          <TextInput
-            style={[styles.searchInput, { color: colors.textPrimary }]}
-            placeholder="Search by contact, company or phone..."
-            placeholderTextColor={colors.textMuted}
-            value={searchPhone}
-            onChangeText={setSearchPhone}
+          <Ionicons
+            name="list"
+            size={15}
+            color={activeMainTab === "timeline" ? "#FFFFFF" : colors.textSecondary}
           />
-          {searchPhone.length > 0 && (
-            <TouchableOpacity onPress={() => setSearchPhone("")}>
-              <Ionicons name="close-circle" size={17} color={colors.textMuted} />
-            </TouchableOpacity>
-          )}
-        </View>
+          <Text
+            style={[
+              styles.segmentText,
+              {
+                color: activeMainTab === "timeline" ? "#FFFFFF" : colors.textSecondary,
+                fontFamily: activeMainTab === "timeline" ? Typography.bold : Typography.medium,
+              },
+            ]}
+          >
+            Call Timeline
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          activeOpacity={0.8}
+          onPress={() => setActiveMainTab("analytics")}
+          style={[
+            styles.segmentBtn,
+            activeMainTab === "analytics"
+              ? { backgroundColor: colors.primary }
+              : { backgroundColor: colors.card, borderColor: colors.borderLight, borderWidth: 1 },
+          ]}
+        >
+          <Ionicons
+            name="pie-chart"
+            size={15}
+            color={activeMainTab === "analytics" ? "#FFFFFF" : colors.textSecondary}
+          />
+          <Text
+            style={[
+              styles.segmentText,
+              {
+                color: activeMainTab === "analytics" ? "#FFFFFF" : colors.textSecondary,
+                fontFamily: activeMainTab === "analytics" ? Typography.bold : Typography.medium,
+              },
+            ]}
+          >
+            Analytics & Reports
+          </Text>
+        </TouchableOpacity>
       </View>
 
-      {/* ── Filter Chips ───────────────────────────────────────── */}
-      <View style={styles.filterChipsRow}>
-        {(["all", "incoming", "outgoing", "missed"] as FilterType[]).map((type) => {
-          const isSelected = selectedType === type;
-          return (
-            <TouchableOpacity
-              key={type}
-              activeOpacity={0.75}
-              onPress={() => setSelectedType(type)}
+      {/* ── VIEW 1: TIMELINE WITH LIVE KPI STRIP ────────────────── */}
+      {activeMainTab === "timeline" ? (
+        <>
+          {/* ── Live Quick Stats Strip (Incoming, Outgoing, Missed) ── */}
+          <View
+            style={[
+              styles.kpiStrip,
+              {
+                backgroundColor: colors.card,
+                borderColor: colors.cardBorder,
+              },
+            ]}
+          >
+            <View style={styles.kpiItem}>
+              <Text style={[styles.kpiNum, { color: colors.textPrimary }]}>
+                {stats?.total_calls || logs.length}
+              </Text>
+              <Text style={[styles.kpiLabel, { color: colors.textMuted }]}>Total</Text>
+            </View>
+
+            <View style={[styles.kpiDivider, { backgroundColor: colors.borderLight }]} />
+
+            <View style={styles.kpiItem}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
+                <Ionicons name="arrow-down" size={13} color={colors.primary} />
+                <Text style={[styles.kpiNum, { color: colors.primary }]}>
+                  {incomingCalls}
+                </Text>
+              </View>
+              <Text style={[styles.kpiLabel, { color: colors.textMuted }]}>Incoming</Text>
+            </View>
+
+            <View style={[styles.kpiDivider, { backgroundColor: colors.borderLight }]} />
+
+            <View style={styles.kpiItem}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
+                <Ionicons name="arrow-up" size={13} color={colors.cyan || "#0EA5E9"} />
+                <Text style={[styles.kpiNum, { color: colors.cyan || "#0EA5E9" }]}>
+                  {outgoingCalls}
+                </Text>
+              </View>
+              <Text style={[styles.kpiLabel, { color: colors.textMuted }]}>Outgoing</Text>
+            </View>
+
+            <View style={[styles.kpiDivider, { backgroundColor: colors.borderLight }]} />
+
+            <View style={styles.kpiItem}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
+                <Ionicons name="close" size={14} color={colors.error || "#EF4444"} />
+                <Text style={[styles.kpiNum, { color: colors.error || "#EF4444" }]}>
+                  {missedCalls}
+                </Text>
+              </View>
+              <Text style={[styles.kpiLabel, { color: colors.textMuted }]}>Missed</Text>
+            </View>
+          </View>
+
+          {/* ── Search Bar ─────────────────────────────────────────── */}
+          <View style={styles.searchSection}>
+            <View
               style={[
-                styles.filterChip,
+                styles.searchBox,
                 {
-                  backgroundColor: isSelected ? colors.primary : colors.card,
-                  borderColor: isSelected ? colors.primary : colors.borderLight,
+                  backgroundColor: colors.card,
+                  borderColor: colors.cardBorder,
                 },
               ]}
             >
-              <Text
-                style={[
-                  styles.filterChipText,
-                  {
-                    color: isSelected ? "#FFFFFF" : colors.textSecondary,
-                    fontFamily: isSelected ? Typography.semiBold : Typography.regular,
-                  },
-                ]}
-              >
-                {type.charAt(0).toUpperCase() + type.slice(1)}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
+              <Ionicons name="search-outline" size={18} color={colors.textMuted} />
+              <TextInput
+                style={[styles.searchInput, { color: colors.textPrimary }]}
+                placeholder="Search by contact, company or phone..."
+                placeholderTextColor={colors.textMuted}
+                value={searchPhone}
+                onChangeText={setSearchPhone}
+              />
+              {searchPhone.length > 0 && (
+                <TouchableOpacity onPress={() => setSearchPhone("")}>
+                  <Ionicons name="close-circle" size={17} color={colors.textMuted} />
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
 
-      {/* ── Call List Timeline ─────────────────────────────────── */}
-      {loading ? (
-        <View style={styles.centered}>
-          <ActivityIndicator size="large" color={colors.primary} />
-        </View>
-      ) : filteredLogs.length === 0 ? (
-        <View style={styles.emptyWrap}>
-          <Ionicons name="call-outline" size={44} color={colors.textMuted} />
-          <Text style={[styles.emptyTitle, { color: colors.textPrimary }]}>
-            No Call Logs Found
-          </Text>
-          <Text style={[styles.emptySubtitle, { color: colors.textMuted }]}>
-            Sync calls or adjust your search filters.
-          </Text>
-        </View>
-      ) : (
-        <FlatList
-          data={groupedLogs}
-          keyExtractor={(item) => item.title}
-          contentContainerStyle={{
-            paddingHorizontal: Spacing.screenPadding,
-            paddingBottom: Math.max(insets.bottom, 16) + 90, // Leave room for floating dock
-          }}
-          onEndReached={loadMore}
-          onEndReachedThreshold={0.4}
-          renderItem={({ item: group }) => (
-            <View style={styles.groupSection}>
-              <Text style={[styles.groupHeader, { color: colors.textMuted }]}>
-                {group.title}
-              </Text>
-
-              {group.data.map((log) => {
-                const isIncoming = log.call_type === "incoming";
-                const isMissed = log.call_type === "missed";
-                const iconColor = isMissed
-                  ? colors.error
-                  : isIncoming
-                  ? colors.primary
-                  : colors.textSecondary;
-                const iconName = isMissed
-                  ? "close"
-                  : isIncoming
-                  ? "arrow-down"
-                  : "arrow-up";
-
-                return (
-                  <TouchableOpacity
-                    key={log.id}
-                    activeOpacity={0.7}
-                    onPress={() => setSelectedCall(log)}
+          {/* ── Filter Chips ───────────────────────────────────────── */}
+          <View style={styles.filterChipsRow}>
+            {(["all", "incoming", "outgoing", "missed"] as FilterType[]).map((type) => {
+              const isSelected = selectedType === type;
+              return (
+                <TouchableOpacity
+                  key={type}
+                  activeOpacity={0.75}
+                  onPress={() => setSelectedType(type)}
+                  style={[
+                    styles.filterChip,
+                    {
+                      backgroundColor: isSelected ? colors.primary : colors.card,
+                      borderColor: isSelected ? colors.primary : colors.borderLight,
+                    },
+                  ]}
+                >
+                  <Text
                     style={[
-                      styles.callRow,
+                      styles.filterChipText,
                       {
-                        backgroundColor: colors.card,
-                        borderColor: colors.cardBorder,
+                        color: isSelected ? "#FFFFFF" : colors.textSecondary,
+                        fontFamily: isSelected ? Typography.semiBold : Typography.regular,
                       },
                     ]}
                   >
-                    {/* Avatar */}
+                    {type.charAt(0).toUpperCase() + type.slice(1)}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          {/* ── Call List Timeline ─────────────────────────────────── */}
+          {loading ? (
+            <View style={styles.centered}>
+              <ActivityIndicator size="large" color={colors.primary} />
+            </View>
+          ) : filteredLogs.length === 0 ? (
+            <View style={styles.emptyWrap}>
+              <Ionicons name="call-outline" size={44} color={colors.textMuted} />
+              <Text style={[styles.emptyTitle, { color: colors.textPrimary }]}>
+                No Call Logs Found
+              </Text>
+              <Text style={[styles.emptySubtitle, { color: colors.textMuted }]}>
+                Sync calls or adjust your search filters.
+              </Text>
+            </View>
+          ) : (
+            <FlatList
+              data={groupedLogs}
+              keyExtractor={(item) => item.title}
+              contentContainerStyle={{
+                paddingHorizontal: Spacing.screenPadding,
+                paddingBottom: Math.max(insets.bottom, 16) + 90, // Leave room for floating dock
+              }}
+              onEndReached={loadMore}
+              onEndReachedThreshold={0.4}
+              renderItem={({ item: group }) => (
+                <View style={styles.groupSection}>
+                  <Text style={[styles.groupHeader, { color: colors.textMuted }]}>
+                    {group.title}
+                  </Text>
+
+                  {group.data.map((log) => {
+                    const isIncoming = log.call_type === "incoming";
+                    const isMissed = log.call_type === "missed";
+                    const iconColor = isMissed
+                      ? colors.error
+                      : isIncoming
+                      ? colors.primary
+                      : colors.textSecondary;
+                    const iconName = isMissed
+                      ? "close"
+                      : isIncoming
+                      ? "arrow-down"
+                      : "arrow-up";
+
+                    return (
+                      <TouchableOpacity
+                        key={log.id}
+                        activeOpacity={0.7}
+                        onPress={() => setSelectedCall(log)}
+                        style={[
+                          styles.callRow,
+                          {
+                            backgroundColor: colors.card,
+                            borderColor: colors.cardBorder,
+                          },
+                        ]}
+                      >
+                        {/* Avatar */}
+                        <View
+                          style={[
+                            styles.callAvatar,
+                            { backgroundColor: colors.secondarySurface },
+                          ]}
+                        >
+                          <Ionicons name={iconName} size={16} color={iconColor} />
+                        </View>
+
+                        {/* Details */}
+                        <View style={styles.callDetails}>
+                          <Text
+                            style={[styles.callerName, { color: colors.textPrimary }]}
+                            numberOfLines={1}
+                          >
+                            {log.username || log.phone_number}
+                          </Text>
+                          <Text
+                            style={[styles.callMeta, { color: colors.textMuted }]}
+                            numberOfLines={1}
+                          >
+                            {log.phone_number} · {formatDuration(log.duration)}
+                          </Text>
+                        </View>
+
+                        {/* Time & Chevron */}
+                        <View style={styles.callRight}>
+                          <Text
+                            style={[styles.callTimeText, { color: colors.textSecondary }]}
+                          >
+                            {formatTime(log.timestamp)}
+                          </Text>
+                          <Ionicons
+                            name="chevron-forward"
+                            size={16}
+                            color={colors.textMuted}
+                          />
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              )}
+            />
+          )}
+        </>
+      ) : (
+        /* ── VIEW 2: FULL ANALYTICS & REPORTS ─────────────────── */
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{
+            paddingHorizontal: Spacing.screenPadding,
+            paddingBottom: Math.max(insets.bottom, 16) + 110,
+          }}
+        >
+          {/* Member Filter Pills */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.pillsRow}
+          >
+            <TouchableOpacity
+              style={[
+                styles.memberPill,
+                {
+                  backgroundColor:
+                    selectedStatsUser === "all" ? colors.primary : colors.card,
+                  borderColor:
+                    selectedStatsUser === "all" ? colors.primary : colors.cardBorder,
+                },
+              ]}
+              onPress={() => setSelectedStatsUser("all")}
+            >
+              <Ionicons
+                name="globe-outline"
+                size={13}
+                color={selectedStatsUser === "all" ? "#FFFFFF" : colors.textSecondary}
+              />
+              <Text
+                style={[
+                  styles.pillText,
+                  {
+                    color: selectedStatsUser === "all" ? "#FFFFFF" : colors.textSecondary,
+                    fontFamily:
+                      selectedStatsUser === "all" ? Typography.semiBold : Typography.regular,
+                  },
+                ]}
+              >
+                All Team
+              </Text>
+            </TouchableOpacity>
+
+            {teamMembers.map((m) => {
+              const active = selectedStatsUser === m.id.toString();
+              return (
+                <TouchableOpacity
+                  key={m.id}
+                  style={[
+                    styles.memberPill,
+                    {
+                      backgroundColor: active ? colors.primary : colors.card,
+                      borderColor: active ? colors.primary : colors.cardBorder,
+                    },
+                  ]}
+                  onPress={() => setSelectedStatsUser(m.id.toString())}
+                >
+                  <Text
+                    style={[
+                      styles.pillText,
+                      {
+                        color: active ? "#FFFFFF" : colors.textSecondary,
+                        fontFamily: active ? Typography.semiBold : Typography.regular,
+                      },
+                    ]}
+                  >
+                    {m.username}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+
+          {statsLoading ? (
+            <View style={styles.centered}>
+              <ActivityIndicator size="large" color={colors.primary} />
+            </View>
+          ) : (
+            <>
+              {/* 3 KPI Highlight Cards */}
+              <View style={styles.analyticsKpiRow}>
+                <View
+                  style={[
+                    styles.analyticsKpiCard,
+                    { backgroundColor: colors.card, borderColor: colors.cardBorder },
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.analyticsKpiIcon,
+                      { backgroundColor: colors.mintTintedSurface },
+                    ]}
+                  >
+                    <Ionicons name="call" size={16} color={colors.primary} />
+                  </View>
+                  <Text style={[styles.analyticsKpiVal, { color: colors.textPrimary }]}>
+                    {stats?.total_calls || 0}
+                  </Text>
+                  <Text style={[styles.analyticsKpiLbl, { color: colors.textMuted }]}>
+                    Total Calls
+                  </Text>
+                </View>
+
+                <View
+                  style={[
+                    styles.analyticsKpiCard,
+                    { backgroundColor: colors.card, borderColor: colors.cardBorder },
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.analyticsKpiIcon,
+                      { backgroundColor: colors.secondarySurface },
+                    ]}
+                  >
+                    <Ionicons name="time" size={16} color={colors.textPrimary} />
+                  </View>
+                  <Text style={[styles.analyticsKpiVal, { color: colors.textPrimary }]}>
+                    {formatDuration(stats?.total_duration || 0)}
+                  </Text>
+                  <Text style={[styles.analyticsKpiLbl, { color: colors.textMuted }]}>
+                    Talk Time
+                  </Text>
+                </View>
+
+                <View
+                  style={[
+                    styles.analyticsKpiCard,
+                    { backgroundColor: colors.card, borderColor: colors.cardBorder },
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.analyticsKpiIcon,
+                      { backgroundColor: colors.mintTintedSurface },
+                    ]}
+                  >
+                    <Ionicons name="speedometer" size={16} color={colors.primary} />
+                  </View>
+                  <Text style={[styles.analyticsKpiVal, { color: colors.textPrimary }]}>
+                    {stats?.total_calls
+                      ? formatDuration(Math.round(stats.total_duration / stats.total_calls))
+                      : "0s"}
+                  </Text>
+                  <Text style={[styles.analyticsKpiLbl, { color: colors.textMuted }]}>
+                    Avg/Call
+                  </Text>
+                </View>
+              </View>
+
+              {/* 7-Day Trend Chart */}
+              <View
+                style={[
+                  styles.analyticsChartCard,
+                  { backgroundColor: colors.card, borderColor: colors.cardBorder },
+                ]}
+              >
+                <View style={styles.analyticsChartHeader}>
+                  <Text style={[styles.analyticsChartTitle, { color: colors.textPrimary }]}>
+                    Daily Call Volume
+                  </Text>
+                  <View
+                    style={[
+                      styles.analyticsChartBadge,
+                      { backgroundColor: colors.mintTintedSurface },
+                    ]}
+                  >
+                    <Text style={[styles.analyticsChartBadgeText, { color: colors.primary }]}>
+                      7 Days
+                    </Text>
+                  </View>
+                </View>
+                <LineChart
+                  data={{
+                    labels: trendData.labels,
+                    datasets: [
+                      {
+                        data:
+                          trendData.data.length > 0 && trendData.data.some((v) => v > 0)
+                            ? trendData.data
+                            : [0, 0, 0, 0, 0, 0, 0],
+                      },
+                    ],
+                  }}
+                  width={screenWidth - 56}
+                  height={180}
+                  chartConfig={chartConfig}
+                  bezier
+                  style={{ borderRadius: 12, marginVertical: 8 }}
+                  fromZero
+                />
+              </View>
+
+              {/* Distribution By Type (Incoming, Outgoing, Missed) */}
+              <View
+                style={[
+                  styles.analyticsSectionCard,
+                  { backgroundColor: colors.card, borderColor: colors.cardBorder },
+                ]}
+              >
+                <Text style={[styles.analyticsSectionTitle, { color: colors.textPrimary }]}>
+                  Call Breakdown by Type
+                </Text>
+
+                {/* Incoming */}
+                <View style={styles.distRow}>
+                  <View style={styles.distLabelRow}>
+                    <Text style={[styles.distType, { color: colors.primary }]}>
+                      Incoming ({incomingPct}%)
+                    </Text>
+                    <Text style={[styles.distCount, { color: colors.textPrimary }]}>
+                      {incomingCalls} calls
+                    </Text>
+                  </View>
+                  <View
+                    style={[
+                      styles.distTrack,
+                      { backgroundColor: colors.borderLight },
+                    ]}
+                  >
                     <View
                       style={[
-                        styles.callAvatar,
-                        { backgroundColor: colors.secondarySurface },
+                        styles.distBar,
+                        {
+                          width: `${incomingPct}%`,
+                          backgroundColor: colors.primary,
+                        },
+                      ]}
+                    />
+                  </View>
+                </View>
+
+                {/* Outgoing */}
+                <View style={styles.distRow}>
+                  <View style={styles.distLabelRow}>
+                    <Text style={[styles.distType, { color: colors.cyan || "#0EA5E9" }]}>
+                      Outgoing ({outgoingPct}%)
+                    </Text>
+                    <Text style={[styles.distCount, { color: colors.textPrimary }]}>
+                      {outgoingCalls} calls
+                    </Text>
+                  </View>
+                  <View
+                    style={[
+                      styles.distTrack,
+                      { backgroundColor: colors.borderLight },
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.distBar,
+                        {
+                          width: `${outgoingPct}%`,
+                          backgroundColor: colors.cyan || "#0EA5E9",
+                        },
+                      ]}
+                    />
+                  </View>
+                </View>
+
+                {/* Missed */}
+                <View style={styles.distRow}>
+                  <View style={styles.distLabelRow}>
+                    <Text style={[styles.distType, { color: colors.error || "#EF4444" }]}>
+                      Missed ({missedPct}%)
+                    </Text>
+                    <Text style={[styles.distCount, { color: colors.textPrimary }]}>
+                      {missedCalls} calls
+                    </Text>
+                  </View>
+                  <View
+                    style={[
+                      styles.distTrack,
+                      { backgroundColor: colors.borderLight },
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.distBar,
+                        {
+                          width: `${missedPct}%`,
+                          backgroundColor: colors.error || "#EF4444",
+                        },
+                      ]}
+                    />
+                  </View>
+                </View>
+              </View>
+
+              {/* Top Contacted Numbers */}
+              <View
+                style={[
+                  styles.analyticsSectionCard,
+                  { backgroundColor: colors.card, borderColor: colors.cardBorder },
+                ]}
+              >
+                <Text style={[styles.analyticsSectionTitle, { color: colors.textPrimary }]}>
+                  Top Contacted Numbers
+                </Text>
+
+                {stats?.top_numbers && stats.top_numbers.length > 0 ? (
+                  stats.top_numbers.map((item: any, index: number) => (
+                    <View
+                      key={item.phone_number}
+                      style={[
+                        styles.topNumberRow,
+                        { borderBottomColor: colors.borderLight },
                       ]}
                     >
-                      <Ionicons name={iconName} size={16} color={iconColor} />
-                    </View>
-
-                    {/* Details */}
-                    <View style={styles.callDetails}>
-                      <Text
-                        style={[styles.callerName, { color: colors.textPrimary }]}
-                        numberOfLines={1}
+                      <View style={styles.topNumberLeft}>
+                        <View
+                          style={[
+                            styles.topRankBadge,
+                            { backgroundColor: colors.mintTintedSurface },
+                          ]}
+                        >
+                          <Text style={[styles.topRankText, { color: colors.primary }]}>
+                            {index + 1}
+                          </Text>
+                        </View>
+                        <Text style={[styles.topPhone, { color: colors.textPrimary }]}>
+                          {item.phone_number}
+                        </Text>
+                      </View>
+                      <View
+                        style={[
+                          styles.topCallsBadge,
+                          { backgroundColor: colors.secondarySurface },
+                        ]}
                       >
-                        {log.username || log.phone_number}
-                      </Text>
-                      <Text
-                        style={[styles.callMeta, { color: colors.textMuted }]}
-                        numberOfLines={1}
-                      >
-                        {log.phone_number} · {formatDuration(log.duration)}
-                      </Text>
+                        <Text style={[styles.topCallsText, { color: colors.textSecondary }]}>
+                          {item.count} {item.count === 1 ? "call" : "calls"}
+                        </Text>
+                      </View>
                     </View>
-
-                    {/* Time & Chevron */}
-                    <View style={styles.callRight}>
-                      <Text
-                        style={[styles.callTimeText, { color: colors.textSecondary }]}
-                      >
-                        {formatTime(log.timestamp)}
-                      </Text>
-                      <Ionicons
-                        name="chevron-forward"
-                        size={16}
-                        color={colors.textMuted}
-                      />
-                    </View>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
+                  ))
+                ) : (
+                  <Text style={{ color: colors.textMuted, fontSize: 13, paddingVertical: 8 }}>
+                    No call records available for this selection.
+                  </Text>
+                )}
+              </View>
+            </>
           )}
-        />
+        </ScrollView>
       )}
 
       {/* ── 4. Recorded Call Analysis Modal (Screen 4 of Reference) ─ */}
@@ -1240,5 +1800,207 @@ const styles = StyleSheet.create({
     fontSize: FontSizes.button,
     color: "#FFFFFF",
     letterSpacing: 0.2,
+  },
+
+  // ── Segmented Switcher & Live KPI Strip ──
+  segmentContainer: {
+    flexDirection: "row",
+    gap: 8,
+    paddingHorizontal: Spacing.screenPadding,
+    marginBottom: 12,
+  },
+  segmentBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 9,
+    borderRadius: Radius.lg,
+  },
+  segmentText: {
+    fontSize: FontSizes.caption,
+    letterSpacing: 0.2,
+  },
+  kpiStrip: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-around",
+    marginHorizontal: Spacing.screenPadding,
+    marginBottom: 12,
+    paddingVertical: 10,
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    ...Shadows.card,
+  },
+  kpiItem: {
+    alignItems: "center",
+    flex: 1,
+  },
+  kpiNum: {
+    fontSize: 16,
+    fontFamily: Typography.bold,
+  },
+  kpiLabel: {
+    fontSize: 10,
+    fontFamily: Typography.medium,
+    marginTop: 2,
+    textTransform: "uppercase",
+    letterSpacing: 0.3,
+  },
+  kpiDivider: {
+    width: 1,
+    height: 24,
+  },
+
+  // ── Analytics & Reports Sub-Styles ──
+  pillsRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: Spacing.lg,
+    paddingVertical: 4,
+  },
+  memberPill: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: Radius.pill,
+    borderWidth: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  pillText: {
+    fontSize: FontSizes.caption,
+  },
+  analyticsKpiRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: Spacing.lg,
+  },
+  analyticsKpiCard: {
+    flex: 1,
+    padding: 12,
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    alignItems: "center",
+    ...Shadows.card,
+  },
+  analyticsKpiIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 6,
+  },
+  analyticsKpiVal: {
+    fontSize: 16,
+    fontFamily: Typography.bold,
+  },
+  analyticsKpiLbl: {
+    fontSize: 10,
+    fontFamily: Typography.medium,
+    marginTop: 2,
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
+  analyticsChartCard: {
+    borderRadius: Radius.xl,
+    borderWidth: 1,
+    padding: 16,
+    marginBottom: Spacing.lg,
+    ...Shadows.card,
+  },
+  analyticsChartHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  analyticsChartTitle: {
+    fontSize: 14,
+    fontFamily: Typography.bold,
+  },
+  analyticsChartBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  analyticsChartBadgeText: {
+    fontSize: 11,
+    fontFamily: Typography.bold,
+  },
+  analyticsSectionCard: {
+    borderRadius: Radius.xl,
+    borderWidth: 1,
+    padding: 16,
+    marginBottom: Spacing.lg,
+    ...Shadows.card,
+  },
+  analyticsSectionTitle: {
+    fontSize: 14,
+    fontFamily: Typography.bold,
+    marginBottom: 12,
+  },
+  distRow: {
+    marginBottom: 10,
+  },
+  distLabelRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 4,
+  },
+  distType: {
+    fontSize: 12,
+    fontFamily: Typography.medium,
+  },
+  distCount: {
+    fontSize: 12,
+    fontFamily: Typography.bold,
+  },
+  distTrack: {
+    height: 6,
+    borderRadius: 3,
+    overflow: "hidden",
+  },
+  distBar: {
+    height: "100%",
+    borderRadius: 3,
+  },
+  topNumberRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+  },
+  topNumberLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  topRankBadge: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  topRankText: {
+    fontSize: 11,
+    fontFamily: Typography.bold,
+  },
+  topPhone: {
+    fontSize: 13,
+    fontFamily: Typography.medium,
+  },
+  topCallsBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+  },
+  topCallsText: {
+    fontSize: 11,
+    fontFamily: Typography.bold,
   },
 });

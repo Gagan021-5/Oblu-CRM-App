@@ -6,6 +6,7 @@ import { Typography, FontSizes } from "@/constants/theme";
 import { mockEmployee } from "@/data/mockEmployee";
 
 import { router } from "expo-router";
+import { useAuth } from "@/contexts/AuthContext";
 import { useNotifications } from "@/contexts/NotificationContext";
 import { NotificationCenterModal } from "@/components/employee/NotificationCenterModal";
 
@@ -18,6 +19,7 @@ const WorkspaceHeaderComponent: React.FC<WorkspaceHeaderProps> = ({
   onNotificationPress,
   onProfilePress,
 }) => {
+  const { user } = useAuth();
   const { colors, isDark, mode, setMode } = useTheme();
   const {
     unreadCount,
@@ -25,6 +27,14 @@ const WorkspaceHeaderComponent: React.FC<WorkspaceHeaderProps> = ({
     closeNotificationCenter,
     isNotificationCenterVisible,
   } = useNotifications();
+
+  // Display user name dynamically from AuthContext
+  const displayName = user?.username
+    ? user.username.replace(/_/g, " ").split(" ")[0]
+    : mockEmployee.name.split(" ")[0];
+  const displayInitials = user?.username
+    ? user.username.slice(0, 2).toUpperCase()
+    : mockEmployee.avatarInitials;
 
   // Dynamic greeting based on time of day
   const hour = new Date().getHours();
@@ -152,7 +162,7 @@ const WorkspaceHeaderComponent: React.FC<WorkspaceHeaderProps> = ({
                 { color: isDark ? "#35D6A0" : "#FFFFFF" },
               ]}
             >
-              {mockEmployee.avatarInitials}
+              {displayInitials}
             </Text>
           </TouchableOpacity>
         </View>
@@ -165,7 +175,7 @@ const WorkspaceHeaderComponent: React.FC<WorkspaceHeaderProps> = ({
           { color: isDark ? "#F1F7F4" : "#101513" },
         ]}
       >
-        {greeting}, {mockEmployee.name.split(" ")[0]}
+        {greeting}, {displayName}
       </Text>
 
       {/* Interactive Notification Center Modal */}
