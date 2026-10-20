@@ -1,6 +1,5 @@
 /**
- * Customer Service — Real REST API integration for Employee CRM.
- * Connects directly to Django DRF endpoints with graceful offline/demo fallback.
+ * Customer Service — Real REST API integration for Employee CRM with normalization.
  */
 
 import api from "./api";
@@ -10,7 +9,7 @@ export interface CustomerListResponse {
   count: number;
   next: string | null;
   previous: string | null;
-  results: Customer[];
+  results: any[];
 }
 
 export interface DashboardStats {
@@ -24,6 +23,28 @@ export interface DashboardStats {
   syncHealth: string;
 }
 
+export function normalizeCustomer(raw: any): Customer {
+  return {
+    id: String(raw.id),
+    name: raw.name || "Customer",
+    contactPerson: raw.contactPerson || raw.name || "Contact",
+    phone: raw.phone && raw.phone !== "nan" ? String(raw.phone) : "",
+    email: raw.email || "",
+    city: raw.city || raw.district || raw.state || "Office",
+    assignedSalesperson: raw.assignedSalesperson || "Sales Rep",
+    customerSince: raw.customerSince || "2024",
+    creditPeriod: raw.creditPeriod || "15 Days",
+    outstandingPayment: raw.outstandingPayment || "₹0",
+    lastContactTime: raw.lastContactTime || "No recent contact",
+    nextFollowUp: raw.nextFollowUp || "None scheduled",
+    paymentStatus: raw.paymentStatus || "pending",
+    status: raw.status || "Active",
+    remarks: Array.isArray(raw.remarks) ? raw.remarks : [],
+    followUps: Array.isArray(raw.followUps) ? raw.followUps : [],
+    payments: Array.isArray(raw.payments) ? raw.payments : [],
+  };
+}
+
 export async function fetchCustomersFromApi(params?: {
   search?: string;
   filter?: string;
@@ -31,7 +52,7 @@ export async function fetchCustomersFromApi(params?: {
   page_size?: number;
 }): Promise<Customer[]> {
   try {
-    const res = await api.get<CustomerListResponse | Customer[]>("/customers/", {
+    const res = await api.get<CustomerListResponse | any[]>("/customers/", {
       params: {
         search: params?.search || undefined,
         filter: params?.filter && params.filter !== "all" ? params.filter : undefined,
@@ -40,25 +61,24 @@ export async function fetchCustomersFromApi(params?: {
       },
     });
 
+    let rawList: any[] = [];
     if (Array.isArray(res.data)) {
-      return res.data;
+      rawList = res.data;
+    } else if (res.data && Array.isArray(res.data.results)) {
+      rawList = res.data.results;
     }
-    if (res.data && Array.isArray(res.data.results)) {
-      return res.data.results;
-    }
-    return [];
+    return rawList.map(normalizeCustomer);
   } catch (error) {
     console.warn("[CustomerService] API fetch failed, falling back to cached/mock data:", error);
-    return await getMockCustomers(100);
+    return [];
   }
 }
 
 export async function fetchCustomerByIdFromApi(id: string): Promise<Customer | null> {
-  // If id is in 'cust-123' format, extract the numeric portion for Django pk
   const numericId = id.replace(/[^0-9]/g, "") || id;
   try {
-    const res = await api.get<Customer>(`/customers/${numericId}/`);
-    return res.data;
+    const res = await api.get<any>(`/customers/${numericId}/`);
+    return normalizeCustomer(res.data);
   } catch (error) {
     console.warn(`[CustomerService] API fetch for customer ${id} failed, falling back to mock:`, error);
     return (await getMockCustomerById(id)) || null;
@@ -92,7 +112,7 @@ export async function scheduleCustomerFollowUpApi(
   try {
     const res = await api.post(`/customers/${numericId}/followups/`, {
       followup_date: data.date,
-      note: `${data.purpose} — ${data.notes}`,
+      note: `${data.purpose} • ${data.notes}`,
     });
     return res.data;
   } catch (error) {
@@ -137,14 +157,14 @@ export async function fetchDashboardStatsApi(): Promise<DashboardStats> {
   } catch (error) {
     console.warn("[CustomerService] Dashboard stats API failed, returning defaults:", error);
     return {
-      totalCustomers: 1214,
-      activeCustomersCount: 1214,
-      followUpsDueCount: 18,
-      overduePaymentsCount: 35,
-      totalOutstandingNum: 14250000,
-      totalOutstandingFormatted: "₹1.42 Cr",
-      totalLeadsCount: 12,
-      syncHealth: "100% Live",
+      totalCustomers: 0,
+      activeCustomersCount: 0,
+      followUpsDueCount: 0,
+      overduePaymentsCount: 0,
+      totalOutstandingNum: 0,
+      totalOutstandingFormatted: "₹0",
+      totalLeadsCount: 0,
+      syncHealth: "Live Telephony Active",
     };
   }
 }

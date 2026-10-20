@@ -75,10 +75,10 @@ export default function LeadsDashboardScreen() {
       const q = searchQuery.toLowerCase();
       list = list.filter(
         (l) =>
-          l.companyName.toLowerCase().includes(q) ||
-          l.contactPerson.toLowerCase().includes(q) ||
-          l.phone.includes(q) ||
-          l.leadSource.toLowerCase().includes(q)
+          (l.companyName || l.company || l.name || "").toLowerCase().includes(q) ||
+          (l.contactPerson || "").toLowerCase().includes(q) ||
+          (l.phone || "").includes(q) ||
+          (l.leadSource || (l as any).source_name || "").toLowerCase().includes(q)
       );
     }
 
@@ -352,7 +352,7 @@ export default function LeadsDashboardScreen() {
       ) : (
         <FlatList
           data={filteredLeads}
-          keyExtractor={(item) => item.id}
+          keyExtractor={(item) => String(item.id)}
           renderItem={({ item }) => (
             <LeadCard
               lead={item}

@@ -16,17 +16,30 @@ const CustomerCardComponent: React.FC<CustomerCardProps> = ({ customer, onPress 
 
   const handleCall = (e: any) => {
     e.stopPropagation?.();
-    const cleaned = customer.phone.replace(/[^0-9+]/g, "");
-    Linking.openURL(`tel:${cleaned}`).catch(() => {});
+    const phone = customer.phone || "";
+    if (phone && phone !== "nan") {
+      const cleaned = phone.replace(/[^0-9+]/g, "");
+      Linking.openURL(`tel:${cleaned}`).catch(() => {});
+    }
   };
 
-  // Initials for avatar
-  const initials = customer.name
+  // Safe name & avatar initials
+  const customerName = customer.name || (customer as any).companyName || "Customer";
+  const initials = customerName
     .split(" ")
-    .map((w) => w[0])
+    .filter(Boolean)
+    .map((w: string) => w[0])
     .slice(0, 2)
     .join("")
-    .toUpperCase();
+    .toUpperCase() || "CU";
+
+  const contactText = customer.contactPerson || customerName;
+  const locationText = customer.city || (customer as any).district || (customer as any).state || "Office";
+  const paymentStatus = customer.paymentStatus || "pending";
+  const pillLabel = String(paymentStatus).replace("_", " ");
+  const lastContact = customer.lastContactTime || "No recent contact";
+  const nextFollowUp = customer.nextFollowUp || "None scheduled";
+  const salespersonName = customer.assignedSalesperson || "Assigned Rep";
 
   return (
     <TouchableOpacity
@@ -69,7 +82,7 @@ const CustomerCardComponent: React.FC<CustomerCardProps> = ({ customer, onPress 
               ]}
               numberOfLines={1}
             >
-              {customer.name}
+              {customerName}
             </Text>
             <View style={styles.contactRow}>
               <Text
@@ -79,15 +92,15 @@ const CustomerCardComponent: React.FC<CustomerCardProps> = ({ customer, onPress 
                 ]}
                 numberOfLines={1}
               >
-                {customer.contactPerson} • {customer.city}
+                {contactText} • {locationText}
               </Text>
             </View>
           </View>
         </View>
 
         <StatusPill
-          label={customer.paymentStatus.replace("_", " ")}
-          variant={customer.paymentStatus}
+          label={pillLabel}
+          variant={paymentStatus as any}
           size="small"
         />
       </View>
@@ -118,7 +131,7 @@ const CustomerCardComponent: React.FC<CustomerCardProps> = ({ customer, onPress 
             ]}
             numberOfLines={1}
           >
-            {customer.lastContactTime}
+            {lastContact}
           </Text>
         </View>
 
@@ -145,7 +158,7 @@ const CustomerCardComponent: React.FC<CustomerCardProps> = ({ customer, onPress 
             ]}
             numberOfLines={1}
           >
-            {customer.nextFollowUp}
+            {nextFollowUp}
           </Text>
         </View>
       </View>
@@ -164,7 +177,7 @@ const CustomerCardComponent: React.FC<CustomerCardProps> = ({ customer, onPress 
               { color: isDark ? "#8FA09A" : "#5E6964" },
             ]}
           >
-            {customer.assignedSalesperson}
+            {salespersonName}
           </Text>
         </View>
 
@@ -199,13 +212,11 @@ const CustomerCardComponent: React.FC<CustomerCardProps> = ({ customer, onPress 
             </Text>
           </TouchableOpacity>
 
-          <View style={styles.chevronWrap}>
-            <Ionicons
-              name="chevron-forward"
-              size={16}
-              color={isDark ? "#65756F" : "#87928D"}
-            />
-          </View>
+          <Ionicons
+            name="chevron-forward"
+            size={16}
+            color={isDark ? "#65756F" : "#87928D"}
+          />
         </View>
       </View>
     </TouchableOpacity>
@@ -255,8 +266,6 @@ const styles = StyleSheet.create({
     letterSpacing: -0.2,
   },
   contactRow: {
-    flexDirection: "row",
-    alignItems: "center",
     marginTop: 2,
   },
   contactPerson: {
@@ -268,7 +277,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 1,
     paddingVertical: 8,
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,
     marginBottom: 10,
   },
   metaCol: {
@@ -285,11 +294,11 @@ const styles = StyleSheet.create({
   },
   metaValueHighlight: {
     fontSize: FontSizes.caption,
-    fontFamily: Typography.semiBold,
+    fontFamily: Typography.bold,
   },
   metaDivider: {
     width: 1,
-    marginHorizontal: 10,
+    marginHorizontal: 8,
   },
   footerRow: {
     flexDirection: "row",
@@ -302,8 +311,8 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   salespersonText: {
-    fontSize: FontSizes.micro,
-    fontFamily: Typography.medium,
+    fontSize: FontSizes.caption,
+    fontFamily: Typography.regular,
   },
   actionButtons: {
     flexDirection: "row",
@@ -322,8 +331,5 @@ const styles = StyleSheet.create({
   callButtonText: {
     fontSize: FontSizes.micro,
     fontFamily: Typography.semiBold,
-  },
-  chevronWrap: {
-    paddingLeft: 2,
   },
 });

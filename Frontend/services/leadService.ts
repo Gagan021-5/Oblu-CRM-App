@@ -1,15 +1,56 @@
 /**
- * Lead Service — Real REST API integration for Leads management.
+ * Lead Service — Real REST API integration for Leads management with normalization.
  */
 
 import api from "./api";
-import { Lead, LeadStage, getMockLeads, getMockLeadById } from "@/data/mockLeads";
+import { Lead, LeadStage, LeadIntent, getMockLeads, getMockLeadById } from "@/data/mockLeads";
 
 export interface LeadListResponse {
   count: number;
   next: string | null;
   previous: string | null;
-  results: Lead[];
+  results: any[];
+}
+
+export function normalizeLead(raw: any): Lead {
+  const comp = raw.companyName || raw.company || raw.name || "Prospect";
+  const name = raw.name || comp;
+  const stage = (raw.stage || raw.stage_name || "New") as LeadStage;
+  const intent = (raw.intentLevel || raw.intent || "High") as LeadIntent;
+  const acts = Array.isArray(raw.activity) ? raw.activity : (Array.isArray(raw.activities) ? raw.activities : []);
+
+  return {
+    id: String(raw.id),
+    name,
+    companyName: comp,
+    company: comp,
+    contactPerson: raw.contactPerson || raw.contact_person || name,
+    phone: raw.phone && raw.phone !== "nan" ? String(raw.phone) : "",
+    email: raw.email || "",
+    city: raw.city || raw.district || raw.state || "Office",
+    state: raw.state || "",
+    district: raw.district || "",
+    leadSource: raw.leadSource || raw.source_name || "Website",
+    assignedSalesperson: raw.assignedSalesperson || raw.assignedEmployee || raw.salesperson_name || "Sales Rep",
+    assignedEmployee: raw.assignedEmployee || raw.salesperson_name || "Sales Rep",
+    stage,
+    stage_name: raw.stage_name || stage,
+    stage_color: raw.stage_color || "#00A879",
+    intent,
+    intentLevel: intent,
+    intentScore: typeof raw.intentScore === "number" ? raw.intentScore : 85,
+    estimatedValue: raw.estimatedValue || "₹0",
+    estimatedValueNum: typeof raw.estimatedValueNum === "number" ? raw.estimatedValueNum : 0,
+    createdDate: raw.createdDate || raw.created_at ? new Date(raw.created_at || Date.now()).toLocaleDateString("en-GB") : "Today",
+    lastContactTime: raw.lastContactDate || raw.lastContactTime || "No contact",
+    lastContactDate: raw.lastContactDate || "",
+    nextFollowUp: raw.nextFollowUp || "None scheduled",
+    expectedClosingDate: raw.expectedClosingDate || "Open",
+    notes: Array.isArray(raw.notes) ? raw.notes : [],
+    activities: acts,
+    activity: acts,
+    followUps: Array.isArray(raw.followUps) ? raw.followUps : [],
+  };
 }
 
 export async function fetchLeadsFromApi(params?: {
@@ -17,31 +58,31 @@ export async function fetchLeadsFromApi(params?: {
   search?: string;
 }): Promise<Lead[]> {
   try {
-    const res = await api.get<LeadListResponse | Lead[]>("/leads/", {
+    const res = await api.get<LeadListResponse | any[]>("/leads/", {
       params: {
         stage: params?.stage && params.stage !== "All" ? params.stage : undefined,
         search: params?.search || undefined,
       },
     });
 
+    let rawList: any[] = [];
     if (Array.isArray(res.data)) {
-      return res.data;
+      rawList = res.data;
+    } else if (res.data && Array.isArray(res.data.results)) {
+      rawList = res.data.results;
     }
-    if (res.data && Array.isArray(res.data.results)) {
-      return res.data.results;
-    }
-    return [];
+    return rawList.map(normalizeLead);
   } catch (error) {
     console.warn("[LeadService] API fetch failed, falling back to mock leads:", error);
-    return await getMockLeads(100);
+    return [];
   }
 }
 
 export async function fetchLeadByIdFromApi(id: string): Promise<Lead | null> {
   const numericId = id.replace(/[^0-9]/g, "") || id;
   try {
-    const res = await api.get<Lead>(`/leads/${numericId}/`);
-    return res.data;
+    const res = await api.get<any>(`/leads/${numericId}/`);
+    return normalizeLead(res.data);
   } catch (error) {
     console.warn(`[LeadService] API fetch for lead ${id} failed, falling back:`, error);
     return (await getMockLeadById(id)) || null;
@@ -50,33 +91,41 @@ export async function fetchLeadByIdFromApi(id: string): Promise<Lead | null> {
 
 export async function createLeadApi(data: Partial<Lead>): Promise<Lead> {
   try {
-    const res = await api.post<Lead>("/leads/", {
+    const res = await api.post<any>("/leads/", {
       name: data.companyName || data.contactPerson,
       phone: data.phone,
       email: data.email,
       stage: data.stage || "New",
       source: data.leadSource || "Website",
     });
-    return res.data;
+    return normalizeLead(res.data);
   } catch (error) {
     console.warn("[LeadService] Create lead API failed, simulating locally:", error);
     return {
       id: `lead-${Date.now()}`,
+      name: data.companyName || "New Prospect",
       companyName: data.companyName || "New Prospect",
+      company: data.companyName || "New Prospect",
       contactPerson: data.contactPerson || "Lead Contact",
       phone: data.phone || "",
       email: data.email || "",
+      city: "Office",
       leadSource: data.leadSource || "Website",
+      assignedSalesperson: "You",
+      assignedEmployee: "You",
       stage: (data.stage as LeadStage) || "New",
+      intent: "High",
       intentLevel: "High",
       intentScore: 80,
       estimatedValue: "₹1,50,000",
       estimatedValueNum: 150000,
+      createdDate: "Today",
+      lastContactTime: "Today",
       lastContactDate: "Today",
       nextFollowUp: "Tomorrow, 10:30 AM",
       expectedClosingDate: "Next Month",
-      assignedEmployee: "You",
       notes: [],
+      activities: [],
       activity: [],
       followUps: [],
     };

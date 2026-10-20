@@ -16,20 +16,20 @@ export interface EmployeeProfile {
 }
 
 export const mockEmployee: EmployeeProfile = {
-  id: "EMP-2024-001",
-  name: "Gagan Sharma",
-  designation: "Senior Sales Executive",
-  region: "North Region (Delhi NCR)",
-  avatarInitials: "GS",
-  email: "gagan.sharma@nexuscorp.com",
-  phone: "+91 98765 43210",
-  employeeSince: "March 2023",
-  department: "Enterprise Solutions & Cloud Sales",
-  location: "Cyber City, Gurugram HQ",
-  manager: "Rajesh Verma (VP Sales)",
-  activeAccounts: 128,
-  totalDeals: 34,
-  pipelineValue: "₹4.2L",
+  id: "EMP-001",
+  name: "Employee",
+  designation: "Sales Executive",
+  region: "North Region",
+  avatarInitials: "EM",
+  email: "employee@oblutools.com",
+  phone: "",
+  employeeSince: "2024",
+  department: "Sales",
+  location: "Headquarters",
+  manager: "Sales Manager",
+  activeAccounts: 0,
+  totalDeals: 0,
+  pipelineValue: "₹0",
 };
 
 export async function getMockEmployee(): Promise<EmployeeProfile> {

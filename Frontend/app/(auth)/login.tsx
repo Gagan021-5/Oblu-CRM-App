@@ -48,7 +48,7 @@ export default function LoginScreen() {
       if (loggedUser?.role === "admin") {
         router.replace("/(admin)/users");
       } else {
-        router.replace("/(employee)/profile" as any);
+        router.replace("/(employee)");
       }
     } catch (error: any) {
       // Direct demo fallback for test users
@@ -57,7 +57,7 @@ export default function LoginScreen() {
         if (mockU?.role === "admin") {
           router.replace("/(admin)/users");
         } else {
-          router.replace("/(employee)/profile" as any);
+          router.replace("/(employee)");
         }
       } catch {
         const msg =
@@ -72,18 +72,30 @@ export default function LoginScreen() {
   };
 
   const handleQuickRoleLogin = async (user: DummyTestUser) => {
+    const pwd = user.password || "test1234";
     setUsername(user.username);
-    setPassword("test1234");
+    setPassword(pwd);
     setLoading(true);
     try {
-      const mockU = await mockLogin(user.username);
-      if (mockU?.role === "admin") {
+      // 1. Authenticate with real Django backend first
+      const loggedUser = await login(user.username, pwd);
+      if (loggedUser?.role === "admin") {
         router.replace("/(admin)/users");
       } else {
-        router.replace("/(employee)/profile" as any);
+        router.replace("/(employee)");
       }
     } catch {
-      router.replace("/(employee)/profile" as any);
+      // 2. Demo fallback
+      try {
+        const mockU = await mockLogin(user.username);
+        if (mockU?.role === "admin") {
+          router.replace("/(admin)/users");
+        } else {
+          router.replace("/(employee)");
+        }
+      } catch {
+        router.replace("/(employee)");
+      }
     } finally {
       setLoading(false);
     }

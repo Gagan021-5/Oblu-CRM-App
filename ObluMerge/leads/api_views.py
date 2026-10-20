@@ -9,6 +9,14 @@ from rest_framework.views import APIView
 from rest_framework.pagination import PageNumberPagination
 from django.shortcuts import get_object_or_404
 from django.db.models import Q
+from access_control.roles import (
+    get_accessible_salesperson_ids,
+    get_salesperson_profile,
+    is_admin,
+    is_finance,
+)
+from access_control.hierarchy import get_accessible_user_ids
+from access_control.services import can
 
 from .models import Lead, LeadStage, LeadSource, LeadRemark
 from .api_serializers import LeadListSerializer, LeadDetailSerializer, LeadStageSerializer
@@ -30,7 +38,29 @@ class LeadListView(generics.ListCreateAPIView):
     pagination_class = StandardResultsSetPagination
 
     def get_queryset(self):
+        user = self.request.user
         qs = Lead.objects.select_related("stage", "source", "salesperson").order_by("-created_at")
+
+        # Hierarchy & Scope filtering
+        is_super = user.is_superuser or user.is_staff or is_admin(user) or is_finance(user) or can(user, "customer.view_all")
+        if not is_super:
+            accessible_sp_ids = get_accessible_salesperson_ids(user)
+            accessible_uids = get_accessible_user_ids(user)
+            sp = get_salesperson_profile(user)
+
+            scope_q = Q()
+            if accessible_uids:
+                scope_q |= Q(salesperson__user_id__in=accessible_uids)
+            if accessible_sp_ids:
+                scope_q |= Q(salesperson_id__in=accessible_sp_ids)
+            if sp:
+                scope_q |= Q(salesperson=sp)
+
+            if scope_q:
+                qs = qs.filter(scope_q)
+            else:
+                # If no specific scope, show assigned leads or empty
+                qs = qs.filter(salesperson__isnull=True)
 
         stage = self.request.query_params.get("stage", "").strip()
         if stage and stage.lower() != "all":
@@ -67,7 +97,25 @@ class LeadDetailView(generics.RetrieveUpdateAPIView):
     """
     serializer_class = LeadDetailSerializer
     permission_classes = [IsAuthenticated]
-    queryset = Lead.objects.select_related("stage", "source", "salesperson").prefetch_related("lead_remarks")
+
+    def get_queryset(self):
+        user = self.request.user
+        qs = Lead.objects.select_related("stage", "source", "salesperson").prefetch_related("lead_remarks")
+        is_super = user.is_superuser or user.is_staff or is_admin(user) or is_finance(user) or can(user, "customer.view_all")
+        if not is_super:
+            accessible_sp_ids = get_accessible_salesperson_ids(user)
+            accessible_uids = get_accessible_user_ids(user)
+            sp = get_salesperson_profile(user)
+            scope_q = Q()
+            if accessible_uids:
+                scope_q |= Q(salesperson__user_id__in=accessible_uids)
+            if accessible_sp_ids:
+                scope_q |= Q(salesperson_id__in=accessible_sp_ids)
+            if sp:
+                scope_q |= Q(salesperson=sp)
+            if scope_q:
+                qs = qs.filter(scope_q)
+        return qs
 
 
 class LeadStageUpdateView(APIView):

@@ -1,43 +1,63 @@
-import React from "react";
-import { View, Text, TouchableOpacity, StyleSheet, Platform } from "react-native";
+import React, { useMemo } from "react";
+import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { router, usePathname } from "expo-router";
+import { router, usePathname, useGlobalSearchParams } from "expo-router";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { Typography, FontSizes, Shadows } from "@/constants/theme";
 
 interface FloatingTabBarProps {
-  onQuickActionPress: () => void;
+  onQuickActionPress?: () => void;
 }
 
-const FloatingTabBarComponent: React.FC<FloatingTabBarProps> = ({
-  onQuickActionPress,
-}) => {
+const FloatingTabBarComponent: React.FC<FloatingTabBarProps> = () => {
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useTheme();
   const { user } = useAuth();
   const pathname = usePathname();
+  const params = useGlobalSearchParams<{ tab?: string }>();
+  const activeTabParam = params.tab || "dashboard";
 
   const isAdmin = user?.role === "admin";
 
+  // Check if current user is HR persona (vanshika, anshika, or role HR)
+  const isHR = useMemo(() => {
+    const role = ((user as any)?.role || "").toLowerCase();
+    const username = ((user as any)?.username || "").toLowerCase();
+    return (
+      role.includes("hr") ||
+      role.includes("human resource") ||
+      role.includes("people ops") ||
+      username.includes("vanshika") ||
+      username.includes("anshika")
+    );
+  }, [user]);
+
   // Route active checks
   const isHome =
-    pathname === "/(employee)" ||
-    pathname === "/(employee)/" ||
-    pathname === "/(admin)/users" ||
-    pathname === "/" ||
-    pathname === "/index" ||
-    pathname === "";
+    (pathname === "/(employee)" ||
+      pathname === "/(employee)/" ||
+      pathname === "/(admin)/users" ||
+      pathname === "/" ||
+      pathname === "/index" ||
+      pathname === "") &&
+    activeTabParam !== "staff";
+
+  const isStaffActive =
+    (pathname === "/(employee)" || pathname === "/(employee)/") &&
+    activeTabParam === "staff";
+
   const isCustomers = pathname.includes("customers");
-  const isLeads = pathname.includes("leads");
+  const isProfile = pathname.includes("profile");
   const isCalls =
     pathname.includes("status") ||
     pathname.includes("(user)") ||
     pathname.includes("call-logs") ||
     pathname.includes("calls");
 
-  const navItems = [
+  // Standard Non-HR Navigation Items (4 Clean Tabs: Home, Customers, Calls, Profile)
+  const standardNavItems = [
     {
       key: "home",
       label: "Home",
@@ -64,21 +84,6 @@ const FloatingTabBarComponent: React.FC<FloatingTabBarProps> = ({
         }
       },
     },
-  ];
-
-  const navItemsRight = [
-    {
-      key: "leads",
-      label: "Leads",
-      iconActive: "trending-up" as const,
-      iconInactive: "trending-up-outline" as const,
-      isActive: isLeads,
-      onPress: () => {
-        if (!isLeads) {
-          router.replace("/(employee)/leads" as any);
-        }
-      },
-    },
     {
       key: "calls",
       label: "Calls",
@@ -93,8 +98,69 @@ const FloatingTabBarComponent: React.FC<FloatingTabBarProps> = ({
         }
       },
     },
+    {
+      key: "profile",
+      label: "Profile",
+      iconActive: "person" as const,
+      iconInactive: "person-outline" as const,
+      isActive: isProfile,
+      onPress: () => {
+        if (!isProfile) {
+          router.push("/(employee)/profile" as any);
+        }
+      },
+    },
   ];
 
+  // HR Navigation Items (4 Clean Tabs: HRMS, Staff, Calls, Profile)
+  const hrNavItems = [
+    {
+      key: "hrms",
+      label: "HRMS",
+      iconActive: "briefcase" as const,
+      iconInactive: "briefcase-outline" as const,
+      isActive: isHome,
+      onPress: () => {
+        router.replace({ pathname: "/(employee)", params: { tab: "dashboard" } } as any);
+      },
+    },
+    {
+      key: "staff",
+      label: "Staff",
+      iconActive: "people" as const,
+      iconInactive: "people-outline" as const,
+      isActive: isStaffActive,
+      onPress: () => {
+        router.replace({ pathname: "/(employee)", params: { tab: "staff" } } as any);
+      },
+    },
+    {
+      key: "calls",
+      label: "Calls",
+      iconActive: "call" as const,
+      iconInactive: "call-outline" as const,
+      isActive: isCalls,
+      onPress: () => {
+        if (!isCalls) {
+          router.replace({ pathname: "/(user)/status", params: { from: "workspace" } } as any);
+        }
+      },
+    },
+    {
+      key: "profile",
+      label: "Profile",
+      iconActive: "person" as const,
+      iconInactive: "person-outline" as const,
+      isActive: isProfile,
+      onPress: () => {
+        if (!isProfile) {
+          router.push("/(employee)/profile" as any);
+        }
+      },
+    },
+  ];
+
+  const currentNavItems = isHR ? hrNavItems : standardNavItems;
   const bottomOffset = Math.max(insets.bottom, 12);
 
   return (
@@ -119,8 +185,7 @@ const FloatingTabBarComponent: React.FC<FloatingTabBarProps> = ({
           Shadows.floatingDock,
         ]}
       >
-        {/* Left 2 items */}
-        {navItems.map((item) => {
+        {currentNavItems.map((item) => {
           const color = item.isActive
             ? isDark
               ? "#35D6A0"
@@ -135,61 +200,20 @@ const FloatingTabBarComponent: React.FC<FloatingTabBarProps> = ({
             >
               <Ionicons
                 name={item.isActive ? item.iconActive : item.iconInactive}
-                size={20}
+                size={21}
                 color={color}
               />
-              <Text style={[styles.tabLabel, { color }]}>{item.label}</Text>
-              {item.isActive && (
-                <View
-                  style={[
-                    styles.activeDot,
-                    { backgroundColor: isDark ? "#35D6A0" : "#19C997" },
-                  ]}
-                />
-              )}
-            </TouchableOpacity>
-          );
-        })}
-
-        {/* Center Quick Action Button */}
-        <TouchableOpacity
-          style={[
-            styles.centerButton,
-            {
-              backgroundColor: isDark ? "#35D6A0" : "#00A879",
-            },
-            Shadows.mintButton,
-          ]}
-          onPress={onQuickActionPress}
-          activeOpacity={0.85}
-        >
-          <Ionicons
-            name="add"
-            size={26}
-            color={isDark ? "#080C0B" : "#FFFFFF"}
-          />
-        </TouchableOpacity>
-
-        {/* Right 2 items */}
-        {navItemsRight.map((item) => {
-          const color = item.isActive
-            ? isDark
-              ? "#35D6A0"
-              : "#19C997"
-            : "#8FA09A";
-          return (
-            <TouchableOpacity
-              key={item.key}
-              style={styles.tabButton}
-              onPress={item.onPress}
-              activeOpacity={0.7}
-            >
-              <Ionicons
-                name={item.isActive ? item.iconActive : item.iconInactive}
-                size={20}
-                color={color}
-              />
-              <Text style={[styles.tabLabel, { color }]}>{item.label}</Text>
+              <Text
+                style={[
+                  styles.tabLabel,
+                  {
+                    color,
+                    fontFamily: item.isActive ? Typography.semiBold : Typography.medium,
+                  },
+                ]}
+              >
+                {item.label}
+              </Text>
               {item.isActive && (
                 <View
                   style={[
@@ -219,8 +243,8 @@ const styles = StyleSheet.create({
   dockContainer: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 12,
+    justifyContent: "space-around",
+    paddingHorizontal: 10,
     paddingVertical: 8,
     borderRadius: 32,
     borderWidth: 1,
@@ -237,7 +261,6 @@ const styles = StyleSheet.create({
   },
   tabLabel: {
     fontSize: FontSizes.tabLabel,
-    fontFamily: Typography.medium,
     marginTop: 2,
   },
   activeDot: {
@@ -246,13 +269,4 @@ const styles = StyleSheet.create({
     borderRadius: 2,
     marginTop: 2,
   },
-  centerButton: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    alignItems: "center",
-    justifyContent: "center",
-    marginHorizontal: 6,
-  },
 });
-

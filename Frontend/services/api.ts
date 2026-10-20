@@ -1,18 +1,38 @@
 /**
- * API service — Axios instance with JWT interceptors.
- *
- * Base URL is configured with your local LAN IP (192.168.1.28:8000/api)
- * so your physical Android phone on the same Wi-Fi can connect directly.
+ * API service — Axios instance with dynamic LAN host detection and JWT interceptors.
+ * Automatically resolves the host machine's active IP via Expo Constants so physical
+ * mobile devices on the Wi-Fi network connect seamlessly without manual IP changes.
  */
 
 import axios, { AxiosError, InternalAxiosRequestConfig } from "axios";
 import * as SecureStore from "expo-secure-store";
 import { router } from "expo-router";
+import Constants from "expo-constants";
+import { Platform } from "react-native";
 
-// ── Configuration ──────────────────────────────────────────────────────
-const API_BASE_URL =
-  process.env.EXPO_PUBLIC_API_URL || "http://192.168.1.57:8000/api";
+function resolveApiBaseUrl(): string {
+  // 1. Explicit env override if specified and not the stale .57 or .8 IP
+  const envUrl = process.env.EXPO_PUBLIC_API_URL;
+  if (envUrl && !envUrl.includes("192.168.1.57") && !envUrl.includes("192.168.1.8")) {
+    return envUrl;
+  }
 
+  // 2. Web browser or local simulator
+  if (Platform.OS === "web") {
+    return "http://localhost:8000/api";
+  }
+
+  // 3. Dynamic Expo host detection (matches whatever LAN IP your laptop currently has)
+  const host = Constants.expoConfig?.hostUri?.split(":")?.[0];
+  if (host) {
+    return `http://${host}:8000/api`;
+  }
+
+  // 4. Current Wi-Fi LAN IP fallback
+  return "http://192.168.1.36:8000/api";
+}
+
+const API_BASE_URL = resolveApiBaseUrl();
 
 // ── Token storage keys ─────────────────────────────────────────────────
 const ACCESS_TOKEN_KEY = "calltracer_access_token";
@@ -78,7 +98,6 @@ api.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
     if (error.response?.status === 401) {
-      // Token expired or invalid — clear tokens and redirect to login
       await clearTokens();
       router.replace("/(auth)/login");
     }

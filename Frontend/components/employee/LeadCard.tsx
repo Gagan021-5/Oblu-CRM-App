@@ -16,23 +16,37 @@ const LeadCardComponent: React.FC<LeadCardProps> = ({ lead, onPress }) => {
 
   const handleCall = (e: any) => {
     e.stopPropagation?.();
-    const cleaned = lead.phone.replace(/[^0-9+]/g, "");
-    Linking.openURL(`tel:${cleaned}`).catch(() => {});
+    const phone = lead.phone || "";
+    if (phone && phone !== "nan") {
+      const cleaned = phone.replace(/[^0-9+]/g, "");
+      Linking.openURL(`tel:${cleaned}`).catch(() => {});
+    }
   };
 
-  const initials = lead.companyName
+  const displayName = lead.companyName || lead.company || lead.name || "Lead";
+  const initials = displayName
     .split(" ")
-    .map((w) => w[0])
+    .filter(Boolean)
+    .map((w: string) => w[0])
     .slice(0, 2)
     .join("")
-    .toUpperCase();
+    .toUpperCase() || "LD";
 
+  const intentRaw = lead.intentLevel || lead.intent || "Medium";
   const intentVariant =
-    lead.intentLevel === "High"
+    intentRaw === "High"
       ? "high_intent"
-      : lead.intentLevel === "Medium"
+      : intentRaw === "Medium"
       ? "medium_intent"
       : "low_intent";
+
+  const contactText = lead.contactPerson || lead.name || "Contact";
+  const sourceText = lead.leadSource || (lead as any).source_name || "Website";
+  const stageText = lead.stage || (lead as any).stage_name || "New";
+  const estValueText = lead.estimatedValue || "₹0";
+  const followUpText = (lead.nextFollowUp || (lead as any).followup_note || "None scheduled").split(",")[0];
+  const closingText = lead.expectedClosingDate || "Open";
+  const scoreText = lead.intentScore ?? 80;
 
   return (
     <TouchableOpacity
@@ -77,7 +91,7 @@ const LeadCardComponent: React.FC<LeadCardProps> = ({ lead, onPress }) => {
               ]}
               numberOfLines={1}
             >
-              {lead.companyName}
+              {displayName}
             </Text>
             <Text
               style={[
@@ -86,14 +100,14 @@ const LeadCardComponent: React.FC<LeadCardProps> = ({ lead, onPress }) => {
               ]}
               numberOfLines={1}
             >
-              {lead.contactPerson} • {lead.leadSource}
+              {contactText} • {sourceText}
             </Text>
           </View>
         </View>
 
         <View style={styles.pillsCol}>
           <StatusPill
-            label={`${lead.intentLevel} Intent (${lead.intentScore})`}
+            label={`${intentRaw} Intent (${scoreText})`}
             variant={intentVariant}
             size="small"
           />
@@ -125,7 +139,7 @@ const LeadCardComponent: React.FC<LeadCardProps> = ({ lead, onPress }) => {
               { color: isDark ? "#35D6A0" : "#00A879" },
             ]}
           >
-            {lead.stage}
+            {stageText}
           </Text>
         </View>
 
@@ -151,7 +165,7 @@ const LeadCardComponent: React.FC<LeadCardProps> = ({ lead, onPress }) => {
               { color: isDark ? "#F1F7F4" : "#101513" },
             ]}
           >
-            {lead.estimatedValue}
+            {estValueText}
           </Text>
         </View>
 
@@ -178,7 +192,7 @@ const LeadCardComponent: React.FC<LeadCardProps> = ({ lead, onPress }) => {
             ]}
             numberOfLines={1}
           >
-            {lead.nextFollowUp.split(",")[0]}
+            {followUpText}
           </Text>
         </View>
       </View>
@@ -191,7 +205,7 @@ const LeadCardComponent: React.FC<LeadCardProps> = ({ lead, onPress }) => {
             { color: isDark ? "#65756F" : "#87928D" },
           ]}
         >
-          Target: {lead.expectedClosingDate}
+          Target: {closingText}
         </Text>
 
         <View style={styles.actionRow}>

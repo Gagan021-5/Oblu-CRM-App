@@ -31,12 +31,8 @@ import { registerBackgroundSync } from "@/services/backgroundSync";
 import { Ionicons } from "@expo/vector-icons";
 import { Shadows, Typography, FontSizes, Spacing, Radius } from "@/constants/theme";
 import { FloatingTabBar } from "@/components/employee/FloatingTabBar";
-import { QuickActionModal } from "@/components/employee/QuickActionModal";
-import { AddCustomerRemarkModal } from "@/components/employee/AddCustomerRemarkModal";
-import { ScheduleFollowUpModal } from "@/components/employee/ScheduleFollowUpModal";
-import { AddLeadModal } from "@/components/employee/AddLeadModal";
-import { addMockCustomerRemark, scheduleMockCustomerFollowUp } from "@/data/mockCustomers";
-import { createMockLead } from "@/data/mockLeads";
+import { addCustomerRemarkApi, scheduleCustomerFollowUpApi } from "@/services/customerService";
+import { createLeadApi } from "@/services/leadService";
 import { scheduleFollowUpNotifications } from "@/services/followUpNotificationService";
 import { mockEmployee } from "@/data/mockEmployee";
 
@@ -73,7 +69,7 @@ export default function StatusScreen() {
 
   const handleSaveRemark = async (text: string) => {
     try {
-      await addMockCustomerRemark("cust-001", text);
+      await addCustomerRemarkApi("1", text);
     } catch {
       // Ignored
     }
@@ -81,7 +77,7 @@ export default function StatusScreen() {
 
   const handleScheduleFollowUp = async (data: any) => {
     try {
-      await scheduleMockCustomerFollowUp("cust-001", data);
+      await scheduleCustomerFollowUpApi("1", data);
       await scheduleFollowUpNotifications({
         customerName: "Orion Systems",
         customerId: "cust-001",
@@ -97,7 +93,7 @@ export default function StatusScreen() {
 
   const handleCreateLead = async (data: any) => {
     try {
-      const created = await createMockLead(data);
+      const created = await createLeadApi(data);
       router.push(`/(employee)/leads/${created.id}` as any);
     } catch {
       // Ignored
@@ -556,40 +552,9 @@ export default function StatusScreen() {
       </ScrollView>
 
       {/* Persistent Floating Bottom Navigation Dock */}
-      <FloatingTabBar
-        onQuickActionPress={() => setQuickActionVisible(true)}
-      />
+      <FloatingTabBar />
 
-      {/* Global Quick Actions Modal */}
-      <QuickActionModal
-        visible={quickActionVisible}
-        onClose={() => setQuickActionVisible(false)}
-        onAddRemark={() => setRemarkModalVisible(true)}
-        onScheduleFollowUp={() => setFollowUpModalVisible(true)}
-        onAddLead={() => setLeadModalVisible(true)}
-        onSyncCalls={handleSyncCallsFromModal}
-      />
-
-      {/* Action Sub-Modals */}
-      <AddCustomerRemarkModal
-        visible={remarkModalVisible}
-        onClose={() => setRemarkModalVisible(false)}
-        onSave={handleSaveRemark}
-        customerName="Orion Systems"
-      />
-
-      <ScheduleFollowUpModal
-        visible={followUpModalVisible}
-        onClose={() => setFollowUpModalVisible(false)}
-        onSchedule={handleScheduleFollowUp}
-        targetName="Orion Systems"
-      />
-
-      <AddLeadModal
-        visible={leadModalVisible}
-        onClose={() => setLeadModalVisible(false)}
-        onCreate={handleCreateLead}
-      />
+      
     </View>
   );
 }

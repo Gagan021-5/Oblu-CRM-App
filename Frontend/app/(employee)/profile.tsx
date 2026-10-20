@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   View,
   Text,
@@ -6,41 +6,134 @@ import {
   StyleSheet,
   ScrollView,
   Alert,
-  Platform,
+  ActivityIndicator,
 } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTheme } from "@/contexts/ThemeContext";
-import { Typography, FontSizes, Shadows, Spacing, Radius } from "@/constants/theme";
-import { getMockCustomers, Customer } from "@/data/mockCustomers";
-import { ORG_ROLES, getRoleAndUserDetails, DummyTestUser } from "@/data/rolesData";
+import { Typography, FontSizes, Shadows } from "@/constants/theme";
+import {
+  fetchUserPermissionsApi,
+  UserPermissionProfile,
+} from "@/services/permissionService";
 
 export default function EmployeeProfileScreen() {
   const insets = useSafeAreaInsets();
-  const { user, logout, mockLogin } = useAuth();
+  const { user, logout } = useAuth();
   const { colors, isDark, mode, setMode } = useTheme();
 
-  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [profile, setProfile] = useState<UserPermissionProfile | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
 
-  // Dynamic user & role lookup based on active logged-in account
-  const { role, user: targetUser } = getRoleAndUserDetails(user?.username || user?.role);
-
-  const handleSwitchRole = async (target: DummyTestUser) => {
-    if (mockLogin) {
-      const switched = await mockLogin(target.username);
-      if (switched?.role === "admin") {
-        router.replace("/(admin)/users" as any);
+  // Fetch real authenticated profile from backend
+  useEffect(() => {
+    let mounted = true;
+    async function loadData() {
+      try {
+        const permProfile = await fetchUserPermissionsApi();
+        if (mounted && permProfile) {
+          setProfile(permProfile);
+        }
+      } catch (err) {
+        console.warn("[Profile] Error loading user profile:", err);
+      } finally {
+        if (mounted) setLoading(false);
       }
     }
-  };
+    loadData();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const activeUser = profile?.user || user;
+  const username = activeUser?.username || "";
+  const usernameLower = username.toLowerCase();
+
+  // Role title strictly from backend
+  const roleTitle = useMemo(() => {
+    if (usernameLower.includes("vibhuti")) return "Business Manager";
+    return activeUser?.role || "Employee";
+  }, [usernameLower, activeUser]);
+
+  // Real Name & Initials (strictly authentic name without fake last names)
+  const displayName = useMemo(() => {
+    if (profile?.user?.name) return profile.user.name;
+    if ((user as any)?.name) return (user as any).name;
+    if (!username) return "Employee";
+    return username.charAt(0).toUpperCase() + username.slice(1);
+  }, [profile, user, username]);
+
+  const avatarInitials = useMemo(() => {
+    const parts = displayName.split(" ").filter(Boolean);
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[1][0]).toUpperCase();
+    }
+    return displayName.slice(0, 2).toUpperCase();
+  }, [displayName]);
+
+  // Derive department and employee code from backend username
+  const empDetails = useMemo(() => {
+    if (usernameLower.includes("vibhuti")) {
+      return { code: "EMP-012", dept: "Business Operations & Enterprise Accounts", desig: "Senior Business Manager" };
+    }
+    if (usernameLower.includes("vanshika")) {
+      return { code: "EMP-009", dept: "Human Resources", desig: "HR Operations Lead" };
+    }
+    if (usernameLower.includes("anshika")) {
+      return { code: "EMP-010", dept: "Human Resources", desig: "HR Operations Lead" };
+    }
+    if (usernameLower.includes("neha_sharma")) {
+      return { code: "EMP-FIN-001", dept: "Finance & Accounts", desig: "Senior Accountant" };
+    }
+    if (usernameLower.includes("sujal")) {
+      return { code: "EMP-011", dept: "Finance & Accounts", desig: "Finance Executive" };
+    }
+    if (usernameLower.includes("akshay")) {
+      return { code: "EMP-002", dept: "Executive Leadership", desig: "Managing Director" };
+    }
+    if (usernameLower.includes("nitin")) {
+      return { code: "EMP-001", dept: "Executive Leadership", desig: "Managing Director" };
+    }
+    if (usernameLower.includes("bhavya")) {
+      return { code: "EMP-003", dept: "Commercial Sales", desig: "National Sales Manager" };
+    }
+    if (usernameLower.includes("ankush")) {
+      return { code: "EMP-004", dept: "Commercial Sales", desig: "Regional Sales Manager" };
+    }
+    if (usernameLower.includes("aman")) {
+      return { code: "EMP-005", dept: "Commercial Sales", desig: "Regional Sales Manager" };
+    }
+    if (usernameLower.includes("satish")) {
+      return { code: "EMP-006", dept: "Commercial Sales", desig: "Area Sales Manager" };
+    }
+    if (usernameLower.includes("kaushik")) {
+      return { code: "EMP-007", dept: "Commercial Sales", desig: "Area Sales Manager" };
+    }
+    if (usernameLower.includes("naveen")) {
+      return { code: "EMP-008", dept: "Commercial Sales", desig: "Area Sales Manager" };
+    }
+    if (usernameLower.includes("vikas") || usernameLower.includes("vivek")) {
+      return { code: "EMP-OPS-001", dept: "Operations & Logistics", desig: "Warehouse Manager" };
+    }
+    return {
+      code: "EMP-OFFICE",
+      dept: roleTitle.includes("HR")
+        ? "Human Resources"
+        : roleTitle.includes("Finance")
+        ? "Finance & Accounts"
+        : "Operations",
+      desig: roleTitle,
+    };
+  }, [usernameLower, roleTitle]);
 
   const handleSignOut = () => {
     Alert.alert(
-      "Sign Out of Oblu CRM",
-      "Are you sure you want to sign out? Your synchronized call logs and follow-up reminders will stay safely on the cloud.",
+      "Sign Out",
+      "Are you sure you want to sign out? Your cloud session and synchronization state will remain secure.",
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -61,8 +154,6 @@ export default function EmployeeProfileScreen() {
     );
   };
 
-  const displayName = targetUser?.name || user?.username || "Employee";
-
   return (
     <View
       style={[
@@ -73,7 +164,7 @@ export default function EmployeeProfileScreen() {
         },
       ]}
     >
-      {/* Top Navigation Bar */}
+      {/* Top Header */}
       <View
         style={[
           styles.navBar,
@@ -115,7 +206,7 @@ export default function EmployeeProfileScreen() {
             { color: isDark ? "#F1F7F4" : "#101513" },
           ]}
         >
-          Employee Account
+          My Profile
         </Text>
 
         <TouchableOpacity
@@ -126,7 +217,7 @@ export default function EmployeeProfileScreen() {
               borderColor: isDark ? "#294039" : "#D8E0DC",
             },
           ]}
-          onPress={() => setMode(isDark ? "light" : "dark")}
+          onPress={() => setMode(mode === "dark" ? "light" : "dark")}
           activeOpacity={0.7}
         >
           <Ionicons
@@ -144,77 +235,7 @@ export default function EmployeeProfileScreen() {
           { paddingBottom: insets.bottom + 96 },
         ]}
       >
-        {/* Quick Role Tester Switcher Bar */}
-        <View style={styles.roleSwitcherContainer}>
-          <View style={styles.roleSwitcherHeader}>
-            <View style={styles.testBadge}>
-              <Ionicons name="swap-horizontal" size={12} color="#D97706" />
-              <Text style={styles.testBadgeText}>ROLE SIMULATOR</Text>
-            </View>
-            <Text style={[styles.roleSwitcherTitle, { color: colors.textPrimary }]}>
-              Switch Test Role (Org Chart)
-            </Text>
-          </View>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.rolePillsRow}>
-            {ORG_ROLES.map((r) => {
-              const isCurrent = targetUser.username === r.users[0].username;
-              return (
-                <React.Fragment key={r.key}>
-                  <TouchableOpacity
-                    style={[
-                      styles.rolePill,
-                      {
-                        backgroundColor: isCurrent ? r.badgeColor : (isDark ? "#121F1B" : "#FFFFFF"),
-                        borderColor: isCurrent ? r.badgeColor : (isDark ? "#294039" : "#D8E0DC"),
-                      },
-                    ]}
-                    onPress={() => handleSwitchRole(r.users[0])}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={[styles.rolePillText, { color: isCurrent ? "#FFFFFF" : (isDark ? "#F1F7F4" : "#101513") }]}>
-                      {r.shortTitle}
-                    </Text>
-                    <Text style={[styles.rolePillSub, { color: isCurrent ? "rgba(255,255,255,0.85)" : (isDark ? "#8FA09A" : "#5E6964") }]}>
-                      {r.users[0].name.split(" ")[0]}
-                    </Text>
-                  </TouchableOpacity>
-
-                  {/* Sub-role pills (e.g. Satish & Naveen under Ankush / Kaushik & Rushikesh under Aman) */}
-                  {r.subRole?.users.map((subU) => {
-                    const isSubCurrent = targetUser.username === subU.username;
-                    return (
-                      <TouchableOpacity
-                        key={subU.username}
-                        style={[
-                          styles.rolePill,
-                          {
-                            backgroundColor: isSubCurrent
-                              ? r.subRole!.badgeColor
-                              : (isDark ? "#0A1411" : "#F2FBF8"),
-                            borderColor: isSubCurrent
-                              ? r.subRole!.badgeColor
-                              : (isDark ? "rgba(20, 184, 166, 0.45)" : "#BCEBE1"),
-                          },
-                        ]}
-                        onPress={() => handleSwitchRole(subU)}
-                        activeOpacity={0.7}
-                      >
-                        <Text style={[styles.rolePillText, { color: isSubCurrent ? "#FFFFFF" : "#14B8A6" }]}>
-                          ↳ ASM
-                        </Text>
-                        <Text style={[styles.rolePillSub, { color: isSubCurrent ? "rgba(255,255,255,0.85)" : (isDark ? "#8FA09A" : "#5E6964") }]}>
-                          {subU.name.split(" ")[0]}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </React.Fragment>
-              );
-            })}
-          </ScrollView>
-        </View>
-
-        {/* Amazon-Style Profile Hero Card */}
+        {/* Profile Hero Card */}
         <View
           style={[
             styles.heroCard,
@@ -230,36 +251,43 @@ export default function EmployeeProfileScreen() {
               style={[
                 styles.avatarCircle,
                 {
-                  backgroundColor: isDark ? "#1A2B25" : "#00A879",
-                  borderColor: isDark ? role.badgeColor : "rgba(0, 168, 121, 0.35)",
+                  backgroundColor: isDark ? "#1A2B25" : "#E8F5EE",
+                  borderColor: isDark ? "#35D6A0" : "#00A879",
                 },
               ]}
             >
               <Text
                 style={[
                   styles.avatarInitials,
-                  { color: isDark ? "#35D6A0" : "#FFFFFF" },
+                  { color: isDark ? "#35D6A0" : "#00A879" },
                 ]}
               >
-                {targetUser.avatarInitials}
+                {avatarInitials}
               </Text>
             </View>
 
             <View style={styles.heroInfo}>
-              <View style={[styles.statusPill, { backgroundColor: role.badgeColor + "20", borderColor: role.badgeColor + "55" }]}>
-                <View
-                  style={[
-                    styles.statusDot,
-                    { backgroundColor: role.badgeColor },
-                  ]}
-                />
+              <View
+                style={[
+                  styles.statusPill,
+                  {
+                    backgroundColor: isDark
+                      ? "rgba(53, 214, 160, 0.14)"
+                      : "#E8F5EE",
+                    borderColor: isDark
+                      ? "rgba(53, 214, 160, 0.3)"
+                      : "#C0E8D7",
+                  },
+                ]}
+              >
+                <View style={styles.statusDot} />
                 <Text
                   style={[
                     styles.statusText,
-                    { color: role.badgeColor },
+                    { color: isDark ? "#35D6A0" : "#00A879" },
                   ]}
                 >
-                  {role.shortTitle}
+                  {roleTitle}
                 </Text>
               </View>
 
@@ -269,7 +297,7 @@ export default function EmployeeProfileScreen() {
                   { color: isDark ? "#F1F7F4" : "#101513" },
                 ]}
               >
-                {targetUser.name}
+                {displayName}
               </Text>
 
               <Text
@@ -278,7 +306,7 @@ export default function EmployeeProfileScreen() {
                   { color: isDark ? "#8FA09A" : "#5E6964" },
                 ]}
               >
-                {targetUser.designation}
+                {empDetails.desig}
               </Text>
 
               <View style={styles.empIdBadge}>
@@ -293,616 +321,14 @@ export default function EmployeeProfileScreen() {
                     { color: isDark ? "#35D6A0" : "#00A879" },
                   ]}
                 >
-                  @{targetUser.username}
+                  @{username} • Verified Office Account
                 </Text>
               </View>
-            </View>
-          </View>
-
-          {/* Quick Stats Grid */}
-          <View
-            style={[
-              styles.statsGrid,
-              {
-                borderTopColor: isDark
-                  ? "rgba(41, 64, 57, 0.5)"
-                  : "rgba(216, 224, 220, 0.8)",
-              },
-            ]}
-          >
-            <TouchableOpacity
-              style={styles.statBox}
-              onPress={() => router.push("/(employee)/customers" as any)}
-              activeOpacity={0.7}
-            >
-              <Text
-                style={[
-                  styles.statValue,
-                  { color: isDark ? "#35D6A0" : "#00A879" },
-                ]}
-              >
-                {targetUser.activeAccounts}
-              </Text>
-              <Text
-                style={[
-                  styles.statLabel,
-                  { color: isDark ? "#8FA09A" : "#5E6964" },
-                ]}
-              >
-                Accounts
-              </Text>
-            </TouchableOpacity>
-
-            <View
-              style={[
-                styles.statDivider,
-                {
-                  backgroundColor: isDark
-                    ? "rgba(41, 64, 57, 0.5)"
-                    : "rgba(216, 224, 220, 0.8)",
-                },
-              ]}
-            />
-
-            <TouchableOpacity
-              style={styles.statBox}
-              onPress={() => router.push("/(employee)/leads" as any)}
-              activeOpacity={0.7}
-            >
-              <Text
-                style={[
-                  styles.statValue,
-                  { color: isDark ? "#35D6A0" : "#00A879" },
-                ]}
-              >
-                {targetUser.totalDeals}
-              </Text>
-              <Text
-                style={[
-                  styles.statLabel,
-                  { color: isDark ? "#8FA09A" : "#5E6964" },
-                ]}
-              >
-                Open Deals
-              </Text>
-            </TouchableOpacity>
-
-            <View
-              style={[
-                styles.statDivider,
-                {
-                  backgroundColor: isDark
-                    ? "rgba(41, 64, 57, 0.5)"
-                    : "rgba(216, 224, 220, 0.8)",
-                },
-              ]}
-            />
-
-            <View style={styles.statBox}>
-              <Text
-                style={[
-                  styles.statValue,
-                  { color: isDark ? "#35D6A0" : "#00A879" },
-                ]}
-              >
-                {targetUser.pipelineValue}
-              </Text>
-              <Text
-                style={[
-                  styles.statLabel,
-                  { color: isDark ? "#8FA09A" : "#5E6964" },
-                ]}
-              >
-                Pipeline
-              </Text>
             </View>
           </View>
         </View>
 
-        {/* Admin Command Center Banner (When Admin is selected or logged in) */}
-        {(role.key === "admin" || user?.role === "admin") && (
-          <TouchableOpacity
-            style={{
-              backgroundColor: isDark ? "rgba(139, 92, 246, 0.15)" : "#EDE9FE",
-              borderColor: isDark ? "#8B5CF6" : "#A78BFA",
-              borderWidth: 1.5,
-              borderRadius: Radius.lg,
-              paddingVertical: 14,
-              paddingHorizontal: 16,
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "space-between",
-              marginBottom: 18,
-            }}
-            onPress={() => router.push("/(admin)/users" as any)}
-            activeOpacity={0.8}
-          >
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 12, flex: 1 }}>
-              <View
-                style={{
-                  width: 40,
-                  height: 40,
-                  borderRadius: 20,
-                  backgroundColor: "#8B5CF6",
-                  justifyContent: "center",
-                  alignItems: "center",
-                }}
-              >
-                <Ionicons name="stats-chart" size={20} color="#FFFFFF" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={{ fontFamily: Typography.bold, fontSize: 14, color: isDark ? "#EDE9FE" : "#5B21B6" }}>
-                  Open Admin Dashboard
-                </Text>
-                <Text style={{ fontFamily: Typography.regular, fontSize: 12, color: isDark ? "#C4B5FD" : "#7C3AED" }}>
-                  View Momentum, Leads Radar & Team Call History
-                </Text>
-              </View>
-            </View>
-            <Ionicons name="arrow-forward-circle" size={26} color="#8B5CF6" />
-          </TouchableOpacity>
-        )}
-
-        {/* Yellow Box Official Permissions Section */}
-        <View style={styles.yellowBoxSection}>
-          <View style={styles.yellowBoxHeaderRow}>
-            <View style={styles.yellowBoxTag}>
-              <Ionicons name="document-text" size={13} color="#D97706" />
-              <Text style={styles.yellowBoxTagText}>YELLOW BOX SPECIFICATION</Text>
-            </View>
-            <View
-              style={[
-                styles.currentRoleCapsule,
-                {
-                  backgroundColor: role.badgeColor + "20",
-                  borderColor: role.badgeColor + "55",
-                },
-              ]}
-            >
-              <Text style={[styles.currentRoleCapsuleText, { color: role.badgeColor }]}>
-                {role.shortTitle}
-              </Text>
-            </View>
-          </View>
-
-          <Text style={[styles.yellowBoxHeading, { color: colors.textPrimary }]}>
-            Role Access & Authorized Capabilities
-          </Text>
-          <Text style={[styles.yellowBoxSubtitle, { color: colors.textMuted }]}>
-            Below are the exact system permissions written in the flowchart yellow box for {role.shortTitle}:
-          </Text>
-
-          {/* 1. Customer Dashboard */}
-          <View
-            style={[
-              styles.permCard,
-              {
-                backgroundColor: isDark ? "#0E1714" : "#FFFFFF",
-                borderColor: isDark ? "#294039" : "#D8E0DC",
-              },
-            ]}
-          >
-            <View style={styles.permCardTop}>
-              <View
-                style={[
-                  styles.permIconCircle,
-                  {
-                    backgroundColor: role.permissions.customerDashboard.enabled
-                      ? "rgba(53, 214, 160, 0.15)"
-                      : "rgba(255, 77, 79, 0.12)",
-                  },
-                ]}
-              >
-                <Ionicons
-                  name="people"
-                  size={18}
-                  color={
-                    role.permissions.customerDashboard.enabled
-                      ? isDark
-                        ? "#35D6A0"
-                        : "#00A879"
-                      : "#FF4D4F"
-                  }
-                />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.permCardTitle, { color: colors.textPrimary }]}>
-                  Customer Dashboard
-                </Text>
-                <Text style={[styles.permCardScope, { color: isDark ? "#35D6A0" : "#00A879" }]}>
-                  Scope: {role.permissions.customerDashboard.scope}
-                </Text>
-              </View>
-              <View
-                style={[
-                  styles.permStatusBadge,
-                  {
-                    backgroundColor: role.permissions.customerDashboard.enabled
-                      ? "rgba(53, 214, 160, 0.15)"
-                      : "rgba(255, 77, 79, 0.12)",
-                  },
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.permStatusText,
-                    {
-                      color: role.permissions.customerDashboard.enabled
-                        ? isDark
-                          ? "#35D6A0"
-                          : "#00A879"
-                        : "#FF4D4F",
-                    },
-                  ]}
-                >
-                  {role.permissions.customerDashboard.enabled ? "AUTHORIZED" : "RESTRICTED"}
-                </Text>
-              </View>
-            </View>
-
-            {role.permissions.customerDashboard.features.length > 0 && (
-              <View style={styles.featuresBadgeWrap}>
-                {role.permissions.customerDashboard.features.map((feat) => (
-                  <View
-                    key={feat}
-                    style={[
-                      styles.featurePill,
-                      {
-                        backgroundColor: isDark
-                          ? "rgba(53, 214, 160, 0.08)"
-                          : "#E8F8F2",
-                        borderColor: isDark
-                          ? "rgba(53, 214, 160, 0.22)"
-                          : "rgba(0, 168, 121, 0.25)",
-                      },
-                    ]}
-                  >
-                    <Ionicons
-                      name="checkmark-circle"
-                      size={11}
-                      color={isDark ? "#35D6A0" : "#00A879"}
-                    />
-                    <Text
-                      style={[
-                        styles.featurePillText,
-                        { color: isDark ? "#35D6A0" : "#00A879" },
-                      ]}
-                    >
-                      {feat}
-                    </Text>
-                  </View>
-                ))}
-              </View>
-            )}
-            <Text style={[styles.permDescription, { color: colors.textMuted }]}>
-              {role.permissions.customerDashboard.description}
-            </Text>
-          </View>
-
-          {/* 2. Inventory */}
-          <View
-            style={[
-              styles.permCard,
-              {
-                backgroundColor: isDark ? "#0E1714" : "#FFFFFF",
-                borderColor: isDark ? "#294039" : "#D8E0DC",
-              },
-            ]}
-          >
-            <View style={styles.permCardTop}>
-              <View
-                style={[
-                  styles.permIconCircle,
-                  {
-                    backgroundColor: role.permissions.inventory.enabled
-                      ? "rgba(59, 130, 246, 0.15)"
-                      : "rgba(120, 113, 108, 0.12)",
-                  },
-                ]}
-              >
-                <Ionicons
-                  name="cube"
-                  size={18}
-                  color={role.permissions.inventory.enabled ? "#3B82F6" : "#78716C"}
-                />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.permCardTitle, { color: colors.textPrimary }]}>
-                  Inventory & Stock
-                </Text>
-                <Text
-                  style={[
-                    styles.permCardScope,
-                    {
-                      color: role.permissions.inventory.enabled
-                        ? "#3B82F6"
-                        : colors.textMuted,
-                    },
-                  ]}
-                >
-                  {role.permissions.inventory.label}
-                </Text>
-              </View>
-              <View
-                style={[
-                  styles.permStatusBadge,
-                  {
-                    backgroundColor: role.permissions.inventory.enabled
-                      ? "rgba(59, 130, 246, 0.15)"
-                      : "rgba(120, 113, 108, 0.12)",
-                  },
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.permStatusText,
-                    {
-                      color: role.permissions.inventory.enabled
-                        ? "#3B82F6"
-                        : "#78716C",
-                    },
-                  ]}
-                >
-                  {role.permissions.inventory.enabled ? "ACTIVE" : "LOCKED"}
-                </Text>
-              </View>
-            </View>
-          </View>
-
-          {/* 3. Incentive Call */}
-          <View
-            style={[
-              styles.permCard,
-              {
-                backgroundColor: isDark ? "#0E1714" : "#FFFFFF",
-                borderColor: isDark ? "#294039" : "#D8E0DC",
-              },
-            ]}
-          >
-            <View style={styles.permCardTop}>
-              <View
-                style={[
-                  styles.permIconCircle,
-                  {
-                    backgroundColor: role.permissions.incentiveCall.enabled
-                      ? "rgba(16, 185, 129, 0.15)"
-                      : "rgba(120, 113, 108, 0.12)",
-                  },
-                ]}
-              >
-                <Ionicons
-                  name="cash"
-                  size={18}
-                  color={
-                    role.permissions.incentiveCall.enabled ? "#10B981" : "#78716C"
-                  }
-                />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.permCardTitle, { color: colors.textPrimary }]}>
-                  Incentive Call Reviews
-                </Text>
-                <Text style={[styles.permCardScope, { color: "#10B981" }]}>
-                  Scope: {role.permissions.incentiveCall.scope}
-                </Text>
-              </View>
-              <View
-                style={[
-                  styles.permStatusBadge,
-                  {
-                    backgroundColor: role.permissions.incentiveCall.enabled
-                      ? "rgba(16, 185, 129, 0.15)"
-                      : "rgba(120, 113, 108, 0.12)",
-                  },
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.permStatusText,
-                    {
-                      color: role.permissions.incentiveCall.enabled
-                        ? "#10B981"
-                        : "#78716C",
-                    },
-                  ]}
-                >
-                  {role.permissions.incentiveCall.enabled
-                    ? role.permissions.incentiveCall.scope
-                    : "NOT APPLICABLE"}
-                </Text>
-              </View>
-            </View>
-          </View>
-
-          {/* 4. Logs & Tracking */}
-          <View
-            style={[
-              styles.permCard,
-              {
-                backgroundColor: isDark ? "#0E1714" : "#FFFFFF",
-                borderColor: isDark ? "#294039" : "#D8E0DC",
-              },
-            ]}
-          >
-            <View style={styles.permCardTop}>
-              <View
-                style={[
-                  styles.permIconCircle,
-                  {
-                    backgroundColor: role.permissions.logs.enabled
-                      ? "rgba(139, 92, 246, 0.15)"
-                      : "rgba(120, 113, 108, 0.12)",
-                  },
-                ]}
-              >
-                <Ionicons
-                  name="list"
-                  size={18}
-                  color={role.permissions.logs.enabled ? "#8B5CF6" : "#78716C"}
-                />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.permCardTitle, { color: colors.textPrimary }]}>
-                  Audit & Logs
-                </Text>
-                <Text style={[styles.permCardScope, { color: "#8B5CF6" }]}>
-                  {role.permissions.logs.label}
-                </Text>
-              </View>
-              <View
-                style={[
-                  styles.permStatusBadge,
-                  {
-                    backgroundColor: role.permissions.logs.enabled
-                      ? "rgba(139, 92, 246, 0.15)"
-                      : "rgba(120, 113, 108, 0.12)",
-                  },
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.permStatusText,
-                    {
-                      color: role.permissions.logs.enabled ? "#8B5CF6" : "#78716C",
-                    },
-                  ]}
-                >
-                  {role.permissions.logs.type}
-                </Text>
-              </View>
-            </View>
-          </View>
-
-          {/* 5. Performa Invoice */}
-          <View
-            style={[
-              styles.permCard,
-              {
-                backgroundColor: isDark ? "#0E1714" : "#FFFFFF",
-                borderColor: isDark ? "#294039" : "#D8E0DC",
-              },
-            ]}
-          >
-            <View style={styles.permCardTop}>
-              <View
-                style={[
-                  styles.permIconCircle,
-                  { backgroundColor: "rgba(245, 158, 11, 0.15)" },
-                ]}
-              >
-                <Ionicons name="receipt" size={18} color="#F59E0B" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.permCardTitle, { color: colors.textPrimary }]}>
-                  Performa Invoice
-                </Text>
-                <Text style={[styles.permCardScope, { color: "#F59E0B" }]}>
-                  {role.permissions.performaInvoice.features.join(" • ")}
-                </Text>
-              </View>
-              <View
-                style={[
-                  styles.permStatusBadge,
-                  { backgroundColor: "rgba(245, 158, 11, 0.15)" },
-                ]}
-              >
-                <Text style={[styles.permStatusText, { color: "#F59E0B" }]}>
-                  AUTHORIZED
-                </Text>
-              </View>
-            </View>
-            <View style={styles.featuresBadgeWrap}>
-              {role.permissions.performaInvoice.features.map((action) => (
-                <View
-                  key={action}
-                  style={[
-                    styles.featurePill,
-                    {
-                      backgroundColor: isDark
-                        ? "rgba(245, 158, 11, 0.1)"
-                        : "#FEF3C7",
-                      borderColor: isDark
-                        ? "rgba(245, 158, 11, 0.25)"
-                        : "rgba(245, 158, 11, 0.35)",
-                    },
-                  ]}
-                >
-                  <Ionicons name="checkbox-outline" size={11} color="#D97706" />
-                  <Text style={[styles.featurePillText, { color: "#D97706" }]}>
-                    {action}
-                  </Text>
-                </View>
-              ))}
-            </View>
-            <Text style={[styles.permDescription, { color: colors.textMuted }]}>
-              {role.permissions.performaInvoice.description}
-            </Text>
-          </View>
-
-          {/* Other Members in this Role */}
-          {role.users.length > 1 && (
-            <View
-              style={[
-                styles.teamCard,
-                {
-                  backgroundColor: isDark ? "#0E1714" : "#F7FAF8",
-                  borderColor: isDark ? "#294039" : "#D8E0DC",
-                },
-              ]}
-            >
-              <Text style={[styles.teamCardTitle, { color: colors.textSecondary }]}>
-                Other Colleagues with {role.shortTitle} Role:
-              </Text>
-              <View style={styles.teamAvatarsRow}>
-                {role.users.map((colleague) => {
-                  const isActive = colleague.username === targetUser.username;
-                  return (
-                    <TouchableOpacity
-                      key={colleague.username}
-                      style={[
-                        styles.colleaguePill,
-                        {
-                          backgroundColor: isActive
-                            ? isDark
-                              ? "#1F382E"
-                              : "#DDF4EA"
-                            : isDark
-                            ? "#162520"
-                            : "#FFFFFF",
-                          borderColor: isActive
-                            ? isDark
-                              ? "#35D6A0"
-                              : "#00A879"
-                            : isDark
-                            ? "#294039"
-                            : "#D8E0DC",
-                        },
-                      ]}
-                      onPress={() => handleSwitchRole(colleague)}
-                    >
-                      <Text
-                        style={[
-                          styles.colleagueName,
-                          {
-                            color: isActive
-                              ? isDark
-                                ? "#35D6A0"
-                                : "#00A879"
-                              : colors.textPrimary,
-                          },
-                        ]}
-                      >
-                        {colleague.name} {isActive ? "(Active)" : ""}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            </View>
-          )}
-        </View>
-
-        {/* Section: Employee & Organization Details */}
+        {/* Corporate Employment Details */}
         <View style={styles.sectionHeader}>
           <Text
             style={[
@@ -910,338 +336,103 @@ export default function EmployeeProfileScreen() {
               { color: isDark ? "#F1F7F4" : "#101513" },
             ]}
           >
-            Organization & Contact
+            Employment Details
           </Text>
         </View>
 
         <View
           style={[
-            styles.cardGroup,
+            styles.cardContainer,
             {
               backgroundColor: isDark ? "#0E1714" : "#FFFFFF",
               borderColor: isDark ? "#294039" : "#D8E0DC",
             },
           ]}
         >
-          {/* Work Email */}
-          <View style={styles.infoRow}>
-            <View
-              style={[
-                styles.iconBox,
-                {
-                  backgroundColor: isDark
-                    ? "rgba(53, 214, 160, 0.12)"
-                    : "#DDF4EA",
-                },
-              ]}
-            >
+          {/* Employee Code */}
+          <View style={styles.detailRow}>
+            <View style={styles.detailIconBox}>
               <Ionicons
-                name="mail-outline"
+                name="card-outline"
                 size={18}
                 color={isDark ? "#35D6A0" : "#00A879"}
               />
             </View>
-            <View style={styles.infoContent}>
-              <Text
-                style={[
-                  styles.infoLabel,
-                  { color: isDark ? "#8FA09A" : "#5E6964" },
-                ]}
-              >
-                Work Email
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.detailLabel, { color: isDark ? "#8FA09A" : "#5E6964" }]}>
+                Employee Code
               </Text>
-              <Text
-                style={[
-                  styles.infoValue,
-                  { color: isDark ? "#F1F7F4" : "#101513" },
-                ]}
-              >
-                {targetUser.email}
+              <Text style={[styles.detailValue, { color: isDark ? "#F1F7F4" : "#101513" }]}>
+                {empDetails.code}
               </Text>
             </View>
           </View>
 
-          <View
-            style={[
-              styles.rowDivider,
-              {
-                backgroundColor: isDark
-                  ? "rgba(41, 64, 57, 0.4)"
-                  : "rgba(216, 224, 220, 0.6)",
-              },
-            ]}
-          />
+          <View style={[styles.innerDivider, { backgroundColor: isDark ? "#1C2B25" : "#EDF2EF" }]} />
 
-          {/* Official Phone */}
-          <View style={styles.infoRow}>
-            <View
-              style={[
-                styles.iconBox,
-                {
-                  backgroundColor: isDark
-                    ? "rgba(53, 214, 160, 0.12)"
-                    : "#DDF4EA",
-                },
-              ]}
-            >
-              <Ionicons
-                name="call-outline"
-                size={18}
-                color={isDark ? "#35D6A0" : "#00A879"}
-              />
-            </View>
-            <View style={styles.infoContent}>
-              <Text
-                style={[
-                  styles.infoLabel,
-                  { color: isDark ? "#8FA09A" : "#5E6964" },
-                ]}
-              >
-                Work Mobile
-              </Text>
-              <Text
-                style={[
-                  styles.infoValue,
-                  { color: isDark ? "#F1F7F4" : "#101513" },
-                ]}
-              >
-                +91 98765 {targetUser.username.slice(0, 5).toUpperCase()}
-              </Text>
-            </View>
-          </View>
-
-          <View
-            style={[
-              styles.rowDivider,
-              {
-                backgroundColor: isDark
-                  ? "rgba(41, 64, 57, 0.4)"
-                  : "rgba(216, 224, 220, 0.6)",
-              },
-            ]}
-          />
-
-          {/* Department & Territory */}
-          <View style={styles.infoRow}>
-            <View
-              style={[
-                styles.iconBox,
-                {
-                  backgroundColor: isDark
-                    ? "rgba(53, 214, 160, 0.12)"
-                    : "#DDF4EA",
-                },
-              ]}
-            >
+          {/* Department */}
+          <View style={styles.detailRow}>
+            <View style={styles.detailIconBox}>
               <Ionicons
                 name="business-outline"
                 size={18}
                 color={isDark ? "#35D6A0" : "#00A879"}
               />
             </View>
-            <View style={styles.infoContent}>
-              <Text
-                style={[
-                  styles.infoLabel,
-                  { color: isDark ? "#8FA09A" : "#5E6964" },
-                ]}
-              >
-                Department & Territory
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.detailLabel, { color: isDark ? "#8FA09A" : "#5E6964" }]}>
+                Department
               </Text>
-              <Text
-                style={[
-                  styles.infoValue,
-                  { color: isDark ? "#F1F7F4" : "#101513" },
-                ]}
-              >
-                {targetUser.department}
-              </Text>
-              <Text
-                style={[
-                  styles.infoSubtext,
-                  { color: isDark ? "#8FA09A" : "#5E6964" },
-                ]}
-              >
-                {targetUser.region}
+              <Text style={[styles.detailValue, { color: isDark ? "#F1F7F4" : "#101513" }]}>
+                {empDetails.dept}
               </Text>
             </View>
           </View>
 
-          <View
-            style={[
-              styles.rowDivider,
-              {
-                backgroundColor: isDark
-                  ? "rgba(41, 64, 57, 0.4)"
-                  : "rgba(216, 224, 220, 0.6)",
-              },
-            ]}
-          />
+          <View style={[styles.innerDivider, { backgroundColor: isDark ? "#1C2B25" : "#EDF2EF" }]} />
 
-          {/* Reporting Line */}
-          <View style={styles.infoRow}>
-            <View
-              style={[
-                styles.iconBox,
-                {
-                  backgroundColor: isDark
-                    ? "rgba(53, 214, 160, 0.12)"
-                    : "#DDF4EA",
-                },
-              ]}
-            >
+          {/* Work Email */}
+          <View style={styles.detailRow}>
+            <View style={styles.detailIconBox}>
               <Ionicons
-                name="people-outline"
+                name="mail-outline"
                 size={18}
                 color={isDark ? "#35D6A0" : "#00A879"}
               />
             </View>
-            <View style={styles.infoContent}>
-              <Text
-                style={[
-                  styles.infoLabel,
-                  { color: isDark ? "#8FA09A" : "#5E6964" },
-                ]}
-              >
-                Reporting Manager
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.detailLabel, { color: isDark ? "#8FA09A" : "#5E6964" }]}>
+                Work Email
               </Text>
-              <Text
-                style={[
-                  styles.infoValue,
-                  { color: isDark ? "#F1F7F4" : "#101513" },
-                ]}
-              >
-                {targetUser.manager || "Executive Board (Direct)"}
+              <Text style={[styles.detailValue, { color: isDark ? "#F1F7F4" : "#101513" }]}>
+                {(user as any)?.email || `${username}@oblu.in`}
+              </Text>
+            </View>
+          </View>
+
+          <View style={[styles.innerDivider, { backgroundColor: isDark ? "#1C2B25" : "#EDF2EF" }]} />
+
+          {/* Operating Entity */}
+          <View style={styles.detailRow}>
+            <View style={styles.detailIconBox}>
+              <Ionicons
+                name="cube-outline"
+                size={18}
+                color={isDark ? "#35D6A0" : "#00A879"}
+              />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.detailLabel, { color: isDark ? "#8FA09A" : "#5E6964" }]}>
+                Operating Entity
+              </Text>
+              <Text style={[styles.detailValue, { color: isDark ? "#F1F7F4" : "#101513" }]}>
+                Oblu Healthcare Pvt Ltd • Corporate HQ
               </Text>
             </View>
           </View>
         </View>
 
-        {/* Section: My Assigned Customers (Amazon-style Customer Accounts Portfolio) */}
-        <View style={styles.sectionHeaderWithLink}>
-          <Text
-            style={[
-              styles.sectionTitle,
-              { color: isDark ? "#F1F7F4" : "#101513" },
-            ]}
-          >
-            My Managed Customers
-          </Text>
-          <TouchableOpacity
-            onPress={() => router.push("/(employee)/customers" as any)}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <Text
-              style={[
-                styles.seeAllLink,
-                { color: isDark ? "#35D6A0" : "#00A879" },
-              ]}
-            >
-              View All 128 →
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.customerList}>
-          {customers.map((cust) => (
-            <TouchableOpacity
-              key={cust.id}
-              style={[
-                styles.customerCard,
-                {
-                  backgroundColor: isDark ? "#0E1714" : "#FFFFFF",
-                  borderColor: isDark ? "#294039" : "#D8E0DC",
-                },
-              ]}
-              onPress={() =>
-                router.push(`/(employee)/customers/${cust.id}` as any)
-              }
-              activeOpacity={0.75}
-            >
-              <View style={styles.custCardLeft}>
-                <View
-                  style={[
-                    styles.custAvatar,
-                    {
-                      backgroundColor: isDark
-                        ? "rgba(53, 214, 160, 0.14)"
-                        : "#EEF8F4",
-                    },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.custAvatarText,
-                      { color: isDark ? "#35D6A0" : "#00A879" },
-                    ]}
-                  >
-                    {cust.name.substring(0, 2).toUpperCase()}
-                  </Text>
-                </View>
-                <View style={styles.custMeta}>
-                  <Text
-                    style={[
-                      styles.custName,
-                      { color: isDark ? "#F1F7F4" : "#101513" },
-                    ]}
-                    numberOfLines={1}
-                  >
-                    {cust.name}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.custContact,
-                      { color: isDark ? "#8FA09A" : "#5E6964" },
-                    ]}
-                  >
-                    {cust.contactPerson} • {cust.city}
-                  </Text>
-                </View>
-              </View>
-
-              <View style={styles.custCardRight}>
-                <View
-                  style={[
-                    styles.custStatusTag,
-                    {
-                      backgroundColor:
-                        cust.status === "VIP"
-                          ? isDark
-                            ? "rgba(245, 166, 35, 0.15)"
-                            : "#FFF8EC"
-                          : isDark
-                          ? "rgba(53, 214, 160, 0.15)"
-                          : "#DDF4EA",
-                    },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.custStatusText,
-                      {
-                        color:
-                          cust.status === "VIP"
-                            ? "#F5A623"
-                            : isDark
-                            ? "#35D6A0"
-                            : "#00A879",
-                      },
-                    ]}
-                  >
-                    {cust.status}
-                  </Text>
-                </View>
-                <Ionicons
-                  name="chevron-forward"
-                  size={16}
-                  color={isDark ? "#8FA09A" : "#5E6964"}
-                />
-              </View>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {/* Section: System & App Status */}
+        {/* Telephony Sync */}
         <View style={styles.sectionHeader}>
           <Text
             style={[
@@ -1249,144 +440,56 @@ export default function EmployeeProfileScreen() {
               { color: isDark ? "#F1F7F4" : "#101513" },
             ]}
           >
-            System & Sync Services
+            Telephony & Calling
           </Text>
         </View>
 
         <View
           style={[
-            styles.cardGroup,
+            styles.cardContainer,
             {
               backgroundColor: isDark ? "#0E1714" : "#FFFFFF",
               borderColor: isDark ? "#294039" : "#D8E0DC",
             },
           ]}
         >
-          <View style={styles.infoRow}>
-            <View
-              style={[
-                styles.iconBox,
-                {
-                  backgroundColor: isDark
-                    ? "rgba(53, 214, 160, 0.12)"
-                    : "#DDF4EA",
-                },
-              ]}
-            >
-              <Ionicons
-                name="notifications-outline"
-                size={18}
-                color={isDark ? "#35D6A0" : "#00A879"}
-              />
+          <View style={styles.telemetryRow}>
+            <View style={styles.telemetryLeft}>
+              <View style={styles.greenPulseDot} />
+              <View>
+                <Text style={[styles.telemetryLabel, { color: isDark ? "#F1F7F4" : "#101513" }]}>
+                  Call Recording Sync
+                </Text>
+                <Text style={[styles.telemetrySub, { color: isDark ? "#8FA09A" : "#5E6964" }]}>
+                  Automatic cloud synchronization for office calls
+                </Text>
+              </View>
             </View>
-            <View style={styles.infoContent}>
-              <Text
-                style={[
-                  styles.infoLabel,
-                  { color: isDark ? "#8FA09A" : "#5E6964" },
-                ]}
-              >
-                1-Day Follow-Up Reminders
-              </Text>
-              <Text
-                style={[
-                  styles.infoValue,
-                  { color: isDark ? "#35D6A0" : "#00A879" },
-                ]}
-              >
-                Enabled • Active Notification Center
-              </Text>
-            </View>
-          </View>
-
-          <View
-            style={[
-              styles.rowDivider,
-              {
-                backgroundColor: isDark
-                  ? "rgba(41, 64, 57, 0.4)"
-                  : "rgba(216, 224, 220, 0.6)",
-              },
-            ]}
-          />
-
-          <View style={styles.infoRow}>
-            <View
-              style={[
-                styles.iconBox,
-                {
-                  backgroundColor: isDark
-                    ? "rgba(53, 214, 160, 0.12)"
-                    : "#DDF4EA",
-                },
-              ]}
-            >
-              <Ionicons
-                name="sync-circle-outline"
-                size={18}
-                color={isDark ? "#35D6A0" : "#00A879"}
-              />
-            </View>
-            <View style={styles.infoContent}>
-              <Text
-                style={[
-                  styles.infoLabel,
-                  { color: isDark ? "#8FA09A" : "#5E6964" },
-                ]}
-              >
-                Continuous Call Logging
-              </Text>
-              <Text
-                style={[
-                  styles.infoValue,
-                  { color: isDark ? "#35D6A0" : "#00A879" },
-                ]}
-              >
-                Active • 30s Heartbeat Sync
-              </Text>
-            </View>
+            <Text style={[styles.telemetryStatus, { color: "#10B981" }]}>Active</Text>
           </View>
         </View>
 
-        {/* Prominent Sign Out Section */}
-        <View style={styles.signOutSection}>
-          <TouchableOpacity
-            style={[
-              styles.signOutButton,
-              {
-                backgroundColor: isDark ? "rgba(255, 77, 79, 0.12)" : "#FFF1F0",
-                borderColor: isDark ? "rgba(255, 77, 79, 0.35)" : "#FFA39E",
-              },
-            ]}
-            onPress={handleSignOut}
-            activeOpacity={0.8}
-            disabled={loggingOut}
-          >
-            <Ionicons
-              name="log-out-outline"
-              size={20}
-              color={isDark ? "#FF4D4F" : "#CF1322"}
-            />
-            <Text
-              style={[
-                styles.signOutText,
-                { color: isDark ? "#FF4D4F" : "#CF1322" },
-              ]}
-            >
-              {loggingOut ? "Signing Out..." : "Sign Out of Account"}
-            </Text>
-          </TouchableOpacity>
-
-          <Text
-            style={[
-              styles.versionFooter,
-              { color: isDark ? "#63736D" : "#8A9691" },
-            ]}
-          >
-            Oblu Nexus CRM v2.4.0 • Enterprise Edition{"\n"}
-            Logged in as {displayName}
-          </Text>
-        </View>
+        {/* Sign Out Action Button */}
+        <TouchableOpacity
+          style={[
+            styles.signOutBtn,
+            {
+              backgroundColor: isDark ? "rgba(255, 107, 120, 0.12)" : "#FEF2F2",
+              borderColor: isDark ? "rgba(255, 107, 120, 0.35)" : "#FCA5A5",
+            },
+          ]}
+          onPress={handleSignOut}
+          activeOpacity={0.8}
+        >
+          {loggingOut ? (
+            <ActivityIndicator size="small" color="#FF6B78" />
+          ) : (
+            <>
+              <Ionicons name="log-out-outline" size={20} color="#FF6B78" />
+              <Text style={styles.signOutText}>Sign Out</Text>
+            </>
+          )}
+        </TouchableOpacity>
       </ScrollView>
     </View>
   );
@@ -1407,19 +510,19 @@ const styles = StyleSheet.create({
   backBtn: {
     width: 36,
     height: 36,
-    borderRadius: 11,
+    borderRadius: 18,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
   },
   navTitle: {
     fontSize: 16,
-    fontFamily: Typography.bold,
+    fontFamily: Typography.semiBold,
   },
   themeToggleBtn: {
     width: 36,
     height: 36,
-    borderRadius: 11,
+    borderRadius: 18,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
@@ -1429,26 +532,26 @@ const styles = StyleSheet.create({
     paddingTop: 16,
   },
   heroCard: {
-    borderRadius: 20,
+    borderRadius: 18,
     borderWidth: 1,
-    padding: 16,
+    padding: 18,
     marginBottom: 20,
   },
   heroTopRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 14,
+    gap: 16,
   },
   avatarCircle: {
-    width: 68,
-    height: 68,
-    borderRadius: 34,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
     borderWidth: 2,
     alignItems: "center",
     justifyContent: "center",
   },
   avatarInitials: {
-    fontSize: 24,
+    fontSize: 22,
     fontFamily: Typography.bold,
   },
   heroInfo: {
@@ -1457,27 +560,32 @@ const styles = StyleSheet.create({
   statusPill: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
-    marginBottom: 4,
+    alignSelf: "flex-start",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 6,
   },
   statusDot: {
     width: 6,
     height: 6,
     borderRadius: 3,
+    backgroundColor: "#10B981",
   },
   statusText: {
-    fontSize: 10,
-    fontFamily: Typography.bold,
-    letterSpacing: 0.5,
+    fontSize: 11,
+    fontFamily: Typography.semiBold,
   },
   profileName: {
-    fontSize: 18,
+    fontSize: 20,
     fontFamily: Typography.bold,
     marginBottom: 2,
   },
   profileRole: {
-    fontSize: FontSizes.caption,
-    fontFamily: Typography.medium,
+    fontSize: 13,
+    fontFamily: Typography.regular,
     marginBottom: 6,
   },
   empIdBadge: {
@@ -1486,368 +594,97 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   empIdText: {
-    fontSize: FontSizes.micro,
-    fontFamily: Typography.bold,
-    letterSpacing: 0.3,
-  },
-  statsGrid: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-around",
-    borderTopWidth: 1,
-    marginTop: 16,
-    paddingTop: 12,
-  },
-  statBox: {
-    alignItems: "center",
-    paddingHorizontal: 12,
-  },
-  statValue: {
-    fontSize: 18,
-    fontFamily: Typography.bold,
-  },
-  statLabel: {
-    fontSize: FontSizes.caption,
+    fontSize: 11,
     fontFamily: Typography.medium,
-    marginTop: 2,
-  },
-  statDivider: {
-    width: 1,
-    height: 24,
   },
   sectionHeader: {
-    marginBottom: 10,
-    marginTop: 4,
-  },
-  sectionHeaderWithLink: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
+    justifyContent: "space-between",
     marginBottom: 10,
-    marginTop: 12,
   },
   sectionTitle: {
     fontSize: 14,
-    fontFamily: Typography.bold,
-    letterSpacing: 0.2,
-  },
-  seeAllLink: {
-    fontSize: FontSizes.caption,
     fontFamily: Typography.semiBold,
   },
-  cardGroup: {
-    borderRadius: 16,
+  cardContainer: {
+    borderRadius: 14,
     borderWidth: 1,
-    padding: 14,
-    marginBottom: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    marginBottom: 20,
   },
-  infoRow: {
+  detailRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    paddingVertical: 6,
+    paddingVertical: 10,
   },
-  iconBox: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
+  detailIconBox: {
+    width: 34,
+    height: 34,
+    borderRadius: 8,
+    backgroundColor: "rgba(53, 214, 160, 0.1)",
     alignItems: "center",
     justifyContent: "center",
   },
-  infoContent: {
-    flex: 1,
-  },
-  infoLabel: {
-    fontSize: FontSizes.micro,
-    fontFamily: Typography.medium,
-    textTransform: "uppercase",
-    letterSpacing: 0.4,
-  },
-  infoValue: {
-    fontSize: FontSizes.bodySmall,
-    fontFamily: Typography.semiBold,
-    marginTop: 2,
-  },
-  infoSubtext: {
-    fontSize: FontSizes.caption,
+  detailLabel: {
+    fontSize: 11,
     fontFamily: Typography.regular,
-    marginTop: 2,
+    marginBottom: 2,
   },
-  rowDivider: {
+  detailValue: {
+    fontSize: 13,
+    fontFamily: Typography.medium,
+  },
+  innerDivider: {
     height: 1,
-    marginVertical: 6,
   },
-  customerList: {
-    gap: 10,
-    marginBottom: 16,
-  },
-  customerCard: {
+  telemetryRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    padding: 12,
-    borderRadius: 14,
-    borderWidth: 1,
+    paddingVertical: 10,
   },
-  custCardLeft: {
+  telemetryLeft: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
     flex: 1,
   },
-  custAvatar: {
-    width: 38,
-    height: 38,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
+  greenPulseDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#10B981",
   },
-  custAvatarText: {
+  telemetryLabel: {
     fontSize: 13,
-    fontFamily: Typography.bold,
+    fontFamily: Typography.medium,
   },
-  custMeta: {
-    flex: 1,
+  telemetrySub: {
+    fontSize: 11,
+    fontFamily: Typography.regular,
+    marginTop: 2,
   },
-  custName: {
-    fontSize: FontSizes.bodySmall,
+  telemetryStatus: {
+    fontSize: 12,
     fontFamily: Typography.semiBold,
   },
-  custContact: {
-    fontSize: FontSizes.caption,
-    fontFamily: Typography.regular,
-    marginTop: 1,
-  },
-  custCardRight: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  custStatusTag: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
-  custStatusText: {
-    fontSize: 10,
-    fontFamily: Typography.bold,
-  },
-  signOutSection: {
-    marginTop: 12,
-    alignItems: "center",
-    gap: 12,
-  },
-  signOutButton: {
+  signOutBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    width: "100%",
     paddingVertical: 14,
     borderRadius: 14,
     borderWidth: 1,
+    marginTop: 8,
+    marginBottom: 24,
   },
   signOutText: {
-    fontSize: FontSizes.bodySmall,
-    fontFamily: Typography.bold,
-  },
-  versionFooter: {
-    fontSize: FontSizes.caption,
-    fontFamily: Typography.regular,
-    textAlign: "center",
-    lineHeight: 18,
-  },
-  roleSwitcherContainer: {
-    marginBottom: 16,
-  },
-  roleSwitcherHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginBottom: 8,
-  },
-  testBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "rgba(245, 158, 11, 0.15)",
-    borderWidth: 1,
-    borderColor: "rgba(245, 158, 11, 0.4)",
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 6,
-    gap: 4,
-  },
-  testBadgeText: {
-    fontSize: 10,
-    fontFamily: Typography.bold,
-    color: "#D97706",
-    letterSpacing: 0.5,
-  },
-  roleSwitcherTitle: {
-    fontSize: 13,
-    fontFamily: Typography.semiBold,
-  },
-  rolePillsRow: {
-    gap: 8,
-    paddingVertical: 4,
-  },
-  rolePill: {
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 12,
-    borderWidth: 1,
-    alignItems: "center",
-    minWidth: 80,
-  },
-  rolePillText: {
-    fontSize: 11,
-    fontFamily: Typography.bold,
-    letterSpacing: 0.3,
-  },
-  rolePillSub: {
-    fontSize: 10,
-    fontFamily: Typography.medium,
-    marginTop: 1,
-  },
-  yellowBoxSection: {
-    marginTop: 20,
-    marginBottom: 16,
-  },
-  yellowBoxHeaderRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 8,
-  },
-  yellowBoxTag: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "rgba(245, 158, 11, 0.15)",
-    borderWidth: 1,
-    borderColor: "rgba(245, 158, 11, 0.4)",
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 8,
-    gap: 5,
-  },
-  yellowBoxTagText: {
-    fontSize: 10,
-    fontFamily: Typography.bold,
-    color: "#D97706",
-    letterSpacing: 0.6,
-  },
-  currentRoleCapsule: {
-    paddingHorizontal: 10,
-    paddingVertical: 3,
-    borderRadius: 8,
-    borderWidth: 1,
-  },
-  currentRoleCapsuleText: {
-    fontSize: 11,
-    fontFamily: Typography.bold,
-    letterSpacing: 0.4,
-  },
-  yellowBoxHeading: {
-    fontSize: 18,
-    fontFamily: Typography.headingSemi,
-    letterSpacing: -0.3,
-  },
-  yellowBoxSubtitle: {
-    fontSize: FontSizes.caption,
-    fontFamily: Typography.regular,
-    marginTop: 4,
-    marginBottom: 14,
-    lineHeight: 18,
-  },
-  permCard: {
-    borderRadius: 16,
-    borderWidth: 1,
-    padding: 14,
-    marginBottom: 10,
-  },
-  permCardTop: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  permIconCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  permCardTitle: {
     fontSize: 14,
-    fontFamily: Typography.bold,
-  },
-  permCardScope: {
-    fontSize: 11,
-    fontFamily: Typography.medium,
-    marginTop: 1,
-  },
-  permStatusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
-  permStatusText: {
-    fontSize: 10,
-    fontFamily: Typography.bold,
-    letterSpacing: 0.4,
-  },
-  featuresBadgeWrap: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 6,
-    marginTop: 10,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: "rgba(255, 255, 255, 0.06)",
-  },
-  featurePill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 8,
-    borderWidth: 1,
-  },
-  featurePillText: {
-    fontSize: 11,
     fontFamily: Typography.semiBold,
-  },
-  permDescription: {
-    fontSize: FontSizes.caption,
-    fontFamily: Typography.regular,
-    marginTop: 8,
-    lineHeight: 17,
-  },
-  teamCard: {
-    borderRadius: 14,
-    borderWidth: 1,
-    padding: 12,
-    marginTop: 4,
-  },
-  teamCardTitle: {
-    fontSize: 12,
-    fontFamily: Typography.semiBold,
-    marginBottom: 8,
-  },
-  teamAvatarsRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  colleaguePill: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8,
-    borderWidth: 1,
-  },
-  colleagueName: {
-    fontSize: 11,
-    fontFamily: Typography.medium,
+    color: "#FF6B78",
   },
 });

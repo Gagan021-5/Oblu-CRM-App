@@ -12,6 +12,14 @@ from rest_framework.views import APIView
 from rest_framework.pagination import PageNumberPagination
 from django.shortcuts import get_object_or_404
 
+from access_control.roles import (
+    get_accessible_salesperson_ids,
+    get_salesperson_profile,
+    is_admin,
+    is_finance,
+)
+from access_control.hierarchy import get_accessible_user_ids
+from access_control.services import can
 from .models import (
     SalesPerson,
     Customer,
@@ -78,13 +86,26 @@ class CustomerListView(generics.ListAPIView):
             "credit_profile", "voucher_statuses", "remarks", "followups"
         )
 
-        # Scoping: if a specific salesperson is logged in and not admin, scope to them
+        # Scoping via Access Control & Hierarchy
+        user = self.request.user
+        is_super = user.is_superuser or user.is_staff or is_admin(user) or is_finance(user) or can(user, "customer.view_all")
         view_all = self.request.query_params.get("view_all", "").lower() in ["true", "1"]
-        if salesperson and not view_all:
-            # If they have assigned customers, filter by them
-            assigned_count = qs.filter(salesperson=salesperson).count()
-            if assigned_count > 0:
-                qs = qs.filter(salesperson=salesperson)
+
+        if not is_super and not view_all:
+            accessible_sp_ids = get_accessible_salesperson_ids(user)
+            accessible_uids = get_accessible_user_ids(user)
+            scope_q = Q()
+            if accessible_sp_ids:
+                scope_q |= Q(salesperson_id__in=accessible_sp_ids)
+            if accessible_uids:
+                scope_q |= Q(salesperson__user_id__in=accessible_uids)
+            if salesperson:
+                scope_q |= Q(salesperson=salesperson)
+
+            if scope_q:
+                qs = qs.filter(scope_q)
+            else:
+                qs = qs.none()
 
         # Search
         search = self.request.query_params.get("search", "").strip()

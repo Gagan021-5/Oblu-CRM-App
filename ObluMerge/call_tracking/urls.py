@@ -5,6 +5,7 @@ URL routing for the Call Tracer API.
 from django.urls import path
 from rest_framework_simplejwt.views import TokenRefreshView
 
+from access_control.views import MeProfileView
 from .views import (
     AdminCallLogView,
     AdminProfileView,
@@ -17,6 +18,11 @@ from .views import (
 )
 
 urlpatterns = [
+    path(
+        "auth/me/",
+        MeProfileView.as_view(),
+        name="auth-me",
+    ),
     path(
         "auth/login/",
         LoginView.as_view(),

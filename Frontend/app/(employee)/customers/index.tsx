@@ -80,8 +80,8 @@ export default function CustomerDashboardScreen() {
       case "followup_due":
         list = list.filter(
           (c) =>
-            c.nextFollowUp.toLowerCase().includes("today") ||
-            c.nextFollowUp.toLowerCase().includes("tomorrow")
+            (c.nextFollowUp || "").toLowerCase().includes("today") ||
+            (c.nextFollowUp || "").toLowerCase().includes("tomorrow")
         );
         break;
       case "payment_pending":
@@ -92,8 +92,8 @@ export default function CustomerDashboardScreen() {
       case "recently_contacted":
         list = list.filter(
           (c) =>
-            c.lastContactTime.toLowerCase().includes("today") ||
-            c.lastContactTime.toLowerCase().includes("yesterday")
+            (c.lastContactTime || "").toLowerCase().includes("today") ||
+            (c.lastContactTime || "").toLowerCase().includes("yesterday")
         );
         break;
       case "all":
@@ -109,16 +109,16 @@ export default function CustomerDashboardScreen() {
     const total = customers.length;
     const followups = customers.filter(
       (c) =>
-        c.nextFollowUp.toLowerCase().includes("today") ||
-        c.nextFollowUp.toLowerCase().includes("tomorrow")
+        (c.nextFollowUp || "").toLowerCase().includes("today") ||
+        (c.nextFollowUp || "").toLowerCase().includes("tomorrow")
     ).length;
     const pending = customers.filter(
       (c) => c.paymentStatus === "pending" || c.paymentStatus === "overdue"
     ).length;
     const recent = customers.filter(
       (c) =>
-        c.lastContactTime.toLowerCase().includes("today") ||
-        c.lastContactTime.toLowerCase().includes("yesterday")
+        (c.lastContactTime || "").toLowerCase().includes("today") ||
+        (c.lastContactTime || "").toLowerCase().includes("yesterday")
     ).length;
     return { total, followups, pending, recent };
   }, [customers]);
@@ -375,7 +375,7 @@ export default function CustomerDashboardScreen() {
       ) : (
         <FlatList
           data={filteredCustomers}
-          keyExtractor={(item) => item.id}
+          keyExtractor={(item) => String(item.id)}
           renderItem={({ item }) => (
             <CustomerCard
               customer={item}

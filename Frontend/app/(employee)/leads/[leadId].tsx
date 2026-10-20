@@ -651,7 +651,7 @@ export default function LeadDetailScreen() {
               <TimelineItem
                 key={act.id}
                 time={`${act.date} • ${act.time}`}
-                title={act.title}
+                title={act.title || "Lead Activity"}
                 subtitle={act.description}
                 type={
                   act.type === "meeting"

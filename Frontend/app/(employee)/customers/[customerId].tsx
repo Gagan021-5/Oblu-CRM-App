@@ -99,7 +99,7 @@ export default function CustomerDetailScreen() {
       await fetchCustomer();
       Alert.alert(
         "Automated Gmail Sent",
-        `Payment reminder for Invoice #${invoiceNum} successfully sent via Gmail automation to:\n${res.recipient}\n\nTimestamp: ${res.sentAt}`
+        `Payment reminder for Invoice #${invoiceNum} successfully sent via Gmail automation to:\n${res?.recipient || customer.email}\n\nTimestamp: ${res?.sentAt || new Date().toISOString()}`
       );
     } catch {
       Alert.alert("Error", "Could not send payment reminder email.");
