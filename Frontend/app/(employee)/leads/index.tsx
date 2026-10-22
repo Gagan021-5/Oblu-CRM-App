@@ -7,6 +7,7 @@ import {
   StyleSheet,
   RefreshControl,
   ScrollView,
+  Platform,
 } from "react-native";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -23,6 +24,33 @@ import { Lead, LeadStage } from "@/data/mockLeads";
 import { fetchLeadsFromApi } from "@/services/leadService";
 
 type LeadFilter = "All" | LeadStage;
+
+// Memoized List Item row to prevent unnecessary re-renders in large VirtualizedLists
+const LeadListItem = React.memo(
+  ({
+    item,
+    onPress,
+  }: {
+    item: Lead;
+    onPress: (id: string | number) => void;
+  }) => {
+    const handlePress = useCallback(() => {
+      onPress(item.id);
+    }, [item.id, onPress]);
+
+    return <LeadCard lead={item} onPress={handlePress} />;
+  },
+  (prev, next) => {
+    return (
+      prev.item.id === next.item.id &&
+      prev.item.name === next.item.name &&
+      prev.item.stage === next.item.stage &&
+      prev.item.intent === next.item.intent &&
+      prev.onPress === next.onPress
+    );
+  }
+);
+
 
 const STAGES: Array<{ key: LeadStage; label: string; count: number }> = [
   { key: "New", label: "New", count: 9 },
@@ -89,7 +117,7 @@ export default function LeadsDashboardScreen() {
     return list;
   }, [leads, searchQuery, activeStage]);
 
-  const renderHeader = () => (
+  const listHeaderComponent = useMemo(() => (
     <View>
       {/* Navigation Header */}
       <View style={styles.navRow}>
@@ -338,13 +366,52 @@ export default function LeadsDashboardScreen() {
         </Text>
       </View>
     </View>
+  ), [
+    isDark,
+    searchQuery,
+    activeStage,
+    leads.length,
+    filteredLeads.length,
+  ]);
+
+  const handleLeadPress = useCallback((id: string | number) => {
+    router.push(`/(employee)/leads/${id}` as any);
+  }, []);
+
+  const renderItem = useCallback(
+    ({ item }: { item: Lead }) => (
+      <LeadListItem item={item} onPress={handleLeadPress} />
+    ),
+    [handleLeadPress]
+  );
+
+  const keyExtractor = useCallback((item: Lead) => String(item.id), []);
+
+  const emptyComponent = useMemo(
+    () => (
+      <EmptyState
+        icon="search-outline"
+        title="No leads found"
+        description={
+          searchQuery
+            ? `No leads matched "${searchQuery}". Try a different keyword.`
+            : "No prospective leads in this stage."
+        }
+        actionLabel="Show All Leads"
+        onAction={() => {
+          setSearchQuery("");
+          setActiveStage("All");
+        }}
+      />
+    ),
+    [searchQuery]
   );
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background, paddingTop: insets.top }]}>
       {loading ? (
         <View style={styles.loadingContainer}>
-          {renderHeader()}
+          {listHeaderComponent}
           <SkeletonCard height={120} />
           <SkeletonCard height={120} />
           <SkeletonCard height={120} />
@@ -352,35 +419,20 @@ export default function LeadsDashboardScreen() {
       ) : (
         <FlatList
           data={filteredLeads}
-          keyExtractor={(item) => String(item.id)}
-          renderItem={({ item }) => (
-            <LeadCard
-              lead={item}
-              onPress={() => router.push(`/(employee)/leads/${item.id}` as any)}
-            />
-          )}
-          ListHeaderComponent={renderHeader}
-          ListEmptyComponent={
-            <EmptyState
-              icon="search-outline"
-              title="No leads found"
-              description={
-                searchQuery
-                  ? `No leads matched "${searchQuery}". Try a different keyword.`
-                  : "No prospective leads in this stage."
-              }
-              actionLabel="Show All Leads"
-              onAction={() => {
-                setSearchQuery("");
-                setActiveStage("All");
-              }}
-            />
-          }
+          keyExtractor={keyExtractor}
+          renderItem={renderItem}
+          ListHeaderComponent={listHeaderComponent}
+          ListEmptyComponent={emptyComponent}
           contentContainerStyle={[
             styles.listContent,
             { paddingBottom: insets.bottom + 96 },
           ]}
           showsVerticalScrollIndicator={false}
+          initialNumToRender={8}
+          maxToRenderPerBatch={10}
+          windowSize={5}
+          updateCellsBatchingPeriod={50}
+          removeClippedSubviews={Platform.OS === "android"}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}

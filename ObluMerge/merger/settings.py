@@ -17,11 +17,12 @@ try:
 except ImportError:
     pass
 
-SECRET_KEY = 'django-insecure-134bi)=8+23$%a2n8dr@q6ff&$@8496is(d40ompqzrm#m3q*9'
+SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-134bi)=8+23$%a2n8dr@q6ff&$@8496is(d40ompqzrm#m3q*9')
 
-DEBUG = True
+DEBUG = os.environ.get('DEBUG', 'True').lower() in ['true', '1', 'yes']
 
-ALLOWED_HOSTS = ['*']
+# Dynamic allowed hosts
+ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '*').split(',') if os.environ.get('ALLOWED_HOSTS') else ['*']
 
 CSRF_TRUSTED_ORIGINS = [
     'https://oblutools.com',
@@ -32,6 +33,8 @@ CSRF_TRUSTED_ORIGINS = [
     'http://localhost:8000',
     'http://192.168.1.36:8000',
 ]
+if os.environ.get('CSRF_TRUSTED_ORIGINS'):
+    CSRF_TRUSTED_ORIGINS.extend(os.environ.get('CSRF_TRUSTED_ORIGINS').split(','))
 
 # Application definition
 INSTALLED_APPS = [
@@ -116,16 +119,24 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'merger.wsgi.application'
 
-# Database Configuration (PostgreSQL oblumerge)
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:gagan$123@127.0.0.1:5432/oblumerge")
-
+# Database Configuration with dynamic PaaS & local fallback
 DATABASES = {
-    "default": dj_database_url.config(
-        default=DATABASE_URL,
-        conn_max_age=600,
-        conn_health_checks=True,
-    )
+    'default': {
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': BASE_DIR / 'db.sqlite3',
+    }
 }
+
+db_url = os.environ.get('DATABASE_URL')
+if db_url:
+    is_sqlite = db_url.startswith('sqlite')
+    is_local = is_sqlite or any(h in db_url for h in ['127.0.0.1', 'localhost'])
+    ssl_require = (not is_local) and (os.environ.get('DB_SSL_REQUIRE', 'False').lower() in ['true', '1'])
+    DATABASES['default'] = dj_database_url.config(
+        default=db_url,
+        conn_max_age=0 if is_sqlite else 600,
+        ssl_require=ssl_require
+    )
 
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
@@ -139,11 +150,13 @@ TIME_ZONE = "Asia/Kolkata"
 USE_I18N = True
 USE_TZ = True
 
-STATIC_URL = 'static/'
-STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+# Static files & WhiteNoise
+STATIC_URL = '/static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
 STATICFILES_DIRS = [
-    os.path.join(BASE_DIR, 'static'),
+    BASE_DIR / 'static',
 ]
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 # Storage configuration with local fallback
 if os.getenv("AWS_ACCESS_KEY_ID") and os.getenv("AWS_SECRET_ACCESS_KEY"):
@@ -155,12 +168,12 @@ if os.getenv("AWS_ACCESS_KEY_ID") and os.getenv("AWS_SECRET_ACCESS_KEY"):
     AWS_S3_SIGNATURE_VERSION = "s3v4"
     STORAGES = {
         "default": {"BACKEND": "storages.backends.s3.S3Storage"},
-        "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+        "staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"},
     }
 else:
     STORAGES = {
         "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
-        "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+        "staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"},
     }
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'

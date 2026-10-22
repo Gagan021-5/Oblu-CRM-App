@@ -40,6 +40,11 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
     [notifications]
   );
 
+  const followUpCount = useMemo(
+    () => notifications.filter((n) => n.type === "1_day_reminder").length,
+    [notifications]
+  );
+
   const filteredNotifications = useMemo(() => {
     switch (activeFilter) {
       case "unread":
@@ -74,7 +79,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
         <View
           style={[
             styles.backdrop,
-            { backgroundColor: isDark ? "rgba(0,0,0,0.78)" : "rgba(16,21,19,0.55)" },
+            { backgroundColor: isDark ? "rgba(0,0,0,0.72)" : "rgba(16,21,19,0.5)" },
           ]}
         >
           <TouchableWithoutFeedback>
@@ -88,7 +93,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
                 Shadows.cardElevated,
               ]}
             >
-              {/* Header */}
+              {/* Clean Header */}
               <View
                 style={[
                   styles.header,
@@ -100,101 +105,51 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
                 ]}
               >
                 <View style={styles.headerLeft}>
-                  <View
+                  <Text
                     style={[
-                      styles.iconCircle,
-                      {
-                        backgroundColor: isDark
-                          ? "rgba(53, 214, 160, 0.14)"
-                          : "#DDF4EA",
-                      },
+                      styles.headerTitle,
+                      { color: isDark ? "#F1F7F4" : "#101513" },
                     ]}
                   >
-                    <Ionicons
-                      name="notifications"
-                      size={18}
-                      color={isDark ? "#35D6A0" : "#00A879"}
-                    />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text
+                    Notifications
+                  </Text>
+                  {unreadCount > 0 && (
+                    <View
                       style={[
-                        styles.headerTitle,
-                        { color: isDark ? "#F1F7F4" : "#101513" },
+                        styles.unreadBadge,
+                        {
+                          backgroundColor: isDark
+                            ? "rgba(53, 214, 160, 0.16)"
+                            : "#DDF4EA",
+                        },
                       ]}
-                      numberOfLines={1}
                     >
-                      Notifications
-                    </Text>
-                    <Text
-                      style={[
-                        styles.headerSubtitle,
-                        { color: isDark ? "#8FA09A" : "#5E6964" },
-                      ]}
-                      numberOfLines={1}
-                    >
-                      {unreadCount > 0
-                        ? `${unreadCount} unread reminder${unreadCount > 1 ? "s" : ""}`
-                        : "All reminders up to date"}
-                    </Text>
-                  </View>
+                      <Text
+                        style={[
+                          styles.unreadBadgeText,
+                          { color: isDark ? "#35D6A0" : "#00A879" },
+                        ]}
+                      >
+                        {unreadCount} new
+                      </Text>
+                    </View>
+                  )}
                 </View>
 
                 <View style={styles.headerRight}>
                   {unreadCount > 0 && (
                     <TouchableOpacity
                       onPress={markAllAsRead}
-                      style={[
-                        styles.actionTextBtn,
-                        {
-                          backgroundColor: isDark
-                            ? "rgba(53, 214, 160, 0.12)"
-                            : "#EEF8F4",
-                        },
-                      ]}
-                      hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                      style={styles.markAllReadBtn}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                     >
-                      <Ionicons
-                        name="checkmark-done-outline"
-                        size={14}
-                        color={isDark ? "#35D6A0" : "#00A879"}
-                      />
                       <Text
                         style={[
-                          styles.markReadText,
+                          styles.markAllReadText,
                           { color: isDark ? "#35D6A0" : "#00A879" },
                         ]}
                       >
-                        Read
-                      </Text>
-                    </TouchableOpacity>
-                  )}
-
-                  {notifications.length > 0 && (
-                    <TouchableOpacity
-                      onPress={clearAllNotifications}
-                      style={[
-                        styles.actionTextBtn,
-                        {
-                          backgroundColor: isDark
-                            ? "rgba(255, 107, 107, 0.1)"
-                            : "#FFF1F0",
-                        },
-                      ]}
-                      hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-                    >
-                      <Ionicons
-                        name="trash-outline"
-                        size={13}
-                        color={isDark ? "#FF8080" : "#E03131"}
-                      />
-                      <Text
-                        style={[
-                          styles.markReadText,
-                          { color: isDark ? "#FF8080" : "#E03131" },
-                        ]}
-                      >
-                        Clear
+                        Mark all read
                       </Text>
                     </TouchableOpacity>
                   )}
@@ -212,14 +167,14 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
                   >
                     <Ionicons
                       name="close"
-                      size={18}
+                      size={16}
                       color={isDark ? "#8FA09A" : "#5E6964"}
                     />
                   </TouchableOpacity>
                 </View>
               </View>
 
-              {/* Filter Tabs - Horizontal Scroll to prevent wrapping or overflowing */}
+              {/* Refined Filter Chips */}
               <View
                 style={[
                   styles.filterRow,
@@ -239,7 +194,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
                     [
                       { key: "all", label: `All (${notifications.length})` },
                       { key: "unread", label: `Unread (${unreadCount})` },
-                      { key: "followups", label: "Follow-ups" },
+                      { key: "followups", label: `Follow-ups (${followUpCount})` },
                       { key: "tickets", label: `Tickets (${ticketCount})` },
                     ] as const
                   ).map((tab) => {
@@ -294,7 +249,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
                 </ScrollView>
               </View>
 
-              {/* Notification List */}
+              {/* Notification Cards List */}
               <ScrollView
                 style={styles.list}
                 showsVerticalScrollIndicator={false}
@@ -314,7 +269,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
                     >
                       <Ionicons
                         name="checkmark-done-circle-outline"
-                        size={40}
+                        size={36}
                         color={isDark ? "#35D6A0" : "#00A879"}
                       />
                     </View>
@@ -324,7 +279,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
                         { color: isDark ? "#F1F7F4" : "#101513" },
                       ]}
                     >
-                      All Caught Up
+                      All caught up
                     </Text>
                     <Text
                       style={[
@@ -333,73 +288,43 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
                       ]}
                     >
                       {activeFilter === "unread"
-                        ? "You have no unread follow-up notifications."
+                        ? "You have no unread notifications."
                         : activeFilter === "tickets"
-                        ? "No raised payment tickets right now."
-                        : "Scheduled customer follow-up reminders and payment alerts appear here."}
+                        ? "No raised payment tickets."
+                        : "Follow-up reminders and payment alerts will appear here."}
                     </Text>
                   </View>
                 ) : (
                   filteredNotifications.map((item) => {
                     const isTicket = item.type === "payment_ticket_raised";
                     return (
-                      <View
+                      <TouchableOpacity
                         key={item.id}
                         style={[
                           styles.notifCard,
                           {
-                            backgroundColor: isTicket
-                              ? isDark
-                                ? item.read
-                                  ? "#160E0E"
-                                  : "#241010"
-                                : item.read
-                                ? "#FFFBFB"
-                                : "#FFF1F0"
-                              : isDark
+                            backgroundColor: isDark
                               ? item.read
-                                ? "#121F1B"
-                                : "#152822"
+                                ? "#111D19"
+                                : "#14251F"
                               : item.read
                               ? "#FFFFFF"
-                              : "#F4FAF7",
-                            borderColor: isTicket
-                              ? isDark
-                                ? "rgba(255, 77, 79, 0.5)"
-                                : "#FFA39E"
-                              : isDark
+                              : "#F6FAF8",
+                            borderColor: isDark
                               ? item.read
                                 ? "#1E3029"
-                                : "rgba(53, 214, 160, 0.45)"
+                                : "rgba(53, 214, 160, 0.35)"
                               : item.read
                               ? "#E1E8E4"
-                              : "rgba(0, 168, 121, 0.35)",
+                              : "rgba(0, 168, 121, 0.3)",
                           },
                         ]}
+                        onPress={() => handleItemPress(item.customerId)}
+                        activeOpacity={0.85}
                       >
-                        {/* Top Row: Type Tag & Time Due */}
+                        {/* Top Row: Clean Category Pill + Time + Delete */}
                         <View style={styles.notifTopRow}>
-                          <View
-                            style={[
-                              styles.tagCapsule,
-                              {
-                                backgroundColor: isTicket
-                                  ? isDark
-                                    ? "rgba(255, 77, 79, 0.15)"
-                                    : "#FFEAEA"
-                                  : isDark
-                                  ? "rgba(53, 214, 160, 0.15)"
-                                  : "#DDF4EA",
-                                borderColor: isTicket
-                                  ? isDark
-                                    ? "rgba(255, 77, 79, 0.3)"
-                                    : "#FFCCC7"
-                                  : isDark
-                                  ? "rgba(53, 214, 160, 0.3)"
-                                  : "#B5E8D5",
-                              },
-                            ]}
-                          >
+                          <View style={styles.pillContainer}>
                             {!item.read && (
                               <View
                                 style={[
@@ -414,56 +339,88 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
                                 ]}
                               />
                             )}
-                            <Ionicons
-                              name={isTicket ? "alert-circle" : "time-outline"}
-                              size={12}
-                              color={
-                                isTicket
-                                  ? isDark
-                                    ? "#FF4D4F"
-                                    : "#CF1322"
-                                  : isDark
-                                  ? "#35D6A0"
-                                  : "#00A879"
-                              }
-                            />
-                            <Text
+                            <View
                               style={[
-                                styles.tagText,
+                                styles.cleanPill,
                                 {
-                                  color: isTicket
+                                  backgroundColor: isTicket
                                     ? isDark
-                                      ? "#FF4D4F"
-                                      : "#CF1322"
+                                      ? "rgba(255, 77, 79, 0.12)"
+                                      : "#FDECEB"
                                     : isDark
-                                    ? "#35D6A0"
-                                    : "#00A879",
+                                    ? "rgba(53, 214, 160, 0.12)"
+                                    : "#DDF4EA",
                                 },
                               ]}
                             >
-                              {isTicket ? "🚨 TICKET RAISED" : "1-DAY REMINDER"}
-                            </Text>
+                              <Ionicons
+                                name={isTicket ? "alert-circle" : "calendar"}
+                                size={11}
+                                color={
+                                  isTicket
+                                    ? isDark
+                                      ? "#FF7875"
+                                      : "#D9363E"
+                                    : isDark
+                                    ? "#35D6A0"
+                                    : "#00A879"
+                                }
+                              />
+                              <Text
+                                style={[
+                                  styles.cleanPillText,
+                                  {
+                                    color: isTicket
+                                      ? isDark
+                                        ? "#FF7875"
+                                        : "#D9363E"
+                                      : isDark
+                                      ? "#35D6A0"
+                                      : "#00A879",
+                                  },
+                                ]}
+                              >
+                                {isTicket ? "Payment Ticket" : "Follow-up"}
+                              </Text>
+                            </View>
                           </View>
 
-                          <Text
-                            style={[
-                              styles.itemDate,
-                              {
-                                color: isTicket
-                                  ? isDark
-                                    ? "#FF8585"
-                                    : "#D4380D"
-                                  : isDark
-                                  ? "#8FA09A"
-                                  : "#5E6964",
-                              },
-                            ]}
-                            numberOfLines={1}
-                          >
-                            {isTicket
-                              ? `Overdue (${item.expectedDate || "Passed"})`
-                              : `${item.followUpDate} • ${item.followUpTime}`}
-                          </Text>
+                          <View style={styles.topRightActions}>
+                            <Text
+                              style={[
+                                styles.itemDate,
+                                {
+                                  color: isTicket
+                                    ? isDark
+                                      ? "#FF9C9C"
+                                      : "#CF1322"
+                                    : isDark
+                                    ? "#8FA09A"
+                                    : "#5E6964",
+                                },
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {isTicket
+                                ? `Overdue • ${item.expectedDate || "Passed"}`
+                                : `${item.followUpDate || "Scheduled"} • ${item.followUpTime || ""}`}
+                            </Text>
+
+                            <TouchableOpacity
+                              onPress={(e) => {
+                                e.stopPropagation();
+                                deleteNotification(item.id);
+                              }}
+                              style={styles.trashIconBtn}
+                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            >
+                              <Ionicons
+                                name="trash-outline"
+                                size={14}
+                                color={isDark ? "#6E8079" : "#9AA6A0"}
+                              />
+                            </TouchableOpacity>
+                          </View>
                         </View>
 
                         {/* Customer Name */}
@@ -477,171 +434,68 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
                           {item.customerName}
                         </Text>
 
-                        {/* Purpose / Invoice Detail */}
-                        <View style={styles.purposeRow}>
+                        {/* Context Line: Invoice or Purpose */}
+                        <View style={styles.contextLine}>
                           <Ionicons
-                            name={
-                              isTicket
-                                ? "receipt-outline"
-                                : "calendar-outline"
-                            }
+                            name={isTicket ? "receipt-outline" : "bookmark-outline"}
                             size={13}
                             color={isDark ? "#8FA09A" : "#5E6964"}
                           />
                           <Text
                             style={[
-                              styles.purposeText,
+                              styles.contextText,
                               { color: isDark ? "#8FA09A" : "#5E6964" },
                             ]}
                             numberOfLines={1}
                           >
                             {isTicket
                               ? `Invoice #${item.invoiceNumber || "INV"} • Amount: ${item.amount || ""}`
-                              : item.purpose}
+                              : item.purpose || "Customer Follow-up"}
                           </Text>
                         </View>
 
-                        {/* Automated Gmail Callout / Notes Box */}
+                        {/* Note/Snippet (Clean text without heavy nested boxes) */}
                         {isTicket ? (
-                          <View
+                          <Text
                             style={[
-                              styles.notesBox,
-                              {
-                                backgroundColor: isDark
-                                  ? "rgba(255, 77, 79, 0.08)"
-                                  : "rgba(255, 77, 79, 0.05)",
-                                borderLeftColor: isDark ? "#FF4D4F" : "#CF1322",
-                              },
+                              styles.messageSnippet,
+                              { color: isDark ? "#B8C9C2" : "#4A5852" },
                             ]}
+                            numberOfLines={2}
                           >
-                            <View style={{ flexDirection: "row", alignItems: "center", gap: 5, marginBottom: 3 }}>
-                              <Ionicons
-                                name="mail-outline"
-                                size={13}
-                                color={isDark ? "#FF8585" : "#CF1322"}
-                              />
-                              <Text
-                                style={{
-                                  fontSize: 11,
-                                  fontFamily: Typography.bold,
-                                  color: isDark ? "#FF8585" : "#CF1322",
-                                }}
-                              >
-                                Automated Gmail Alert Dispatched
-                              </Text>
-                            </View>
-                            <Text
-                              style={[
-                                styles.notesText,
-                                { color: isDark ? "#D3ADAD" : "#724747" },
-                              ]}
-                              numberOfLines={2}
-                            >
-                              Expected date ({item.expectedDate}) crossed. Automatic alert dispatched to accounts and salesperson.
-                            </Text>
-                          </View>
+                            Expected payment date ({item.expectedDate}) passed. Automated alert dispatched to accounts.
+                          </Text>
                         ) : item.notes ? (
-                          <View
+                          <Text
                             style={[
-                              styles.notesBox,
-                              {
-                                backgroundColor: isDark
-                                  ? "rgba(0,0,0,0.25)"
-                                  : "rgba(0,0,0,0.025)",
-                                borderLeftColor: isDark
-                                  ? "#35D6A0"
-                                  : "#00A879",
-                              },
+                              styles.messageSnippet,
+                              { color: isDark ? "#B8C9C2" : "#4A5852" },
                             ]}
+                            numberOfLines={2}
                           >
-                            <View style={{ flexDirection: "row", alignItems: "center", gap: 5, marginBottom: 3 }}>
-                              <Ionicons
-                                name="chatbubble-ellipses-outline"
-                                size={12}
-                                color={isDark ? "#35D6A0" : "#00A879"}
-                              />
-                              <Text
-                                style={{
-                                  fontSize: 11,
-                                  fontFamily: Typography.bold,
-                                  color: isDark ? "#35D6A0" : "#00A879",
-                                }}
-                              >
-                                Follow-up Note
-                              </Text>
-                            </View>
-                            <Text
-                              style={[
-                                styles.notesText,
-                                { color: isDark ? "#8FA09A" : "#5E6964" },
-                              ]}
-                              numberOfLines={2}
-                            >
-                              "{item.notes}"
-                            </Text>
-                          </View>
+                            "{item.notes}"
+                          </Text>
                         ) : null}
 
-                        {/* Card Footer: View Customer & Delete Action */}
+                        {/* Footer action link */}
                         <View style={styles.notifFooter}>
-                          <TouchableOpacity
-                            style={styles.actionLink}
-                            onPress={() => handleItemPress(item.customerId)}
-                            activeOpacity={0.7}
-                          >
-                            <Text
-                              style={[
-                                styles.actionHint,
-                                {
-                                  color: isTicket
-                                    ? isDark
-                                      ? "#FF7875"
-                                      : "#D4380D"
-                                    : isDark
-                                    ? "#35D6A0"
-                                    : "#00A879",
-                                },
-                              ]}
-                            >
-                              {isTicket
-                                ? "View Invoice & Payment Details"
-                                : "View Customer Profile"}
-                            </Text>
-                            <Ionicons
-                              name="arrow-forward"
-                              size={13}
-                              color={
-                                isTicket
-                                  ? isDark
-                                    ? "#FF7875"
-                                    : "#D4380D"
-                                  : isDark
-                                  ? "#35D6A0"
-                                  : "#00A879"
-                              }
-                            />
-                          </TouchableOpacity>
-
-                          <TouchableOpacity
-                            onPress={() => deleteNotification(item.id)}
+                          <Text
                             style={[
-                              styles.dismissBtn,
+                              styles.actionHint,
                               {
-                                backgroundColor: isDark
-                                  ? "rgba(255,255,255,0.06)"
-                                  : "rgba(0,0,0,0.04)",
+                                color: isDark ? "#35D6A0" : "#00A879",
                               },
                             ]}
-                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                           >
-                            <Ionicons
-                              name="trash-outline"
-                              size={14}
-                              color={isDark ? "#8FA09A" : "#87928D"}
-                            />
-                          </TouchableOpacity>
+                            {isTicket ? "View invoice details" : "View customer profile"}
+                          </Text>
+                          <Ionicons
+                            name="arrow-forward"
+                            size={12}
+                            color={isDark ? "#35D6A0" : "#00A879"}
+                          />
                         </View>
-                      </View>
+                      </TouchableOpacity>
                     );
                   })
                 )}
@@ -663,7 +517,7 @@ const styles = StyleSheet.create({
   },
   modalCard: {
     width: "100%",
-    maxHeight: "82%",
+    maxHeight: "80%",
     borderRadius: 22,
     borderWidth: 1,
     overflow: "hidden",
@@ -679,49 +533,39 @@ const styles = StyleSheet.create({
   headerLeft: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    flex: 1,
-    marginRight: 8,
-  },
-  iconCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 11,
-    alignItems: "center",
-    justifyContent: "center",
-    flexShrink: 0,
+    gap: 8,
   },
   headerTitle: {
-    fontSize: 16,
+    fontSize: 18,
     fontFamily: Typography.bold,
+    letterSpacing: -0.3,
   },
-  headerSubtitle: {
-    fontSize: FontSizes.micro,
-    fontFamily: Typography.regular,
-    marginTop: 1,
+  unreadBadge: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 10,
+  },
+  unreadBadgeText: {
+    fontSize: 11,
+    fontFamily: Typography.bold,
   },
   headerRight: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    flexShrink: 0,
+    gap: 12,
   },
-  actionTextBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-    borderRadius: 8,
+  markAllReadBtn: {
+    paddingVertical: 4,
+    paddingHorizontal: 6,
   },
-  markReadText: {
-    fontSize: FontSizes.micro,
+  markAllReadText: {
+    fontSize: 13,
     fontFamily: Typography.semiBold,
   },
   closeBtn: {
-    width: 30,
-    height: 30,
-    borderRadius: 9,
+    width: 28,
+    height: 28,
+    borderRadius: 8,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
@@ -738,18 +582,18 @@ const styles = StyleSheet.create({
   filterChip: {
     paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 999,
+    borderRadius: 16,
     borderWidth: 1,
   },
   filterChipText: {
-    fontSize: FontSizes.caption,
+    fontSize: 12,
   },
   list: {
     maxHeight: 460,
   },
   listContent: {
     padding: 16,
-    gap: 12,
+    gap: 10,
   },
   notifCard: {
     borderRadius: 16,
@@ -761,101 +605,90 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: 8,
-    gap: 8,
   },
-  tagCapsule: {
+  pillContainer: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-    borderWidth: 1,
+    gap: 6,
   },
   liveDot: {
     width: 6,
     height: 6,
     borderRadius: 3,
   },
-  tagText: {
-    fontSize: 10,
-    fontFamily: Typography.bold,
-    letterSpacing: 0.3,
+  cleanPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  cleanPillText: {
+    fontSize: 11,
+    fontFamily: Typography.semiBold,
+  },
+  topRightActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
   },
   itemDate: {
-    fontSize: FontSizes.micro,
-    fontFamily: Typography.semiBold,
-    flexShrink: 0,
-    textAlign: "right",
+    fontSize: 11,
+    fontFamily: Typography.medium,
+  },
+  trashIconBtn: {
+    padding: 2,
   },
   customerTitle: {
-    fontSize: FontSizes.bodySmall,
+    fontSize: 15,
     fontFamily: Typography.bold,
+    letterSpacing: -0.2,
     marginBottom: 4,
   },
-  purposeRow: {
+  contextLine: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    marginBottom: 8,
+    marginBottom: 6,
   },
-  purposeText: {
-    fontSize: FontSizes.caption,
-    fontFamily: Typography.medium,
+  contextText: {
+    fontSize: 12,
+    fontFamily: Typography.regular,
     flex: 1,
   },
-  notesBox: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
-    borderLeftWidth: 3,
-    marginBottom: 10,
-  },
-  notesText: {
-    fontSize: FontSizes.caption,
+  messageSnippet: {
+    fontSize: 12,
     fontFamily: Typography.regular,
-    lineHeight: 16,
+    lineHeight: 17,
+    marginBottom: 8,
   },
   notifFooter: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
+    gap: 4,
     paddingTop: 8,
-    borderTopWidth: 1,
-  },
-  actionLink: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    flex: 1,
-    marginRight: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "rgba(143, 160, 154, 0.2)",
   },
   actionHint: {
-    fontSize: FontSizes.caption,
+    fontSize: 12,
     fontFamily: Typography.semiBold,
-  },
-  dismissBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 7,
-    alignItems: "center",
-    justifyContent: "center",
-    flexShrink: 0,
   },
   emptyState: {
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 44,
+    paddingVertical: 40,
     paddingHorizontal: 20,
-    gap: 10,
+    gap: 8,
   },
   emptyIconBg: {
-    width: 64,
-    height: 64,
-    borderRadius: 20,
+    width: 56,
+    height: 56,
+    borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 6,
+    marginBottom: 4,
   },
   emptyTitle: {
     fontSize: 16,

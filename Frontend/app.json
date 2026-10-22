@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "Oblu Nexus",
+    "name": "Oblu",
     "slug": "callapp",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "oblunexus",
+    "scheme": "oblu",
     "userInterfaceStyle": "light",
     "android": {
       "adaptiveIcon": {

@@ -19,7 +19,7 @@ const FloatingTabBarComponent: React.FC<FloatingTabBarProps> = () => {
   const params = useGlobalSearchParams<{ tab?: string }>();
   const activeTabParam = params.tab || "dashboard";
 
-  const isAdmin = user?.role === "admin";
+  const isAdmin = user?.role?.toLowerCase() === "admin";
 
   // Check if current user is HR persona (vanshika, anshika, or role HR)
   const isHR = useMemo(() => {

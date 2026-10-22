@@ -1,14 +1,13 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/contexts/ThemeContext";
 import { Typography, FontSizes } from "@/constants/theme";
-import { mockEmployee } from "@/data/mockEmployee";
-
 import { router } from "expo-router";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNotifications } from "@/contexts/NotificationContext";
 import { NotificationCenterModal } from "@/components/employee/NotificationCenterModal";
+import { getRoleWorkspaceContext } from "@/utils/greetings";
 
 interface WorkspaceHeaderProps {
   onNotificationPress?: () => void;
@@ -20,7 +19,7 @@ const WorkspaceHeaderComponent: React.FC<WorkspaceHeaderProps> = ({
   onProfilePress,
 }) => {
   const { user } = useAuth();
-  const { colors, isDark, mode, setMode } = useTheme();
+  const { isDark, setMode } = useTheme();
   const {
     unreadCount,
     openNotificationCenter,
@@ -28,18 +27,37 @@ const WorkspaceHeaderComponent: React.FC<WorkspaceHeaderProps> = ({
     isNotificationCenterVisible,
   } = useNotifications();
 
-  // Display user name dynamically from AuthContext
-  const displayName = user?.username
-    ? user.username.replace(/_/g, " ").split(" ")[0]
-    : mockEmployee.name.split(" ")[0];
-  const displayInitials = user?.username
-    ? user.username.slice(0, 2).toUpperCase()
-    : mockEmployee.avatarInitials;
+  // Dynamic context based on employee role, department, and time
+  const roleContext = useMemo(() => {
+    return getRoleWorkspaceContext(user?.role, (user as any)?.department);
+  }, [user?.role, (user as any)?.department]);
 
-  // Dynamic greeting based on time of day
-  const hour = new Date().getHours();
-  const greeting =
-    hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+
+  // Display user name dynamically from AuthContext
+  const displayName = useMemo(() => {
+    if (user?.name && user.name.trim()) {
+      return user.name.trim().split(" ")[0];
+    }
+    if (user?.username) {
+      const clean = user.username.replace(/_/g, " ").split(" ")[0];
+      return clean.charAt(0).toUpperCase() + clean.slice(1);
+    }
+    return "Team";
+  }, [user]);
+
+  const displayInitials = useMemo(() => {
+    if (user?.name && user.name.trim()) {
+      const parts = user.name.trim().split(" ").filter(Boolean);
+      if (parts.length >= 2) {
+        return (parts[0][0] + parts[1][0]).toUpperCase();
+      }
+      return parts[0].slice(0, 2).toUpperCase();
+    }
+    if (user?.username) {
+      return user.username.slice(0, 2).toUpperCase();
+    }
+    return "OB";
+  }, [user]);
 
   // Formatted date: "Monday, 7 September"
   const formattedDate = new Intl.DateTimeFormat("en-IN", {
@@ -175,8 +193,10 @@ const WorkspaceHeaderComponent: React.FC<WorkspaceHeaderProps> = ({
           { color: isDark ? "#F1F7F4" : "#101513" },
         ]}
       >
-        {greeting}, {displayName}
+        {roleContext.subGreeting}, {displayName}
       </Text>
+
+
 
       {/* Interactive Notification Center Modal */}
       <NotificationCenterModal
@@ -199,7 +219,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 12,
+    marginBottom: 8,
   },
   leftMeta: {
     flexDirection: "column",
@@ -258,4 +278,5 @@ const styles = StyleSheet.create({
     fontFamily: Typography.bold,
     letterSpacing: -0.5,
   },
+
 });

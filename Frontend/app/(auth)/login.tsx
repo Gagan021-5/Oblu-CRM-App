@@ -27,7 +27,7 @@ import { ORG_ROLES, DummyTestUser } from "@/data/rolesData";
 
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
-  const { login, mockLogin } = useAuth();
+  const { login, mockLogin, logout } = useAuth();
   const { colors, isDark } = useTheme();
 
   const [username, setUsername] = useState("");
@@ -45,7 +45,7 @@ export default function LoginScreen() {
     setLoading(true);
     try {
       const loggedUser = await login(username.trim(), password);
-      if (loggedUser?.role === "admin") {
+      if (loggedUser?.role?.toLowerCase() === "admin") {
         router.replace("/(admin)/users");
       } else {
         router.replace("/(employee)");
@@ -54,7 +54,7 @@ export default function LoginScreen() {
       // Direct demo fallback for test users
       try {
         const mockU = await mockLogin(username.trim());
-        if (mockU?.role === "admin") {
+        if (mockU?.role?.toLowerCase() === "admin") {
           router.replace("/(admin)/users");
         } else {
           router.replace("/(employee)");
@@ -71,15 +71,16 @@ export default function LoginScreen() {
     }
   };
 
-  const handleQuickRoleLogin = async (user: DummyTestUser) => {
-    const pwd = user.password || "test1234";
-    setUsername(user.username);
+  const handleQuickRoleLogin = async (targetUser: DummyTestUser) => {
+    await logout();
+    const pwd = targetUser.password || "test1234";
+    setUsername(targetUser.username);
     setPassword(pwd);
     setLoading(true);
     try {
       // 1. Authenticate with real Django backend first
-      const loggedUser = await login(user.username, pwd);
-      if (loggedUser?.role === "admin") {
+      const loggedUser = await login(targetUser.username, pwd);
+      if (loggedUser?.role?.toLowerCase() === "admin") {
         router.replace("/(admin)/users");
       } else {
         router.replace("/(employee)");
@@ -87,8 +88,8 @@ export default function LoginScreen() {
     } catch {
       // 2. Demo fallback
       try {
-        const mockU = await mockLogin(user.username);
-        if (mockU?.role === "admin") {
+        const mockU = await mockLogin(targetUser.username);
+        if (mockU?.role?.toLowerCase() === "admin") {
           router.replace("/(admin)/users");
         } else {
           router.replace("/(employee)");
@@ -129,7 +130,7 @@ export default function LoginScreen() {
             />
           </View>
           <Text style={[styles.brandTitle, { color: colors.textPrimary }]}>
-            Oblu Nexus
+            Oblu
           </Text>
           <Text style={[styles.brandSubtitle, { color: colors.textMuted }]}>
             High-Performance Calling & Pipeline
@@ -146,11 +147,8 @@ export default function LoginScreen() {
             },
           ]}
         >
-          <Text style={[styles.cardTitle, { color: colors.textPrimary }]}>
+          <Text style={[styles.cardTitle, { color: colors.textPrimary, marginBottom: Spacing.xl }]}>
             Sign In
-          </Text>
-          <Text style={[styles.cardSubtitle, { color: colors.textMuted }]}>
-            Access your sales dashboard and call logs
           </Text>
 
           <View style={styles.form}>
@@ -260,25 +258,7 @@ export default function LoginScreen() {
               </Link>
             </View>
 
-            {/* Demo Workspace Link */}
-            <TouchableOpacity
-              style={{
-                marginTop: 20,
-                paddingVertical: 12,
-                paddingHorizontal: 16,
-                alignItems: "center",
-                borderRadius: 14,
-                borderWidth: 1,
-                borderColor: isDark ? "rgba(53, 214, 160, 0.35)" : "rgba(0, 168, 121, 0.35)",
-                backgroundColor: isDark ? "rgba(53, 214, 160, 0.10)" : "#DDF4EA",
-              }}
-              onPress={() => router.push("/(employee)" as any)}
-              activeOpacity={0.8}
-            >
-              <Text style={{ fontSize: 13, fontFamily: Typography.semiBold, color: isDark ? "#35D6A0" : "#00A879" }}>
-                🚀 Launch Employee Workspace (Demo)
-              </Text>
-            </TouchableOpacity>
+
           </View>
         </View>
 

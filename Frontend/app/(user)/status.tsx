@@ -1,5 +1,5 @@
 /**
- * Oblu Nexus Employee Device Status Screen
+ * Oblu Employee Device Status Screen
  * High-performance, flicker-free connection hub with dedicated Light and Dark/Black theme modes.
  */
 
@@ -190,7 +190,7 @@ export default function StatusScreen() {
     const granted = await checkPermissionReadOnly();
     if (granted) {
       await performSync();
-      Alert.alert("Sync Complete", "Call logs are synchronized with your Oblu Nexus dashboard.");
+      Alert.alert("Sync Complete", "Call logs are synchronized with your Oblu dashboard.");
     } else {
       Alert.alert("Permission Required", "Please grant call log permission first.");
     }
@@ -216,7 +216,7 @@ export default function StatusScreen() {
       } else {
         Alert.alert(
           "Permission Required",
-          "Call log access is needed to record business activities. Please enable 'Call logs' for Oblu Nexus in App Settings.",
+          "Call log access is needed to record business activities. Please enable 'Call logs' for Oblu in App Settings.",
           [
             { text: "Cancel", style: "cancel" },
             { text: "Open Settings", onPress: () => Linking.openSettings() },
@@ -258,7 +258,7 @@ export default function StatusScreen() {
             style={[
               styles.brandLogoContainer,
               {
-                backgroundColor: colors.card,
+                backgroundColor: "#000000",
                 borderColor: colors.cardBorder,
               },
             ]}
@@ -266,7 +266,7 @@ export default function StatusScreen() {
             <Image
               source={require("@/assets/images/logo.png")}
               style={styles.brandLogo}
-              resizeMode="contain"
+              resizeMode="cover"
             />
           </View>
           <View>
@@ -276,7 +276,7 @@ export default function StatusScreen() {
             <View style={styles.appStatusPill}>
               <View style={[styles.statusDotLive, { backgroundColor: colors.emerald }]} />
               <Text style={[styles.greetingSubtitle, { color: colors.primary }]}>
-                Oblu Nexus Sync Active
+                Oblu Sync Active
               </Text>
             </View>
           </View>
@@ -584,15 +584,16 @@ const styles = StyleSheet.create({
   brandLogoContainer: {
     width: 46,
     height: 46,
-    borderRadius: Radius.lg,
-    borderWidth: 1,
+    borderRadius: 23,
+    borderWidth: 1.5,
     justifyContent: "center",
     alignItems: "center",
     overflow: "hidden",
+    backgroundColor: "#000000",
   },
   brandLogo: {
-    width: 40,
-    height: 40,
+    width: "100%",
+    height: "100%",
   },
   greetingTitle: {
     fontFamily: Typography.headingExtra,

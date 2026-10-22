@@ -245,7 +245,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     borderWidth: 1,
     padding: 16,
-    marginBottom: 12,
+    marginBottom: 0,
   },
   bentoTop: {
     flexDirection: "row",

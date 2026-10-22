@@ -14,6 +14,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import { Typography, FontSizes, Shadows } from "@/constants/theme";
+import api from "@/services/api";
 import {
   fetchUserPermissionsApi,
   UserPermissionProfile,
@@ -26,9 +27,10 @@ export default function EmployeeProfileScreen() {
 
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState<UserPermissionProfile | null>(null);
+  const [dbEmployee, setDbEmployee] = useState<any>(null);
   const [loggingOut, setLoggingOut] = useState(false);
 
-  // Fetch real authenticated profile from backend
+  // Fetch real authenticated profile and employee record from backend DB
   useEffect(() => {
     let mounted = true;
     async function loadData() {
@@ -36,6 +38,24 @@ export default function EmployeeProfileScreen() {
         const permProfile = await fetchUserPermissionsApi();
         if (mounted && permProfile) {
           setProfile(permProfile);
+        }
+
+        const uname = permProfile?.user?.username || (user as any)?.username || "";
+        if (uname) {
+          try {
+            const empRes = await api.get(`/hrms/employees/?search=${uname}`);
+            if (mounted && empRes?.data && Array.isArray(empRes.data) && empRes.data.length > 0) {
+              const match =
+                empRes.data.find(
+                  (e: any) =>
+                    (e.email && e.email.toLowerCase() === (permProfile?.email || (user as any)?.email || "").toLowerCase()) ||
+                    (e.name && e.name.toLowerCase() === (permProfile?.user?.name || "").toLowerCase())
+                ) || empRes.data[0];
+              setDbEmployee(match);
+            }
+          } catch {
+            // Employee lookup fallback
+          }
         }
       } catch (err) {
         console.warn("[Profile] Error loading user profile:", err);
@@ -47,7 +67,7 @@ export default function EmployeeProfileScreen() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [user]);
 
   const activeUser = profile?.user || user;
   const username = activeUser?.username || "";
@@ -75,60 +95,22 @@ export default function EmployeeProfileScreen() {
     return displayName.slice(0, 2).toUpperCase();
   }, [displayName]);
 
-  // Derive department and employee code from backend username
+  // Purely dynamic department and employee code from database record
   const empDetails = useMemo(() => {
-    if (usernameLower.includes("vibhuti")) {
-      return { code: "EMP-012", dept: "Business Operations & Enterprise Accounts", desig: "Senior Business Manager" };
-    }
-    if (usernameLower.includes("vanshika")) {
-      return { code: "EMP-009", dept: "Human Resources", desig: "HR Operations Lead" };
-    }
-    if (usernameLower.includes("anshika")) {
-      return { code: "EMP-010", dept: "Human Resources", desig: "HR Operations Lead" };
-    }
-    if (usernameLower.includes("neha_sharma")) {
-      return { code: "EMP-FIN-001", dept: "Finance & Accounts", desig: "Senior Accountant" };
-    }
-    if (usernameLower.includes("sujal")) {
-      return { code: "EMP-011", dept: "Finance & Accounts", desig: "Finance Executive" };
-    }
-    if (usernameLower.includes("akshay")) {
-      return { code: "EMP-002", dept: "Executive Leadership", desig: "Managing Director" };
-    }
-    if (usernameLower.includes("nitin")) {
-      return { code: "EMP-001", dept: "Executive Leadership", desig: "Managing Director" };
-    }
-    if (usernameLower.includes("bhavya")) {
-      return { code: "EMP-003", dept: "Commercial Sales", desig: "National Sales Manager" };
-    }
-    if (usernameLower.includes("ankush")) {
-      return { code: "EMP-004", dept: "Commercial Sales", desig: "Regional Sales Manager" };
-    }
-    if (usernameLower.includes("aman")) {
-      return { code: "EMP-005", dept: "Commercial Sales", desig: "Regional Sales Manager" };
-    }
-    if (usernameLower.includes("satish")) {
-      return { code: "EMP-006", dept: "Commercial Sales", desig: "Area Sales Manager" };
-    }
-    if (usernameLower.includes("kaushik")) {
-      return { code: "EMP-007", dept: "Commercial Sales", desig: "Area Sales Manager" };
-    }
-    if (usernameLower.includes("naveen")) {
-      return { code: "EMP-008", dept: "Commercial Sales", desig: "Area Sales Manager" };
-    }
-    if (usernameLower.includes("vikas") || usernameLower.includes("vivek")) {
-      return { code: "EMP-OPS-001", dept: "Operations & Logistics", desig: "Warehouse Manager" };
-    }
     return {
-      code: "EMP-OFFICE",
-      dept: roleTitle.includes("HR")
-        ? "Human Resources"
-        : roleTitle.includes("Finance")
-        ? "Finance & Accounts"
-        : "Operations",
-      desig: roleTitle,
+      code: dbEmployee?.employee_code || "EMP-OFFICE",
+      dept:
+        dbEmployee?.department ||
+        (roleTitle.includes("HR")
+          ? "Human Resources"
+          : roleTitle.includes("Finance")
+          ? "Finance & Accounts"
+          : "Commercial Sales"),
+      desig: dbEmployee?.designation || roleTitle,
+      email: dbEmployee?.email || profile?.email || (user as any)?.email || (username ? `${username}@oblu.in` : ""),
+      entity: "Oblu Healthcare Pvt Ltd",
     };
-  }, [usernameLower, roleTitle]);
+  }, [dbEmployee, roleTitle, profile, user, username]);
 
   const handleSignOut = () => {
     Alert.alert(
@@ -405,7 +387,7 @@ export default function EmployeeProfileScreen() {
                 Work Email
               </Text>
               <Text style={[styles.detailValue, { color: isDark ? "#F1F7F4" : "#101513" }]}>
-                {(user as any)?.email || `${username}@oblu.in`}
+                {empDetails.email}
               </Text>
             </View>
           </View>
@@ -426,7 +408,7 @@ export default function EmployeeProfileScreen() {
                 Operating Entity
               </Text>
               <Text style={[styles.detailValue, { color: isDark ? "#F1F7F4" : "#101513" }]}>
-                Oblu Healthcare Pvt Ltd • Corporate HQ
+                {empDetails.entity}
               </Text>
             </View>
           </View>

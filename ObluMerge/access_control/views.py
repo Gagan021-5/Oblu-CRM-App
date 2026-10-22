@@ -28,20 +28,14 @@ def get_allowed_apps_for_user(user, effective_perms):
         {"id": "all", "label": "All", "icon": "grid"}
     ]
 
-    # Executive Super Admin (Superuser or explicit Admin role)
-    is_super = user.is_superuser or is_admin(user) or getattr(user, 'role', '') == 'admin'
+    is_super = user.is_superuser or user.is_staff or is_admin(user)
     finance_access = is_finance(user)
     hr_access = is_hr(user)
 
     sp = get_salesperson_profile(user)
     sp_role = (getattr(sp, "role", "") or "").lower() if sp else ""
     user_role_str = getattr(user, "role", "").lower()
-    is_wildcard = "*" in effective_perms and is_super
-
-    # HR User Persona: Strict segregation — HR only handles HRMS!
-    if hr_access and not is_super:
-        apps.append({"id": "hrms", "label": "HRMS", "icon": "briefcase"})
-        return apps
+    is_wildcard = "*" in effective_perms
 
     # 1. Customers (All sales roles, management, operations, finance, admin)
     has_customer = (
@@ -199,10 +193,8 @@ class MeProfileView(APIView):
                         "expires_at": assignment.ends_at.strftime("%Y-%m-%d %H:%M") if assignment.ends_at else None,
                     })
 
-        if user.is_superuser or getattr(user, 'role', '') == 'admin':
+        if user.is_superuser or user.is_staff or getattr(user, 'role', '') == 'admin':
             user_role = "Admin"
-        elif is_hr(user) and not get_salesperson_profile(user):
-            user_role = "HR Manager"
         elif is_finance(user):
             user_role = "Finance"
         elif roles_list:

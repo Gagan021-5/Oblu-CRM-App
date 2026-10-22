@@ -203,7 +203,7 @@ export default function RegisterScreen() {
             />
           </View>
           <Text style={[styles.brandTitle, { color: colors.textPrimary }]}>
-            Join Oblu Nexus
+            Join Oblu
           </Text>
           <Text style={[styles.brandSubtitle, { color: colors.textMuted }]}>
             Create your employee account with your designated role & access

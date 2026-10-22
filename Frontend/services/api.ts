@@ -11,21 +11,25 @@ import Constants from "expo-constants";
 import { Platform } from "react-native";
 
 function resolveApiBaseUrl(): string {
-  // 1. Explicit env override if specified and not the stale .57 or .8 IP
-  const envUrl = process.env.EXPO_PUBLIC_API_URL;
-  if (envUrl && !envUrl.includes("192.168.1.57") && !envUrl.includes("192.168.1.8")) {
-    return envUrl;
-  }
-
-  // 2. Web browser or local simulator
+  // 1. Web browser
   if (Platform.OS === "web") {
     return "http://localhost:8000/api";
   }
 
-  // 3. Dynamic Expo host detection (matches whatever LAN IP your laptop currently has)
-  const host = Constants.expoConfig?.hostUri?.split(":")?.[0];
-  if (host) {
+  // 2. Dynamic Expo host detection (automatically matches whatever LAN IP your laptop currently has)
+  const host =
+    Constants.expoConfig?.hostUri?.split(":")?.[0] ||
+    (Constants as any)?.manifest2?.extra?.expoGo?.debuggerHost?.split(":")?.[0] ||
+    (Constants as any)?.manifest?.debuggerHost?.split(":")?.[0];
+
+  if (host && host !== "localhost" && host !== "127.0.0.1") {
     return `http://${host}:8000/api`;
+  }
+
+  // 3. Explicit env override if specified
+  const envUrl = process.env.EXPO_PUBLIC_API_URL;
+  if (envUrl && envUrl.trim().length > 0) {
+    return envUrl.trim();
   }
 
   // 4. Current Wi-Fi LAN IP fallback
@@ -33,6 +37,7 @@ function resolveApiBaseUrl(): string {
 }
 
 const API_BASE_URL = resolveApiBaseUrl();
+console.log("[API] Resolved Backend Base URL:", API_BASE_URL);
 
 // ── Token storage keys ─────────────────────────────────────────────────
 const ACCESS_TOKEN_KEY = "calltracer_access_token";

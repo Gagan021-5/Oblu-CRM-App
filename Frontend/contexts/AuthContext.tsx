@@ -1,9 +1,9 @@
 /**
  * AuthContext — provides authentication state and methods to the entire app.
  *
- * Exposes: user, isLoading, login(), register(), logout()
+ * Exposes: user, permissionProfile, isLoading, login(), mockLogin(), register(), logout(), refreshProfile()
  * Stores JWT tokens in expo-secure-store.
- * Decodes the JWT to extract role and connect_code.
+ * Decodes the JWT and syncs with live RBAC permissions from /access-control/my-permissions/
  */
 
 import React, {
@@ -20,25 +20,40 @@ import api, {
   getAccessToken,
 } from "@/services/api";
 import { getRoleAndUserDetails } from "@/data/rolesData";
+import {
+  fetchUserPermissionsApi,
+  UserPermissionProfile,
+  AllowedApp,
+  HierarchyScope,
+  UserRoleItem,
+} from "@/services/permissionService";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
 export interface AuthUser {
   id: number;
   username: string;
+  name?: string;
+  email?: string;
   role: string;
   consent_given?: boolean;
   roleKey?: string;
   roleTitle?: string;
+  permissions?: string[];
+  allowed_apps?: AllowedApp[];
+  hierarchy_scope?: HierarchyScope;
+  roles?: UserRoleItem[];
 }
 
 interface AuthContextType {
   user: AuthUser | null;
+  permissionProfile: UserPermissionProfile | null;
   isLoading: boolean;
   login: (username: string, password: string) => Promise<AuthUser>;
   mockLogin: (usernameOrRole: string) => Promise<AuthUser>;
   register: (data: RegisterData) => Promise<void>;
   logout: () => Promise<void>;
+  refreshProfile: () => Promise<UserPermissionProfile | null>;
 }
 
 export interface RegisterData {
@@ -75,11 +90,13 @@ function decodeJWT(token: string): Record<string, any> | null {
 
 const AuthContext = createContext<AuthContextType>({
   user: null,
+  permissionProfile: null,
   isLoading: true,
   login: async () => ({} as AuthUser),
   mockLogin: async () => ({} as AuthUser),
   register: async () => {},
   logout: async () => {},
+  refreshProfile: async () => null,
 });
 
 export function useAuth(): AuthContextType {
@@ -90,7 +107,40 @@ export function useAuth(): AuthContextType {
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
+  const [permissionProfile, setPermissionProfile] = useState<UserPermissionProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+
+  const syncUserProfile = useCallback(async (baseUser: Partial<AuthUser>): Promise<AuthUser> => {
+    try {
+      const profile = await fetchUserPermissionsApi();
+      setPermissionProfile(profile);
+      const syncedUser: AuthUser = {
+        id: profile.user?.id || baseUser.id || 1,
+        username: profile.user?.username || baseUser.username || "",
+        name: profile.user?.name || profile.full_name || baseUser.name || (profile.user?.username ? profile.user.username.replace(/_/g, " ") : "Employee"),
+        email: profile.email || baseUser.email,
+        role: profile.user?.role || baseUser.role || "Employee",
+        consent_given: baseUser.consent_given ?? true,
+        permissions: profile.permissions || [],
+        allowed_apps: profile.allowed_apps || [],
+        hierarchy_scope: profile.hierarchy_scope,
+        roles: profile.roles || [],
+      };
+      setUser(syncedUser);
+      return syncedUser;
+    } catch {
+      const fallbackUser: AuthUser = {
+        id: baseUser.id || 1,
+        username: baseUser.username || "",
+        name: baseUser.name || baseUser.username || "Employee",
+        email: baseUser.email,
+        role: baseUser.role || "Employee",
+        consent_given: baseUser.consent_given ?? true,
+      };
+      setUser(fallbackUser);
+      return fallbackUser;
+    }
+  }, []);
 
   // Check for existing token on app mount
   useEffect(() => {
@@ -100,7 +150,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (token) {
           const decoded = decodeJWT(token);
           if (decoded && decoded.exp * 1000 > Date.now()) {
-            setUser({
+            await syncUserProfile({
               id: decoded.user_id,
               username: decoded.username,
               role: decoded.role,
@@ -108,42 +158,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             });
           } else {
             await clearTokens();
+            setUser(null);
           }
         }
       } catch {
         await clearTokens();
+        setUser(null);
       } finally {
         setIsLoading(false);
       }
     })();
-  }, []);
+  }, [syncUserProfile]);
 
   const mockLogin = useCallback(async (usernameOrRole: string): Promise<AuthUser> => {
     const { role, user: targetUser } = getRoleAndUserDetails(usernameOrRole);
+    await clearTokens();
     try {
-      // Attempt real JWT authentication with test1234 so backend call tracking syncs
       const response = await api.post("/auth/login/", {
         username: targetUser.username,
         password: "test1234",
       });
       const { access, refresh, user: userData } = response.data;
       await saveTokens(access, refresh);
-      const authUser: AuthUser = {
+      return await syncUserProfile({
         id: userData?.id || response.data.user_id,
         username: userData?.username || targetUser.username,
+        name: targetUser.name,
+        email: targetUser.email,
         role: userData?.role || role.key,
-        consent_given: userData?.consent_given ?? true,
         roleKey: role.key,
         roleTitle: role.shortTitle,
-      };
-      setUser(authUser);
-      return authUser;
+        consent_given: true,
+      });
     } catch {
-      // Graceful offline fallback
+      // Graceful offline demo fallback
       const authUser: AuthUser = {
         id: Math.floor(Math.random() * 1000) + 10,
         username: targetUser.username,
-        role: role.key,
+        name: targetUser.name,
+        email: targetUser.email,
+        role: role.title || role.key,
         consent_given: true,
         roleKey: role.key,
         roleTitle: role.shortTitle,
@@ -151,30 +205,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(authUser);
       return authUser;
     }
-  }, []);
+  }, [syncUserProfile]);
 
   const login = useCallback(async (username: string, password: string): Promise<AuthUser> => {
+    await clearTokens();
     try {
       const response = await api.post("/auth/login/", { username, password });
       const { access, refresh, user: userData } = response.data;
-
       await saveTokens(access, refresh);
-      const authUser: AuthUser = {
+
+      return await syncUserProfile({
         id: userData?.id || response.data.user_id,
         username: userData?.username || response.data.username,
+        email: userData?.email,
         role: userData?.role || response.data.role,
         consent_given: userData?.consent_given || false,
-      };
-      setUser(authUser);
-      return authUser;
+      });
     } catch (error) {
-      // Offline / Direct demo fallback if matching password
       if (password === "test1234") {
         const { role, user: targetUser } = getRoleAndUserDetails(username);
         const authUser: AuthUser = {
           id: Math.floor(Math.random() * 1000) + 10,
           username: targetUser.username,
-          role: role.key,
+          name: targetUser.name,
+          email: targetUser.email,
+          role: role.title || role.key,
           consent_given: true,
           roleKey: role.key,
           roleTitle: role.shortTitle,
@@ -184,44 +239,64 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       throw error;
     }
-  }, []);
+  }, [syncUserProfile]);
 
   const register = useCallback(async (data: RegisterData) => {
+    await clearTokens();
     const regResp = await api.post("/auth/register/", data);
     const { tokens, user: userData } = regResp.data;
 
     if (tokens?.access && tokens?.refresh) {
       await saveTokens(tokens.access, tokens.refresh);
-      setUser({
+      await syncUserProfile({
         id: userData.id,
         username: userData.username,
         role: userData.role,
         consent_given: userData.consent_given || false,
       });
-    } else {
-      // Fallback: login explicitly
-      const loginResp = await api.post("/auth/login/", {
-        username: data.username,
-        password: data.password,
-      });
-      const { access, refresh, user: loginUser } = loginResp.data;
-      await saveTokens(access, refresh);
-      setUser({
-        id: loginUser?.id,
-        username: loginUser?.username,
-        role: loginUser?.role,
-        consent_given: loginUser?.consent_given,
-      });
     }
-  }, []);
+  }, [syncUserProfile]);
 
   const logout = useCallback(async () => {
     await clearTokens();
     setUser(null);
+    setPermissionProfile(null);
+  }, []);
+
+  const refreshProfile = useCallback(async () => {
+    try {
+      const profile = await fetchUserPermissionsApi();
+      setPermissionProfile(profile);
+      if (profile.user) {
+        setUser((prev) => ({
+          ...prev!,
+          name: profile.user.name || profile.full_name || prev?.name,
+          role: profile.user.role || prev?.role || "Employee",
+          permissions: profile.permissions,
+          allowed_apps: profile.allowed_apps,
+          hierarchy_scope: profile.hierarchy_scope,
+          roles: profile.roles,
+        }));
+      }
+      return profile;
+    } catch {
+      return null;
+    }
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, login, mockLogin, register, logout }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        permissionProfile,
+        isLoading,
+        login,
+        mockLogin,
+        register,
+        logout,
+        refreshProfile,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

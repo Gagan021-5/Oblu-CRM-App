@@ -25,7 +25,7 @@ export default function Index() {
         return;
       }
 
-      if (user.role === "admin") {
+      if (user.role?.toLowerCase() === "admin") {
         router.replace("/(admin)/users");
         return;
       }

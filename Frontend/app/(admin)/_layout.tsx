@@ -39,9 +39,9 @@ function FloatingBottomDock({ state, descriptors, navigation }: any) {
     },
     {
       name: "more",
-      label: "More",
-      iconActive: "grid" as const,
-      iconInactive: "grid-outline" as const,
+      label: "Profile",
+      iconActive: "person" as const,
+      iconInactive: "person-outline" as const,
     },
   ];
 
@@ -124,7 +124,7 @@ export default function AdminLayout() {
       <Tabs.Screen name="users" options={{ title: "Home" }} />
       <Tabs.Screen name="customers" options={{ title: "Customers" }} />
       <Tabs.Screen name="call-logs" options={{ title: "Calls" }} />
-      <Tabs.Screen name="more" options={{ title: "More" }} />
+      <Tabs.Screen name="more" options={{ title: "Profile" }} />
       <Tabs.Screen name="leads" options={{ href: null }} />
       <Tabs.Screen name="stats" options={{ href: null }} />
     </Tabs>

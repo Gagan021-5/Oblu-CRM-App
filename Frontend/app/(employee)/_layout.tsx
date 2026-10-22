@@ -18,10 +18,6 @@ export default function EmployeeLayout() {
       >
         <Stack.Screen name="index" options={{ animation: "none" }} />
         <Stack.Screen name="profile" options={{ animation: "slide_from_right" }} />
-        <Stack.Screen name="customers/index" options={{ animation: "none" }} />
-        <Stack.Screen name="customers/[customerId]" options={{ animation: "slide_from_right" }} />
-        <Stack.Screen name="leads/index" options={{ animation: "none" }} />
-        <Stack.Screen name="leads/[leadId]" options={{ animation: "slide_from_right" }} />
       </Stack>
 
       {/* Persistent Floating Bottom Navigation (Clean 4-tab dock) */}

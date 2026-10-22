@@ -10,44 +10,56 @@
 
 import * as TaskManager from "expo-task-manager";
 import { Platform } from "react-native";
+import Constants, { ExecutionEnvironment } from "expo-constants";
 import { syncCallLogs } from "@/services/callLogSync";
 
 // ── Task name constant ─────────────────────────────────────────────────
 export const CALL_LOG_SYNC_TASK = "CALL_LOG_SYNC_TASK";
 
+// Check if running inside Expo Go
+const isExpoGo =
+  Constants.executionEnvironment === ExecutionEnvironment.StoreClient ||
+  (Constants as any).appOwnership === "expo";
+
 // ── Lazy import for expo-background-task ────────────────────────────────
 let BackgroundTask: any = null;
 
 async function loadBackgroundTask() {
+  if (isExpoGo) return;
   try {
     BackgroundTask = require("expo-background-task");
   } catch {
-    console.warn("expo-background-task not available (running in Expo Go?)");
+    // Module not available
   }
 }
 
 // ── Define the background task ──────────────────────────────────────────
 // Must be called at module scope (outside React component tree)
-
-TaskManager.defineTask(CALL_LOG_SYNC_TASK, async () => {
+if (!isExpoGo) {
   try {
-    console.log("[BackgroundSync] Running call log sync...");
-    const result = await syncCallLogs();
-    console.log(
-      `[BackgroundSync] Done: ${result.synced} synced, ${result.failed} failed`
-    );
+    TaskManager.defineTask(CALL_LOG_SYNC_TASK, async () => {
+      try {
+        console.log("[BackgroundSync] Running call log sync...");
+        const result = await syncCallLogs();
+        console.log(
+          `[BackgroundSync] Done: ${result.synced} synced, ${result.failed} failed`
+        );
 
-    if (!BackgroundTask) await loadBackgroundTask();
+        if (!BackgroundTask) await loadBackgroundTask();
 
-    if (result.synced > 0 || result.failed > 0) {
-      return BackgroundTask?.BackgroundTaskResult?.NewData ?? 1;
-    }
-    return BackgroundTask?.BackgroundTaskResult?.NoData ?? 2;
-  } catch (error) {
-    console.error("[BackgroundSync] Error:", error);
-    return BackgroundTask?.BackgroundTaskResult?.Failed ?? 3;
+        if (result.synced > 0 || result.failed > 0) {
+          return BackgroundTask?.BackgroundTaskResult?.NewData ?? 1;
+        }
+        return BackgroundTask?.BackgroundTaskResult?.NoData ?? 2;
+      } catch (error) {
+        console.error("[BackgroundSync] Error:", error);
+        return BackgroundTask?.BackgroundTaskResult?.Failed ?? 3;
+      }
+    });
+  } catch {
+    // Ignore task definition errors in dev
   }
-});
+}
 
 // ── Registration helper ─────────────────────────────────────────────────
 
@@ -56,15 +68,18 @@ TaskManager.defineTask(CALL_LOG_SYNC_TASK, async () => {
  * grants consent and permissions.
  */
 export async function registerBackgroundSync(): Promise<boolean> {
+  // In Expo Go, native background tasks are not supported.
+  if (isExpoGo) {
+    return false;
+  }
+
   if (Platform.OS !== "android") {
-    console.warn("Background sync only supported on Android");
     return false;
   }
 
   await loadBackgroundTask();
 
   if (!BackgroundTask) {
-    console.warn("Cannot register background task — module not available");
     return false;
   }
 
@@ -74,7 +89,6 @@ export async function registerBackgroundSync(): Promise<boolean> {
     );
 
     if (isRegistered) {
-      console.log("Background sync task already registered");
       return true;
     }
 
@@ -82,10 +96,10 @@ export async function registerBackgroundSync(): Promise<boolean> {
       minimumInterval: 15 * 60, // 15 minutes
     });
 
-    console.log("Background sync task registered successfully");
+    console.log("[BackgroundSync] Task registered successfully");
     return true;
   } catch (error) {
-    console.error("Failed to register background task:", error);
+    console.error("[BackgroundSync] Failed to register background task:", error);
     return false;
   }
 }
@@ -94,15 +108,16 @@ export async function registerBackgroundSync(): Promise<boolean> {
  * Unregister the background sync task.
  */
 export async function unregisterBackgroundSync(): Promise<void> {
+  if (isExpoGo) return;
   try {
     const isRegistered = await TaskManager.isTaskRegisteredAsync(
       CALL_LOG_SYNC_TASK
     );
     if (isRegistered) {
       await TaskManager.unregisterTaskAsync(CALL_LOG_SYNC_TASK);
-      console.log("Background sync task unregistered");
+      console.log("[BackgroundSync] Task unregistered");
     }
   } catch (error) {
-    console.error("Failed to unregister background task:", error);
+    console.error("[BackgroundSync] Failed to unregister background task:", error);
   }
 }

@@ -1,6 +1,10 @@
 /**
- * Admin — More & Settings Screen (NEXUS CRM Graphite Mint Design System)
- * Includes persistent Light / Dark / System theme switcher, profile info, and navigation links.
+ * Admin — Profile Screen
+ * 
+ * Contains:
+ * 1. User Profile Details (username, email, role like previous UI)
+ * 2. Appearance & Theme toggle (Light & Dark)
+ * 3. Sign Out button
  */
 
 import React from "react";
@@ -15,14 +19,14 @@ import {
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "@/contexts/AuthContext";
-import { useTheme, ThemeMode } from "@/contexts/ThemeContext";
+import { useTheme } from "@/contexts/ThemeContext";
 import { Ionicons } from "@expo/vector-icons";
 import { Typography, FontSizes, Spacing, Radius, Shadows } from "@/constants/theme";
 
-export default function MoreScreen() {
+export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const { user, logout } = useAuth();
-  const { mode, isDark, colors, setMode } = useTheme();
+  const { isDark, colors, setMode } = useTheme();
 
   const handleSignOut = () => {
     Alert.alert("Sign Out", "Are you sure you want to sign out?", [
@@ -38,11 +42,10 @@ export default function MoreScreen() {
     ]);
   };
 
-  const themeModes: { key: ThemeMode; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
-    { key: "system", label: "System", icon: "phone-portrait-outline" },
-    { key: "light", label: "Light", icon: "sunny-outline" },
-    { key: "dark", label: "Dark", icon: "moon-outline" },
-  ];
+  const username = user?.username || "Admin";
+  const userEmail = user?.username ? `${user.username.toLowerCase()}@nexus.io` : "admin@nexus.io";
+  const userRole = user?.role?.toLowerCase() === "admin" ? "Sales Director" : "Account Executive";
+  const initials = user?.username ? user.username.substring(0, 2).toUpperCase() : "AD";
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -57,7 +60,7 @@ export default function MoreScreen() {
         ]}
       >
         <Text style={[styles.screenHeading, { color: colors.textPrimary }]}>
-          Settings & Hub
+          Profile
         </Text>
       </View>
 
@@ -66,10 +69,10 @@ export default function MoreScreen() {
         contentContainerStyle={{
           paddingHorizontal: Spacing.screenPadding,
           paddingTop: Spacing.md,
-          paddingBottom: Math.max(insets.bottom, 16) + 90, // Leave room for floating dock
+          paddingBottom: Math.max(insets.bottom, 16) + 90,
         }}
       >
-        {/* User Card */}
+        {/* User Details Card (Matches previous UI) */}
         <View
           style={[
             styles.userCard,
@@ -86,15 +89,15 @@ export default function MoreScreen() {
             ]}
           >
             <Text style={[styles.avatarText, { color: colors.primary }]}>
-              {user?.username ? user.username.substring(0, 2).toUpperCase() : "AD"}
+              {initials}
             </Text>
           </View>
           <View style={styles.userInfo}>
             <Text style={[styles.userName, { color: colors.textPrimary }]}>
-              {user?.username || "Admin"}
+              {username}
             </Text>
             <Text style={[styles.userEmail, { color: colors.textMuted }]}>
-              {user?.username ? `${user.username.toLowerCase()}@nexus.io` : "admin@nexus.io"}
+              {userEmail}
             </Text>
             <View
               style={[
@@ -103,13 +106,13 @@ export default function MoreScreen() {
               ]}
             >
               <Text style={[styles.roleText, { color: colors.primary }]}>
-                {user?.role === "admin" ? "Sales Director" : "Account Executive"}
+                {userRole}
               </Text>
             </View>
           </View>
         </View>
 
-        {/* ── Theme Mode Switcher ──────────────────────────────── */}
+        {/* Appearance & Theme Toggle (Light & Dark) */}
         <View style={styles.sectionHeader}>
           <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>
             APPEARANCE & THEME
@@ -126,134 +129,75 @@ export default function MoreScreen() {
           ]}
         >
           <View style={styles.themeRow}>
-            {themeModes.map((item) => {
-              const isSelected = mode === item.key;
-              return (
-                <TouchableOpacity
-                  key={item.key}
-                  activeOpacity={0.75}
-                  onPress={() => setMode(item.key)}
-                  style={[
-                    styles.themeBtn,
-                    {
-                      backgroundColor: isSelected
-                        ? colors.mintTintedSurface
-                        : colors.secondarySurface,
-                      borderColor: isSelected
-                        ? colors.primaryBorder
-                        : colors.borderLight,
-                    },
-                  ]}
-                >
-                  <Ionicons
-                    name={item.icon}
-                    size={18}
-                    color={isSelected ? colors.primary : colors.textMuted}
-                  />
-                  <Text
-                    style={[
-                      styles.themeBtnText,
-                      {
-                        color: isSelected ? colors.primary : colors.textSecondary,
-                        fontFamily: isSelected ? Typography.semiBold : Typography.regular,
-                      },
-                    ]}
-                  >
-                    {item.label}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
+            <TouchableOpacity
+              activeOpacity={0.75}
+              onPress={() => setMode("light")}
+              style={[
+                styles.themeBtn,
+                {
+                  backgroundColor: !isDark
+                    ? colors.mintTintedSurface
+                    : colors.secondarySurface,
+                  borderColor: !isDark
+                    ? colors.primaryBorder
+                    : colors.borderLight,
+                },
+              ]}
+            >
+              <Ionicons
+                name="sunny-outline"
+                size={18}
+                color={!isDark ? colors.primary : colors.textMuted}
+              />
+              <Text
+                style={[
+                  styles.themeBtnText,
+                  {
+                    color: !isDark ? colors.primary : colors.textSecondary,
+                    fontFamily: !isDark ? Typography.semiBold : Typography.regular,
+                  },
+                ]}
+              >
+                Light
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              activeOpacity={0.75}
+              onPress={() => setMode("dark")}
+              style={[
+                styles.themeBtn,
+                {
+                  backgroundColor: isDark
+                    ? colors.mintTintedSurface
+                    : colors.secondarySurface,
+                  borderColor: isDark
+                    ? colors.primaryBorder
+                    : colors.borderLight,
+                },
+              ]}
+            >
+              <Ionicons
+                name="moon-outline"
+                size={18}
+                color={isDark ? colors.primary : colors.textMuted}
+              />
+              <Text
+                style={[
+                  styles.themeBtnText,
+                  {
+                    color: isDark ? colors.primary : colors.textSecondary,
+                    fontFamily: isDark ? Typography.semiBold : Typography.regular,
+                  },
+                ]}
+              >
+                Dark
+              </Text>
+            </TouchableOpacity>
           </View>
         </View>
 
-        {/* ── Hub Links ────────────────────────────────────────── */}
-        <View style={styles.sectionHeader}>
-          <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>
-            CRM CAPABILITIES
-          </Text>
-        </View>
-
-        <View
-          style={[
-            styles.menuList,
-            {
-              backgroundColor: colors.card,
-              borderColor: colors.cardBorder,
-            },
-          ]}
-        >
-          <TouchableOpacity
-            style={[styles.menuItem, { borderBottomColor: colors.borderLight }]}
-            onPress={() => router.push("/(admin)/leads")}
-          >
-            <View
-              style={[
-                styles.menuIconBox,
-                { backgroundColor: colors.mintTintedSurface },
-              ]}
-            >
-              <Ionicons name="flash" size={18} color={colors.primary} />
-            </View>
-            <View style={styles.menuInfo}>
-              <Text style={[styles.menuTitle, { color: colors.textPrimary }]}>
-                Lead Signals & Radar
-              </Text>
-              <Text style={[styles.menuSub, { color: colors.textMuted }]}>
-                AI scoring & buying intent
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.menuItem, { borderBottomColor: colors.borderLight }]}
-            onPress={() => router.push("/(admin)/customers")}
-          >
-            <View
-              style={[
-                styles.menuIconBox,
-                { backgroundColor: colors.secondarySurface },
-              ]}
-            >
-              <Ionicons name="people" size={18} color={colors.primary} />
-            </View>
-            <View style={styles.menuInfo}>
-              <Text style={[styles.menuTitle, { color: colors.textPrimary }]}>
-                Client Directory
-              </Text>
-              <Text style={[styles.menuSub, { color: colors.textMuted }]}>
-                Manage company relationships
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.menuItem}
-            onPress={() => router.push("/(admin)/stats")}
-          >
-            <View
-              style={[
-                styles.menuIconBox,
-                { backgroundColor: colors.secondarySurface },
-              ]}
-            >
-              <Ionicons name="stats-chart" size={18} color={colors.primary} />
-            </View>
-            <View style={styles.menuInfo}>
-              <Text style={[styles.menuTitle, { color: colors.textPrimary }]}>
-                Analytics & Reports
-              </Text>
-              <Text style={[styles.menuSub, { color: colors.textMuted }]}>
-                Performance trends & charts
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
-          </TouchableOpacity>
-        </View>
-
-        {/* ── Sign Out Button ──────────────────────────────────── */}
+        {/* Sign Out Button */}
         <TouchableOpacity
           activeOpacity={0.8}
           onPress={handleSignOut}
@@ -348,7 +292,7 @@ const styles = StyleSheet.create({
     borderRadius: Radius.lg,
     borderWidth: 1,
     padding: 8,
-    marginBottom: 20,
+    marginBottom: 24,
     ...Shadows.card,
   },
   themeRow: {
@@ -357,49 +301,16 @@ const styles = StyleSheet.create({
   },
   themeBtn: {
     flex: 1,
-    paddingVertical: 10,
+    paddingVertical: 12,
     borderRadius: Radius.md,
     borderWidth: 1,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 6,
+    gap: 8,
   },
   themeBtnText: {
-    fontSize: FontSizes.label,
-  },
-  menuList: {
-    borderRadius: Radius.xl,
-    borderWidth: 1,
-    paddingHorizontal: 16,
-    marginBottom: 24,
-    ...Shadows.card,
-  },
-  menuItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 14,
-    gap: 12,
-    borderBottomWidth: 1,
-  },
-  menuIconBox: {
-    width: 36,
-    height: 36,
-    borderRadius: Radius.sm,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  menuInfo: {
-    flex: 1,
-    gap: 2,
-  },
-  menuTitle: {
-    fontFamily: Typography.semiBold,
-    fontSize: FontSizes.body,
-  },
-  menuSub: {
-    fontFamily: Typography.regular,
-    fontSize: FontSizes.label,
+    fontSize: FontSizes.bodySmall,
   },
   signOutBtn: {
     height: 48,

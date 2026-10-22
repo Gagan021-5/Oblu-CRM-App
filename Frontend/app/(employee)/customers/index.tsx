@@ -6,11 +6,13 @@ import {
   TouchableOpacity,
   StyleSheet,
   RefreshControl,
+  Platform,
 } from "react-native";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "@/contexts/ThemeContext";
+import { useAuth } from "@/contexts/AuthContext";
 import { Typography, FontSizes } from "@/constants/theme";
 import { SearchBar } from "@/components/ui/SearchBar";
 import { FilterChip } from "@/components/ui/FilterChip";
@@ -23,9 +25,44 @@ import { fetchCustomersFromApi } from "@/services/customerService";
 
 type FilterTab = "all" | "followup_due" | "payment_pending" | "recently_contacted";
 
+// Memoized List Item row to prevent unnecessary re-renders in large VirtualizedLists
+const CustomerListItem = React.memo(
+  ({
+    item,
+    onPress,
+  }: {
+    item: Customer;
+    onPress: (id: string | number) => void;
+  }) => {
+    const handlePress = useCallback(() => {
+      onPress(item.id);
+    }, [item.id, onPress]);
+
+    return <CustomerCard customer={item} onPress={handlePress} />;
+  },
+  (prev, next) => {
+    return (
+      prev.item.id === next.item.id &&
+      prev.item.name === next.item.name &&
+      prev.item.paymentStatus === next.item.paymentStatus &&
+      prev.item.lastContactTime === next.item.lastContactTime &&
+      prev.item.nextFollowUp === next.item.nextFollowUp &&
+      prev.onPress === next.onPress
+    );
+  }
+);
+
+
 export default function CustomerDashboardScreen() {
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useTheme();
+  const { user } = useAuth();
+
+  const isBusinessManager = useMemo(() => {
+    const role = (user?.role || "").toLowerCase();
+    const uname = (user?.username || "").toLowerCase();
+    return role.includes("business") || role.includes("buss_mgr") || uname.includes("vibhuti");
+  }, [user]);
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -123,7 +160,7 @@ export default function CustomerDashboardScreen() {
     return { total, followups, pending, recent };
   }, [customers]);
 
-  const renderHeader = () => (
+  const listHeaderComponent = useMemo(() => (
     <View>
       {/* Top Workspace Bar */}
       <View style={styles.navRow}>
@@ -152,7 +189,7 @@ export default function CustomerDashboardScreen() {
               { color: isDark ? "#F1F7F4" : "#101513" },
             ]}
           >
-            Customers
+            {isBusinessManager ? "Enterprise Accounts" : "Customers"}
           </Text>
           <Text
             style={[
@@ -160,7 +197,7 @@ export default function CustomerDashboardScreen() {
               { color: isDark ? "#8FA09A" : "#5E6964" },
             ]}
           >
-            128 relationships
+            {customers.length} {isBusinessManager || user?.hierarchy_scope?.can_view_all_salespersons ? "enterprise relationships" : "assigned accounts"}
           </Text>
         </View>
 
@@ -361,13 +398,54 @@ export default function CustomerDashboardScreen() {
         </Text>
       </View>
     </View>
+  ), [
+    isDark,
+    isBusinessManager,
+    showSearch,
+    searchQuery,
+    activeFilter,
+    counts,
+    filteredCustomers.length,
+  ]);
+
+  const handleCustomerPress = useCallback((id: string | number) => {
+    router.push(`/(employee)/customers/${id}` as any);
+  }, []);
+
+  const renderItem = useCallback(
+    ({ item }: { item: Customer }) => (
+      <CustomerListItem item={item} onPress={handleCustomerPress} />
+    ),
+    [handleCustomerPress]
+  );
+
+  const keyExtractor = useCallback((item: Customer) => String(item.id), []);
+
+  const emptyComponent = useMemo(
+    () => (
+      <EmptyState
+        icon="search-outline"
+        title="No customers found"
+        description={
+          searchQuery
+            ? `No customer matched "${searchQuery}". Try changing your search keywords or filter tab.`
+            : "No customers matching this filter criteria."
+        }
+        actionLabel="Reset Filters"
+        onAction={() => {
+          setSearchQuery("");
+          setActiveFilter("all");
+        }}
+      />
+    ),
+    [searchQuery]
   );
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background, paddingTop: insets.top }]}>
       {loading ? (
         <View style={styles.loadingContainer}>
-          {renderHeader()}
+          {listHeaderComponent}
           <SkeletonCard height={120} />
           <SkeletonCard height={120} />
           <SkeletonCard height={120} />
@@ -375,35 +453,20 @@ export default function CustomerDashboardScreen() {
       ) : (
         <FlatList
           data={filteredCustomers}
-          keyExtractor={(item) => String(item.id)}
-          renderItem={({ item }) => (
-            <CustomerCard
-              customer={item}
-              onPress={() => router.push(`/(employee)/customers/${item.id}` as any)}
-            />
-          )}
-          ListHeaderComponent={renderHeader}
-          ListEmptyComponent={
-            <EmptyState
-              icon="search-outline"
-              title="No customers found"
-              description={
-                searchQuery
-                  ? `No customer matched "${searchQuery}". Try changing your search keywords or filter tab.`
-                  : "No customers matching this filter criteria."
-              }
-              actionLabel="Reset Filters"
-              onAction={() => {
-                setSearchQuery("");
-                setActiveFilter("all");
-              }}
-            />
-          }
+          keyExtractor={keyExtractor}
+          renderItem={renderItem}
+          ListHeaderComponent={listHeaderComponent}
+          ListEmptyComponent={emptyComponent}
           contentContainerStyle={[
             styles.listContent,
             { paddingBottom: insets.bottom + 96 },
           ]}
           showsVerticalScrollIndicator={false}
+          initialNumToRender={8}
+          maxToRenderPerBatch={10}
+          windowSize={5}
+          updateCellsBatchingPeriod={50}
+          removeClippedSubviews={Platform.OS === "android"}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
