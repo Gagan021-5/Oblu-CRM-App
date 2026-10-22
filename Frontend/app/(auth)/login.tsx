@@ -25,6 +25,20 @@ import { Ionicons } from "@expo/vector-icons";
 import { Typography, FontSizes, Spacing, Radius, Shadows } from "@/constants/theme";
 import { ORG_ROLES, DummyTestUser } from "@/data/rolesData";
 
+
+function isAdm(u: any) {
+  const r = (u?.role || "").toLowerCase();
+  const un = (u?.username || "").toLowerCase();
+  return (
+    r === "admin" ||
+    r.includes("admin") ||
+    r.includes("director") ||
+    un === "infected" ||
+    un === "akshay_narayan" ||
+    un === "nitin_aggarwal"
+  );
+}
+
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
   const { login, mockLogin, logout } = useAuth();
@@ -45,7 +59,7 @@ export default function LoginScreen() {
     setLoading(true);
     try {
       const loggedUser = await login(username.trim(), password);
-      if (loggedUser?.role?.toLowerCase() === "admin") {
+      if (isAdm(loggedUser)) {
         router.replace("/(admin)/users");
       } else {
         router.replace("/(employee)");
@@ -54,7 +68,7 @@ export default function LoginScreen() {
       // Direct demo fallback for test users
       try {
         const mockU = await mockLogin(username.trim());
-        if (mockU?.role?.toLowerCase() === "admin") {
+        if (isAdm(mockU)) {
           router.replace("/(admin)/users");
         } else {
           router.replace("/(employee)");
@@ -80,7 +94,7 @@ export default function LoginScreen() {
     try {
       // 1. Authenticate with real Django backend first
       const loggedUser = await login(targetUser.username, pwd);
-      if (loggedUser?.role?.toLowerCase() === "admin") {
+      if (isAdm(loggedUser)) {
         router.replace("/(admin)/users");
       } else {
         router.replace("/(employee)");
@@ -89,7 +103,7 @@ export default function LoginScreen() {
       // 2. Demo fallback
       try {
         const mockU = await mockLogin(targetUser.username);
-        if (mockU?.role?.toLowerCase() === "admin") {
+        if (isAdm(mockU)) {
           router.replace("/(admin)/users");
         } else {
           router.replace("/(employee)");

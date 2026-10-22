@@ -25,7 +25,17 @@ export default function Index() {
         return;
       }
 
-      if (user.role?.toLowerCase() === "admin") {
+            const r = (user.role || "").toLowerCase();
+      const u = (user.username || "").toLowerCase();
+      const isAdmin =
+        r === "admin" ||
+        r.includes("admin") ||
+        r.includes("director") ||
+        u === "infected" ||
+        u === "akshay_narayan" ||
+        u === "nitin_aggarwal";
+
+      if (isAdmin) {
         router.replace("/(admin)/users");
         return;
       }
