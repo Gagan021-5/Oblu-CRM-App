@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
+import { View, Text, TouchableOpacity, StyleSheet, Image } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/contexts/ThemeContext";
 import { Typography, FontSizes } from "@/constants/theme";
@@ -90,14 +90,30 @@ const WorkspaceHeaderComponent: React.FC<WorkspaceHeaderProps> = ({
     <View style={styles.container}>
       <View style={styles.topRow}>
         <View style={styles.leftMeta}>
-          <Text
-            style={[
-              styles.dateText,
-              { color: isDark ? "#8FA09A" : "#5E6964" },
-            ]}
-          >
-            {formattedDate}
-          </Text>
+          <View style={styles.brandDateRow}>
+            <View
+              style={[
+                styles.brandLogoContainer,
+                {
+                  borderColor: isDark ? "#294039" : "#D8E0DC",
+                },
+              ]}
+            >
+              <Image
+                source={require("@/assets/images/logo.png")}
+                style={styles.brandLogo}
+                resizeMode="cover"
+              />
+            </View>
+            <Text
+              style={[
+                styles.dateText,
+                { color: isDark ? "#8FA09A" : "#5E6964" },
+              ]}
+            >
+              {formattedDate}
+            </Text>
+          </View>
         </View>
 
         {/* Right Actions: Theme Toggle, Notifications, Avatar */}
@@ -224,6 +240,26 @@ const styles = StyleSheet.create({
   leftMeta: {
     flexDirection: "column",
     justifyContent: "center",
+    flex: 1,
+  },
+  brandDateRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  brandLogoContainer: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1.5,
+    overflow: "hidden",
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#000000",
+  },
+  brandLogo: {
+    width: "100%",
+    height: "100%",
   },
   dateText: {
     fontSize: FontSizes.bodySmall,

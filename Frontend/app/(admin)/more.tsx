@@ -73,9 +73,18 @@ export default function ProfileScreen() {
           },
         ]}
       >
-        <Text style={[styles.screenHeading, { color: colors.textPrimary }]}>
-          Profile
-        </Text>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+          <TouchableOpacity
+            style={styles.backBtn}
+            onPress={() => (router.canGoBack() ? router.back() : router.replace("/(admin)/users"))}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="arrow-back" size={22} color={colors.textPrimary} />
+          </TouchableOpacity>
+          <Text style={[styles.screenHeading, { color: colors.textPrimary }]}>
+            Profile
+          </Text>
+        </View>
       </View>
 
       <ScrollView
@@ -246,6 +255,12 @@ const styles = StyleSheet.create({
     fontFamily: Typography.headingSemi,
     fontSize: FontSizes.screenTitle,
     letterSpacing: -0.2,
+  },
+  backBtn: {
+    width: 36,
+    height: 36,
+    justifyContent: "center",
+    alignItems: "center",
   },
   userCard: {
     flexDirection: "row",

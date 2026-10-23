@@ -127,6 +127,9 @@ class ProformaInvoice(models.Model):
         choices=CourierMode.choices,
         default=CourierMode.SURFACE)
 
+    is_edited = models.BooleanField(default=False)
+    last_edited_at = models.DateTimeField(null=True, blank=True)
+
     # 🔥 NEW FIELD  (Converted-pi)
     is_converted_to_pi = models.BooleanField(default=False, help_text="Converted-pi")
 
@@ -1177,7 +1180,8 @@ class QuotationMaker(models.Model):
         choices=CourierMode.choices,
         default=CourierMode.SURFACE
     )
-
+    is_edited = models.BooleanField(default=False)
+    last_edited_at = models.DateTimeField(null=True, blank=True)
     # Status tracking
     is_converted_to_proforma = models.BooleanField(
         default=False,
@@ -1401,7 +1405,41 @@ class QuotationMakerItem(models.Model):
         return f"{self.product.name} x {self.quantity}"
 
 
-# new dispatch models
+class DocumentEditLog(models.Model):
+    ACTION_CHOICES = [
+        ("item_deleted", "Item Deleted"),
+        ("item_added", "Item Added"),
+        ("item_updated", "Item Updated"),
+    ]
+
+    invoice = models.ForeignKey(
+        'ProformaInvoice',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="edit_logs"
+    )
+    quotation = models.ForeignKey(
+        'QuotationMaker',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="edit_logs"
+    )
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    action = models.CharField(max_length=20, choices=ACTION_CHOICES)
+    product_name = models.CharField(max_length=255)
+    description = models.TextField(help_text="Detailed note of the change")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        doc = f"PI #{self.invoice_id}" if self.invoice_id else f"Quotation #{self.quotation_id}"
+        return f"{doc} - {self.action} by {self.user.username}"
+
+
 
 class ShipmentMethod(models.Model):
 
@@ -1533,6 +1571,33 @@ class WarehouseDispatch(models.Model):
         on_delete=models.SET_NULL
     )
 
+def docket_upload_path(instance, filename):
+    invoice_id = instance.warehouse_dispatch.dispatch_request.invoice.id
+
+    return (
+        f"dispatchs/"
+        f"{timezone.now().year}/"
+        f"{timezone.now().month}/"
+        f"invoice_{invoice_id}/"
+        f"docket/"
+        f"{filename}"
+    )
+
+
+class DocketPhoto(models.Model):
+    warehouse_dispatch = models.ForeignKey(
+        WarehouseDispatch,
+        related_name="photos",
+        on_delete=models.CASCADE
+    )
+    image = models.ImageField(upload_to=docket_upload_path)
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True
+    )
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
 class DispatchRemark(models.Model):
 
     dispatch_request = models.ForeignKey(
@@ -1558,19 +1623,33 @@ class DispatchRemark(models.Model):
 
 class DispatchStateHistory(models.Model):
 
+    EVENT_CHOICES = [
+        ("status", "Status Change"),
+        ("docket", "Docket Change"),
+    ]
+
     dispatch_request = models.ForeignKey(
         DispatchRequest,
         related_name="history",
         on_delete=models.CASCADE
     )
 
+    event_type = models.CharField(
+        max_length=20,
+        choices=EVENT_CHOICES,
+        default="status"
+    )
+
     from_status = models.CharField(
-        max_length=50,
-        blank=True
+        max_length=100,
+        blank=True,
+        null=True
     )
 
     to_status = models.CharField(
-        max_length=50
+        max_length=100,
+        blank=True,
+        null=True
     )
 
     changed_by = models.ForeignKey(

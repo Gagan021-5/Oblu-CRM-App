@@ -172,7 +172,7 @@ export default function CustomerDashboardScreen() {
               borderColor: isDark ? "#294039" : "#D8E0DC",
             },
           ]}
-          onPress={() => router.back()}
+          onPress={() => (router.canGoBack() ? router.back() : router.replace(isBusinessManager || user?.role?.toLowerCase().includes("admin") ? "/(admin)/users" : "/(employee)"))}
           activeOpacity={0.7}
         >
           <Ionicons

@@ -168,3 +168,68 @@ export async function fetchDashboardStatsApi(): Promise<DashboardStats> {
     };
   }
 }
+
+
+export interface CustomerChartsData {
+  totalCustomers: number;
+  salespersonDistribution: Array<{ name: string; customers: number }>;
+  stateDistribution: Array<{ state: string; count: number }>;
+  vouchers: {
+    total: number;
+    overdue: number;
+    pending: number;
+    paid: number;
+  };
+  totalOutstanding: number;
+  totalOutstandingFormatted: string;
+}
+
+export async function fetchCustomerChartsApi(): Promise<CustomerChartsData | null> {
+  try {
+    const res = await api.get<CustomerChartsData>('/customers/charts/');
+    return res.data;
+  } catch (error) {
+    console.warn('[CustomerService] Charts API failed:', error);
+    return null;
+  }
+}
+
+export async function updatePaymentExpectedDateApi(
+  customerId: string,
+  paymentId: string,
+  expectedDate: string
+): Promise<{ success: boolean; payment?: any }> {
+  const numericId = customerId.replace(/[^0-9]/g, '') || customerId;
+  const numericPaymentId = paymentId.replace(/[^0-9]/g, '') || paymentId;
+  try {
+    const res = await api.post(`/customers/${numericId}/payment-ticket/`, {
+      payment_id: numericPaymentId,
+      action: 'expected',
+      expected_date: expectedDate,
+    });
+    return res.data;
+  } catch (error) {
+    console.warn('[CustomerService] Update expected date API failed:', error);
+    return { success: false };
+  }
+}
+
+export async function addPaymentThreadRemarkApi(
+  customerId: string,
+  paymentId: string,
+  remark: string
+): Promise<{ success: boolean; payment?: any }> {
+  const numericId = customerId.replace(/[^0-9]/g, '') || customerId;
+  const numericPaymentId = paymentId.replace(/[^0-9]/g, '') || paymentId;
+  try {
+    const res = await api.post(`/customers/${numericId}/payment-ticket/`, {
+      payment_id: numericPaymentId,
+      action: 'remark',
+      remark,
+    });
+    return res.data;
+  } catch (error) {
+    console.warn('[CustomerService] Add payment remark API failed:', error);
+    return { success: false };
+  }
+}

@@ -43,7 +43,7 @@ export default function ConsentScreen() {
         {
           title: "Call Log Access Required",
           message:
-            "This app needs permission to read call logs to synchronize sales activity with the company dashboard.",
+            "This app needs permission to read call logs to synchronize business call activity with the company dashboard.",
           buttonPositive: "Allow",
           buttonNegative: "Deny",
         }
@@ -135,7 +135,7 @@ export default function ConsentScreen() {
             <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Purpose & Use</Text>
           </View>
           <Text style={[styles.sectionText, { color: colors.textSecondary }]}>
-            Used strictly for sales performance reporting, CRM sync, and corporate KPI benchmarking on company-issued devices.
+            Used strictly for business reporting, CRM sync, and corporate KPI benchmarking on company-issued devices.
           </Text>
         </View>
 

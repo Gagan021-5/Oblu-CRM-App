@@ -1,78 +1,85 @@
 import React from "react";
-import { View, Text, StyleSheet } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/contexts/ThemeContext";
-import { Typography, FontSizes } from "@/constants/theme";
+import { Typography } from "@/constants/theme";
 
 interface MetricCardProps {
   label: string;
-  value: string;
+  value: string | number;
   subValue?: string;
-  icon: keyof typeof Ionicons.glyphMap;
+  icon?: keyof typeof Ionicons.glyphMap;
   isHighlight?: boolean;
+  onPress?: () => void;
 }
 
-const MetricCardComponent: React.FC<MetricCardProps> = ({
+export const MetricCard: React.FC<MetricCardProps> = React.memo(({
   label,
   value,
   subValue,
   icon,
   isHighlight = false,
+  onPress,
 }) => {
-  const { colors, isDark } = useTheme();
+  const { isDark } = useTheme();
+
+  const CardWrapper = onPress ? TouchableOpacity : View;
 
   return (
-    <View
+    <CardWrapper
       style={[
-        styles.card,
+        styles.outwardCard,
         {
-          backgroundColor: isDark ? "#0E1714" : "#FFFFFF",
+          backgroundColor: isDark ? "#12201B" : "#FFFFFF",
           borderColor: isHighlight
-            ? isDark
-              ? "rgba(183, 243, 74, 0.4)"
-              : "rgba(166, 226, 46, 0.5)"
-            : isDark
-            ? "#294039"
-            : "#D8E0DC",
+            ? isDark ? "rgba(53, 214, 160, 0.40)" : "rgba(0, 168, 121, 0.35)"
+            : isDark ? "rgba(53, 214, 160, 0.18)" : "rgba(13, 43, 32, 0.08)",
+          borderTopColor: isHighlight
+            ? isDark ? "rgba(53, 214, 160, 0.65)" : "rgba(0, 168, 121, 0.50)"
+            : isDark ? "rgba(53, 214, 160, 0.36)" : "rgba(255, 255, 255, 0.98)",
+          borderBottomColor: isDark ? "#080F0C" : "rgba(13, 43, 32, 0.14)",
+          shadowColor: isHighlight
+            ? isDark ? "#35D6A0" : "#00A879"
+            : isDark ? "#000000" : "#0D2B20",
+          shadowOpacity: isHighlight ? (isDark ? 0.35 : 0.15) : (isDark ? 0.48 : 0.09),
         },
       ]}
+      onPress={onPress}
+      activeOpacity={onPress ? 0.75 : 1}
     >
       <View style={styles.topRow}>
-        <View
-          style={[
-            styles.iconContainer,
-            {
-              backgroundColor: isHighlight
-                ? isDark
-                  ? "rgba(183, 243, 74, 0.14)"
-                  : "rgba(166, 226, 46, 0.18)"
-                : isDark
-                ? "rgba(53, 214, 160, 0.10)"
-                : "#DDF4EA",
-            },
-          ]}
-        >
-          <Ionicons
-            name={icon}
-            size={16}
-            color={
-              isHighlight
-                ? isDark
-                  ? "#B7F34A"
-                  : "#2E7D32"
-                : isDark
-                ? "#35D6A0"
-                : "#00A879"
-            }
-          />
+        <View style={styles.labelBadge}>
+          <Text
+            style={[
+              styles.labelText,
+              {
+                color: isHighlight
+                  ? isDark ? "#35D6A0" : "#00A879"
+                  : isDark ? "#8FA09A" : "#5E6964",
+              },
+            ]}
+            numberOfLines={1}
+          >
+            {label.toUpperCase()}
+          </Text>
         </View>
-        {isHighlight && (
+        {icon && (
           <View
             style={[
-              styles.highlightDot,
-              { backgroundColor: isDark ? "#B7F34A" : "#A6E22E" },
+              styles.iconBox,
+              {
+                backgroundColor: isHighlight
+                  ? isDark ? "rgba(53, 214, 160, 0.18)" : "rgba(0, 168, 121, 0.12)"
+                  : isDark ? "rgba(53, 214, 160, 0.10)" : "rgba(0, 168, 121, 0.08)",
+              },
             ]}
-          />
+          >
+            <Ionicons
+              name={icon}
+              size={18}
+              color={isHighlight ? (isDark ? "#35D6A0" : "#00A879") : (isDark ? "#35D6A0" : "#00A879")}
+            />
+          </View>
         )}
       </View>
 
@@ -81,12 +88,8 @@ const MetricCardComponent: React.FC<MetricCardProps> = ({
           styles.valueText,
           {
             color: isHighlight
-              ? isDark
-                ? "#B7F34A"
-                : "#101513"
-              : isDark
-              ? "#F1F7F4"
-              : "#101513",
+              ? isDark ? "#35D6A0" : "#00A879"
+              : isDark ? "#F1F7F4" : "#101513",
           },
         ]}
         numberOfLines={1}
@@ -94,72 +97,64 @@ const MetricCardComponent: React.FC<MetricCardProps> = ({
         {value}
       </Text>
 
-      <Text
-        style={[
-          styles.labelText,
-          { color: isDark ? "#8FA09A" : "#5E6964" },
-        ]}
-        numberOfLines={1}
-      >
-        {label}
-      </Text>
-
       {subValue && (
         <Text
           style={[
-            styles.subValueText,
-            { color: isDark ? "#35D6A0" : "#00A879" },
+            styles.subText,
+            { color: isDark ? "#8FA09A" : "#5E6964" },
           ]}
           numberOfLines={1}
         >
           {subValue}
         </Text>
       )}
-    </View>
+    </CardWrapper>
   );
-};
-
-export const MetricCard = React.memo(MetricCardComponent);
+});
 
 const styles = StyleSheet.create({
-  card: {
+  outwardCard: {
     flex: 1,
-    borderRadius: 16,
-    borderWidth: 1,
-    padding: 12,
-    minWidth: 140,
+    padding: 16,
+    borderRadius: 20,
+    borderWidth: 1.2,
+    shadowOffset: { width: 0, height: 6 },
+    shadowRadius: 14,
+    elevation: 6,
+    zIndex: 2,
+    marginVertical: 4,
   },
   topRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
+    justifyContent: "space-between",
     marginBottom: 8,
   },
-  iconContainer: {
-    width: 28,
-    height: 28,
-    borderRadius: 8,
+  labelBadge: {
+    flex: 1,
+    marginRight: 6,
+  },
+  labelText: {
+    fontSize: 10,
+    fontFamily: Typography.bold,
+    letterSpacing: 0.8,
+  },
+  iconBox: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
   },
-  highlightDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
   valueText: {
-    fontSize: 20,
+    fontSize: 26,
     fontFamily: Typography.bold,
-    letterSpacing: -0.3,
-    marginBottom: 2,
+    letterSpacing: -0.5,
+    marginVertical: 2,
   },
-  labelText: {
-    fontSize: FontSizes.caption,
+  subText: {
+    fontSize: 12,
     fontFamily: Typography.medium,
-  },
-  subValueText: {
-    fontSize: FontSizes.micro,
-    fontFamily: Typography.semiBold,
-    marginTop: 3,
+    marginTop: 2,
   },
 });

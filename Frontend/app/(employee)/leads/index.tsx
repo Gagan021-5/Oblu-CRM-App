@@ -129,7 +129,7 @@ export default function LeadsDashboardScreen() {
               borderColor: isDark ? "#294039" : "#D8E0DC",
             },
           ]}
-          onPress={() => router.back()}
+          onPress={() => (router.canGoBack() ? router.back() : router.replace("/(employee)"))}
           activeOpacity={0.7}
         >
           <Ionicons

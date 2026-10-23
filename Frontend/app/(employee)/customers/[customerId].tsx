@@ -12,25 +12,18 @@ import { useLocalSearchParams, router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "@/contexts/ThemeContext";
-import { Typography, FontSizes } from "@/constants/theme";
+import { Typography, FontSizes, Shadows, Radius } from "@/constants/theme";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { TimelineItem } from "@/components/employee/TimelineItem";
 import { AddCustomerRemarkModal } from "@/components/employee/AddCustomerRemarkModal";
 import { ScheduleFollowUpModal } from "@/components/employee/ScheduleFollowUpModal";
-import {
-  getMockCustomerById,
-  addMockCustomerRemark,
-  scheduleMockCustomerFollowUp,
-  raiseMockPaymentTicket,
-  solveMockPaymentTicket,
-  sendMockPaymentReminderEmail,
-  Customer,
-} from "@/data/mockCustomers";
+import { Customer } from "@/data/mockCustomers";
 import {
   fetchCustomerByIdFromApi,
   addCustomerRemarkApi,
   scheduleCustomerFollowUpApi,
   handlePaymentTicketApi,
+  updatePaymentExpectedDateApi,
 } from "@/services/customerService";
 import { scheduleFollowUpNotifications } from "@/services/followUpNotificationService";
 import { useNotifications } from "@/contexts/NotificationContext";
@@ -95,15 +88,53 @@ export default function CustomerDetailScreen() {
   const handleSendReminderEmail = async (paymentId: string, invoiceNum: string) => {
     if (!customer) return;
     try {
-      const res = await sendMockPaymentReminderEmail(customer.id, paymentId);
+      await handlePaymentTicketApi(customer.id, paymentId, "email" as any);
       await fetchCustomer();
       Alert.alert(
-        "Automated Gmail Sent",
-        `Payment reminder for Invoice #${invoiceNum} successfully sent via Gmail automation to:\n${res?.recipient || customer.email}\n\nTimestamp: ${res?.sentAt || new Date().toISOString()}`
+        "Automated Reminder Dispatched",
+        `Payment reminder for Invoice #${invoiceNum} has been logged and dispatched to:\n${customer.email || "finance@oblutools.com"}\n\nTimestamp: ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
       );
     } catch {
       Alert.alert("Error", "Could not send payment reminder email.");
     }
+  };
+
+  const handleUpdateExpectedDate = (paymentId: string, invoiceNum: string) => {
+    if (!customer) return;
+    Alert.alert(
+      "Set Expected Payment Date",
+      `Invoice #${invoiceNum}: Select or schedule expected clearance:`,
+      [
+        {
+          text: "In 3 Days",
+          onPress: async () => {
+            const d = new Date(Date.now() + 3 * 86400000).toISOString().split("T")[0];
+            await updatePaymentExpectedDateApi(customer.id, paymentId, d);
+            await fetchCustomer();
+            Alert.alert("Success", "Expected date updated in live database.");
+          },
+        },
+        {
+          text: "In 1 Week",
+          onPress: async () => {
+            const d = new Date(Date.now() + 7 * 86400000).toISOString().split("T")[0];
+            await updatePaymentExpectedDateApi(customer.id, paymentId, d);
+            await fetchCustomer();
+            Alert.alert("Success", "Expected date updated in live database.");
+          },
+        },
+        {
+          text: "In 2 Weeks",
+          onPress: async () => {
+            const d = new Date(Date.now() + 14 * 86400000).toISOString().split("T")[0];
+            await updatePaymentExpectedDateApi(customer.id, paymentId, d);
+            await fetchCustomer();
+            Alert.alert("Success", "Expected date updated in live database.");
+          },
+        },
+        { text: "Cancel", style: "cancel" },
+      ]
+    );
   };
 
   useEffect(() => {
@@ -202,8 +233,9 @@ export default function CustomerDetailScreen() {
               backgroundColor: isDark ? "#121F1B" : "#FFFFFF",
               borderColor: isDark ? "#294039" : "#D8E0DC",
             },
+            Shadows.card,
           ]}
-          onPress={() => router.back()}
+          onPress={() => (router.canGoBack() ? router.back() : router.replace("/(employee)/customers"))}
           activeOpacity={0.7}
         >
           <Ionicons
@@ -247,10 +279,9 @@ export default function CustomerDetailScreen() {
               style={[
                 styles.largeAvatar,
                 {
-                  backgroundColor: isDark ? "#15221D" : "#DDF4EA",
-                  borderColor: isDark
-                    ? "rgba(53, 214, 160, 0.3)"
-                    : "rgba(0, 168, 121, 0.3)",
+                  backgroundColor: isDark
+                    ? "rgba(53, 214, 160, 0.14)"
+                    : "rgba(0, 168, 121, 0.12)",
                 },
               ]}
             >
@@ -311,33 +342,27 @@ export default function CustomerDetailScreen() {
             </View>
           </View>
 
-          {/* Primary Action Buttons */}
+          {/* Sleek Tactile Quick Actions */}
           <View style={styles.primaryActionRow}>
             <TouchableOpacity
               style={[
                 styles.actionBtn,
+                styles.actionBtnCall,
                 {
-                  backgroundColor: isDark
-                    ? "rgba(53, 214, 160, 0.14)"
-                    : "#DDF4EA",
-                  borderColor: isDark
-                    ? "rgba(53, 214, 160, 0.3)"
-                    : "rgba(0, 168, 121, 0.3)",
+                  backgroundColor: isDark ? "#103C2E" : "#00A879",
+                  borderColor: isDark ? "#35D6A0" : "#008E66",
                 },
               ]}
               onPress={handleCall}
-              activeOpacity={0.7}
+              activeOpacity={0.8}
             >
               <Ionicons
                 name="call"
-                size={18}
-                color={isDark ? "#35D6A0" : "#00A879"}
+                size={15}
+                color="#FFFFFF"
               />
               <Text
-                style={[
-                  styles.actionBtnText,
-                  { color: isDark ? "#35D6A0" : "#00A879" },
-                ]}
+                style={[styles.actionBtnText, { color: "#FFFFFF" }]}
                 numberOfLines={1}
                 adjustsFontSizeToFit
               >
@@ -349,16 +374,16 @@ export default function CustomerDetailScreen() {
               style={[
                 styles.actionBtn,
                 {
-                  backgroundColor: isDark ? "#121F1B" : "#F7F9F8",
-                  borderColor: isDark ? "#294039" : "#D8E0DC",
+                  backgroundColor: isDark ? "#121F1B" : "#F4F7F5",
+                  borderColor: isDark ? "#243831" : "#D8E0DC",
                 },
               ]}
               onPress={handleMessage}
-              activeOpacity={0.7}
+              activeOpacity={0.75}
             >
               <Ionicons
                 name="chatbubble-outline"
-                size={18}
+                size={15}
                 color={isDark ? "#F1F7F4" : "#101513"}
               />
               <Text
@@ -377,16 +402,16 @@ export default function CustomerDetailScreen() {
               style={[
                 styles.actionBtn,
                 {
-                  backgroundColor: isDark ? "#121F1B" : "#F7F9F8",
-                  borderColor: isDark ? "#294039" : "#D8E0DC",
+                  backgroundColor: isDark ? "#121F1B" : "#F4F7F5",
+                  borderColor: isDark ? "#243831" : "#D8E0DC",
                 },
               ]}
               onPress={() => setRemarkModalVisible(true)}
-              activeOpacity={0.7}
+              activeOpacity={0.75}
             >
               <Ionicons
                 name="add-outline"
-                size={18}
+                size={15}
                 color={isDark ? "#F1F7F4" : "#101513"}
               />
               <Text
@@ -405,16 +430,16 @@ export default function CustomerDetailScreen() {
               style={[
                 styles.actionBtn,
                 {
-                  backgroundColor: isDark ? "#121F1B" : "#F7F9F8",
-                  borderColor: isDark ? "#294039" : "#D8E0DC",
+                  backgroundColor: isDark ? "#121F1B" : "#F4F7F5",
+                  borderColor: isDark ? "#243831" : "#D8E0DC",
                 },
               ]}
               onPress={() => setFollowUpModalVisible(true)}
-              activeOpacity={0.7}
+              activeOpacity={0.75}
             >
               <Ionicons
                 name="calendar-outline"
-                size={18}
+                size={15}
                 color={isDark ? "#F1F7F4" : "#101513"}
               />
               <Text
@@ -431,13 +456,13 @@ export default function CustomerDetailScreen() {
           </View>
         </View>
 
-        {/* Segmented Tabs */}
+        {/* Segmented Tabs (Tactile Elevated Dock) */}
         <View
           style={[
             styles.segmentBar,
             {
-              backgroundColor: isDark ? "#0E1714" : "#FFFFFF",
-              borderColor: isDark ? "#294039" : "#D8E0DC",
+              backgroundColor: isDark ? "#0C1411" : "#E8EFEB",
+              borderColor: isDark ? "#243831" : "rgba(0,0,0,0.06)",
             },
           ]}
         >
@@ -455,11 +480,12 @@ export default function CustomerDetailScreen() {
                 key={tab.key}
                 style={[
                   styles.segmentItem,
-                  isSelected && {
-                    backgroundColor: isDark
-                      ? "rgba(53, 214, 160, 0.14)"
-                      : "#DDF4EA",
-                  },
+                  isSelected && [
+                    {
+                      backgroundColor: isDark ? "#162620" : "#FFFFFF",
+                    },
+                    Shadows.card,
+                  ],
                 ]}
                 onPress={() => setActiveTab(tab.key)}
                 activeOpacity={0.7}
@@ -476,7 +502,7 @@ export default function CustomerDetailScreen() {
                         ? "#8FA09A"
                         : "#5E6964",
                       fontFamily: isSelected
-                        ? Typography.semiBold
+                        ? Typography.bold
                         : Typography.medium,
                     },
                   ]}
@@ -498,6 +524,7 @@ export default function CustomerDetailScreen() {
               {
                 backgroundColor: isDark ? "#0E1714" : "#FFFFFF",
                 borderColor: isDark ? "#294039" : "#D8E0DC",
+                borderTopColor: isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(255, 255, 255, 0.85)",
               },
             ]}
           >
@@ -511,7 +538,15 @@ export default function CustomerDetailScreen() {
             </Text>
 
             <View style={styles.grid2x2}>
-              <View style={styles.paramItem}>
+              <View
+                style={[
+                  styles.paramItem,
+                  {
+                    backgroundColor: isDark ? "#121E19" : "#F8FAF9",
+                    borderColor: isDark ? "#1D2F28" : "#E8EFEB",
+                  },
+                ]}
+              >
                 <Text style={[styles.paramLabel, { color: isDark ? "#65756F" : "#87928D" }]}>
                   Assigned Salesperson
                 </Text>
@@ -520,7 +555,15 @@ export default function CustomerDetailScreen() {
                 </Text>
               </View>
 
-              <View style={styles.paramItem}>
+              <View
+                style={[
+                  styles.paramItem,
+                  {
+                    backgroundColor: isDark ? "#121E19" : "#F8FAF9",
+                    borderColor: isDark ? "#1D2F28" : "#E8EFEB",
+                  },
+                ]}
+              >
                 <Text style={[styles.paramLabel, { color: isDark ? "#65756F" : "#87928D" }]}>
                   Customer Since
                 </Text>
@@ -529,7 +572,15 @@ export default function CustomerDetailScreen() {
                 </Text>
               </View>
 
-              <View style={styles.paramItem}>
+              <View
+                style={[
+                  styles.paramItem,
+                  {
+                    backgroundColor: isDark ? "#121E19" : "#F8FAF9",
+                    borderColor: isDark ? "#1D2F28" : "#E8EFEB",
+                  },
+                ]}
+              >
                 <Text style={[styles.paramLabel, { color: isDark ? "#65756F" : "#87928D" }]}>
                   Credit Period
                 </Text>
@@ -538,7 +589,15 @@ export default function CustomerDetailScreen() {
                 </Text>
               </View>
 
-              <View style={styles.paramItem}>
+              <View
+                style={[
+                  styles.paramItem,
+                  {
+                    backgroundColor: isDark ? "#121E19" : "#F8FAF9",
+                    borderColor: isDark ? "#1D2F28" : "#E8EFEB",
+                  },
+                ]}
+              >
                 <Text style={[styles.paramLabel, { color: isDark ? "#65756F" : "#87928D" }]}>
                   Outstanding Payment
                 </Text>
@@ -561,7 +620,15 @@ export default function CustomerDetailScreen() {
                 </Text>
               </View>
 
-              <View style={styles.paramItem}>
+              <View
+                style={[
+                  styles.paramItem,
+                  {
+                    backgroundColor: isDark ? "#121E19" : "#F8FAF9",
+                    borderColor: isDark ? "#1D2F28" : "#E8EFEB",
+                  },
+                ]}
+              >
                 <Text style={[styles.paramLabel, { color: isDark ? "#65756F" : "#87928D" }]}>
                   Last Interaction
                 </Text>
@@ -570,7 +637,15 @@ export default function CustomerDetailScreen() {
                 </Text>
               </View>
 
-              <View style={styles.paramItem}>
+              <View
+                style={[
+                  styles.paramItem,
+                  {
+                    backgroundColor: isDark ? "#121E19" : "#F8FAF9",
+                    borderColor: isDark ? "#1D2F28" : "#E8EFEB",
+                  },
+                ]}
+              >
                 <Text style={[styles.paramLabel, { color: isDark ? "#65756F" : "#87928D" }]}>
                   Upcoming Follow-up
                 </Text>
@@ -939,6 +1014,16 @@ export default function CustomerDetailScreen() {
                           </TouchableOpacity>
 
                           <TouchableOpacity
+                            style={[styles.actionBtnSecondary, { borderColor: isDark ? "#294039" : "#D8E0DC" }]}
+                            onPress={() => handleUpdateExpectedDate(p.id, p.invoiceNumber)}
+                          >
+                            <Ionicons name="calendar" size={13} color={isDark ? "#35D6A0" : "#00A879"} />
+                            <Text style={[styles.actionBtnSecondaryText, { color: isDark ? "#35D6A0" : "#00A879" }]}>
+                              {p.expectedDate ? "Update Date" : "Set Expected Date"}
+                            </Text>
+                          </TouchableOpacity>
+
+                          <TouchableOpacity
                             style={styles.actionBtnPrimary}
                             onPress={() => handleSolveTicket(p.id)}
                           >
@@ -1021,16 +1106,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: 16,
     marginBottom: 14,
+    ...Shadows.card,
   },
   avatarRow: {
     flexDirection: "row",
-    marginBottom: 16,
+    marginBottom: 14,
   },
   largeAvatar: {
     width: 52,
     height: 52,
-    borderRadius: 16,
-    borderWidth: 1,
+    borderRadius: 26,
     alignItems: "center",
     justifyContent: "center",
     marginRight: 14,
@@ -1076,18 +1161,21 @@ const styles = StyleSheet.create({
   },
   actionBtn: {
     flex: 1,
-    flexDirection: "column",
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 10,
-    paddingHorizontal: 4,
-    borderRadius: 14,
+    height: 40,
+    paddingHorizontal: 6,
+    borderRadius: 12,
     borderWidth: 1,
     gap: 5,
-    minHeight: 58,
+    ...Shadows.card,
+  },
+  actionBtnCall: {
+    ...Shadows.mintButton,
   },
   actionBtnText: {
-    fontSize: 11,
+    fontSize: 12,
     fontFamily: Typography.semiBold,
     textAlign: "center",
   },
@@ -1101,7 +1189,7 @@ const styles = StyleSheet.create({
   segmentItem: {
     flex: 1,
     paddingVertical: 8,
-    paddingHorizontal: 3,
+    paddingHorizontal: 4,
     borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
@@ -1116,6 +1204,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: 16,
     marginBottom: 16,
+    ...Shadows.card,
   },
   boxTitle: {
     fontSize: FontSizes.micro,
@@ -1141,11 +1230,13 @@ const styles = StyleSheet.create({
   grid2x2: {
     flexDirection: "row",
     flexWrap: "wrap",
-    rowGap: 14,
+    gap: 8,
   },
   paramItem: {
-    width: "50%",
-    paddingRight: 8,
+    width: "48.5%",
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 10,
   },
   paramLabel: {
     fontSize: FontSizes.micro,
@@ -1161,6 +1252,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: 12,
     marginBottom: 10,
+    ...Shadows.card,
   },
   followUpTop: {
     flexDirection: "row",

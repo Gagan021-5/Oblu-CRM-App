@@ -1,90 +1,280 @@
 /**
- * Admin — Client Directory Screen (NEXUS CRM Graphite Mint Design System)
- * Manages accounts, contacts, and customer relationships with Graphite Mint styling.
+ * Admin — Customer Directory Screen (Real Database Data)
+ * Fetches live customer data from the backend API.
  */
 
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
-  ScrollView,
+  FlatList,
   TextInput,
   Linking,
   Alert,
+  RefreshControl,
+  ActivityIndicator,
 } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/contexts/ThemeContext";
 import { Typography, FontSizes, Spacing, Radius, Shadows } from "@/constants/theme";
-
-interface ClientItem {
-  id: string;
-  name: string;
-  contact: string;
-  role: string;
-  phone: string;
-  industry: string;
-  status: "Active" | "Evaluating" | "Contracted";
-  pipelineValue: string;
-}
-
-const CLIENTS: ClientItem[] = [
-  {
-    id: "1",
-    name: "Orion Systems",
-    contact: "Marcus Vance",
-    role: "VP Infrastructure",
-    phone: "+1 (555) 019-2834",
-    industry: "IT & Cloud",
-    status: "Evaluating",
-    pipelineValue: "$120,000",
-  },
-  {
-    id: "2",
-    name: "Acme Dynamics",
-    contact: "Sarah Jenkins",
-    role: "Head of RevOps",
-    phone: "+1 (555) 392-1082",
-    industry: "Enterprise SaaS",
-    status: "Evaluating",
-    pipelineValue: "$85,000",
-  },
-  {
-    id: "3",
-    name: "Nova Labs",
-    contact: "David Chen",
-    role: "Chief Compliance Officer",
-    phone: "+1 (555) 441-9923",
-    industry: "HealthTech AI",
-    status: "Active",
-    pipelineValue: "$150,000",
-  },
-  {
-    id: "4",
-    name: "Frontier Health",
-    contact: "Elena Gomez",
-    role: "Operations Director",
-    phone: "+1 (555) 781-4209",
-    industry: "Healthcare Systems",
-    status: "Contracted",
-    pipelineValue: "$65,000",
-  },
-];
+import { StatusPill } from "@/components/ui/StatusPill";
+import { Customer } from "@/data/mockCustomers";
+import { fetchCustomersFromApi } from "@/services/customerService";
 
 export default function CustomersScreen() {
   const insets = useSafeAreaInsets();
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
   const [search, setSearch] = useState("");
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const filteredClients = CLIENTS.filter(
-    (c) =>
-      c.name.toLowerCase().includes(search.toLowerCase()) ||
-      c.contact.toLowerCase().includes(search.toLowerCase()) ||
-      c.industry.toLowerCase().includes(search.toLowerCase())
-  );
+  const loadData = useCallback(async (isPull = false) => {
+    if (!isPull) setLoading(true);
+    try {
+      const data = await fetchCustomersFromApi({ search });
+      setCustomers(data);
+    } catch {
+      // silently handled
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [search]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    loadData(true);
+  };
+
+  const filteredCustomers = useMemo(() => {
+    if (!search.trim()) return customers;
+    const q = search.toLowerCase().trim();
+    return customers.filter(
+      (c) =>
+        (c.name || "").toLowerCase().includes(q) ||
+        (c.contactPerson || "").toLowerCase().includes(q) ||
+        (c.city || "").toLowerCase().includes(q) ||
+        (c.phone || "").includes(q)
+    );
+  }, [customers, search]);
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case "VIP": return { bg: "rgba(239, 68, 68, 0.1)", text: "#EF4444", border: "rgba(239, 68, 68, 0.3)" };
+      case "Active": return { bg: colors.mintTintedSurface, text: colors.primary, border: colors.primaryBorder };
+      case "Inactive": return { bg: "rgba(156, 163, 175, 0.1)", text: "#9CA3AF", border: "rgba(156, 163, 175, 0.3)" };
+      default: return { bg: colors.mintTintedSurface, text: colors.primary, border: colors.primaryBorder };
+    }
+  };
+
+  const getPaymentColor = (status: string) => {
+    switch (status) {
+      case "overdue": return "#EF4444";
+      case "pending": return "#F59E0B";
+      case "paid": return "#10B981";
+      default: return colors.textMuted;
+    }
+  };
+
+  const renderCustomerCard = ({ item }: { item: Customer }) => {
+    const paymentColor = getPaymentColor(item.paymentStatus);
+    const initials = (item.name || "Customer")
+      .split(" ")
+      .filter(Boolean)
+      .map((w: string) => w[0])
+      .slice(0, 2)
+      .join("")
+      .toUpperCase() || "CU";
+
+    const paymentVariant =
+      item.paymentStatus === "paid"
+        ? "paid"
+        : item.paymentStatus === "pending"
+        ? "pending"
+        : item.paymentStatus === "overdue"
+        ? "overdue"
+        : "neutral";
+
+    return (
+      <TouchableOpacity
+        activeOpacity={0.7}
+        onPress={() => router.push(`/(employee)/customers/${item.id}`)}
+        style={[
+          styles.clientCard,
+          {
+            backgroundColor: colors.card,
+            borderColor: colors.cardBorder,
+          },
+        ]}
+      >
+        {/* Top Row: Circular Avatar + Identity + Status Pill */}
+        <View style={styles.clientTopRow}>
+          <View style={styles.clientHeaderLeft}>
+            <View
+              style={[
+                styles.avatarBox,
+                {
+                  backgroundColor: isDark
+                    ? "rgba(53, 214, 160, 0.14)"
+                    : "rgba(0, 168, 121, 0.12)",
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.avatarText,
+                  { color: isDark ? "#35D6A0" : "#00A879" },
+                ]}
+              >
+                {initials}
+              </Text>
+            </View>
+
+            <View style={styles.clientIdentity}>
+              <Text
+                style={[styles.clientName, { color: colors.textPrimary }]}
+                numberOfLines={1}
+              >
+                {item.name}
+              </Text>
+              <Text
+                style={[styles.clientSub, { color: colors.textSecondary }]}
+                numberOfLines={1}
+              >
+                {item.contactPerson || "Contact"} • {item.city || "Headquarters"}
+              </Text>
+            </View>
+          </View>
+
+          <StatusPill
+            label={item.paymentStatus || item.status || "active"}
+            variant={paymentVariant as any}
+            size="small"
+          />
+        </View>
+
+        {/* Middle Row: Soft RGBA Surface for Metrics */}
+        <View
+          style={[
+            styles.metaContainer,
+            {
+              backgroundColor: isDark
+                ? "rgba(255, 255, 255, 0.03)"
+                : "rgba(16, 21, 19, 0.03)",
+              borderColor: isDark
+                ? "rgba(255, 255, 255, 0.06)"
+                : "rgba(16, 21, 19, 0.06)",
+            },
+          ]}
+        >
+          <View style={styles.metaCol}>
+            <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>
+              OUTSTANDING
+            </Text>
+            <Text style={[styles.fieldValue, { color: paymentColor }]}>
+              {item.outstandingPayment || "₹0.00"}
+            </Text>
+          </View>
+
+          <View
+            style={[
+              styles.metaDivider,
+              {
+                backgroundColor: isDark
+                  ? "rgba(255, 255, 255, 0.08)"
+                  : "rgba(16, 21, 19, 0.08)",
+              },
+            ]}
+          />
+
+          <View style={styles.metaCol}>
+            <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>
+              SALESPERSON
+            </Text>
+            <Text
+              style={[styles.fieldValueSmall, { color: colors.textPrimary }]}
+              numberOfLines={1}
+            >
+              {item.assignedSalesperson || "Assigned Rep"}
+            </Text>
+          </View>
+        </View>
+
+        {/* Footer Row: Last Contact / Credit & Quick Action Pill */}
+        <View style={styles.footerRow}>
+          <View style={styles.footerLeft}>
+            <Ionicons
+              name="time-outline"
+              size={13}
+              color={colors.textSecondary}
+            />
+            <Text
+              style={[styles.footerText, { color: colors.textSecondary }]}
+              numberOfLines={1}
+            >
+              {item.lastContactTime
+                ? `Last contact: ${item.lastContactTime}`
+                : `Credit: ${item.creditPeriod || "30 Days"}`}
+            </Text>
+          </View>
+
+          <View style={styles.actionsRow}>
+            <TouchableOpacity
+              style={[
+                styles.callPillBtn,
+                {
+                  backgroundColor: isDark
+                    ? "rgba(53, 214, 160, 0.12)"
+                    : "rgba(0, 168, 121, 0.10)",
+                  borderColor: isDark
+                    ? "rgba(53, 214, 160, 0.25)"
+                    : "rgba(0, 168, 121, 0.20)",
+                },
+              ]}
+              onPress={() => {
+                const cleaned = (item.phone || "").replace(/[^0-9+]/g, "");
+                if (cleaned) {
+                  Linking.openURL(`tel:${cleaned}`).catch(() => {
+                    Alert.alert("Error", "Could not open dialer.");
+                  });
+                }
+              }}
+              activeOpacity={0.7}
+            >
+              <Ionicons
+                name="call"
+                size={12}
+                color={isDark ? "#35D6A0" : "#00A879"}
+              />
+              <Text
+                style={[
+                  styles.callPillText,
+                  { color: isDark ? "#35D6A0" : "#00A879" },
+                ]}
+              >
+                Call
+              </Text>
+            </TouchableOpacity>
+
+            <Ionicons
+              name="chevron-forward"
+              size={16}
+              color={colors.textMuted}
+            />
+          </View>
+        </View>
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -100,14 +290,19 @@ export default function CustomersScreen() {
       >
         <TouchableOpacity
           style={styles.backBtn}
-          onPress={() => router.back()}
+          onPress={() => (router.canGoBack() ? router.back() : router.replace("/(admin)/users"))}
+          activeOpacity={0.7}
         >
           <Ionicons name="arrow-back" size={22} color={colors.textPrimary} />
         </TouchableOpacity>
         <Text style={[styles.screenHeading, { color: colors.textPrimary }]}>
-          Client Directory
+          Customer Directory
         </Text>
-        <View style={{ width: 36 }} />
+        <View style={styles.countBadge}>
+          <Text style={[styles.countText, { color: colors.primary }]}>
+            {filteredCustomers.length}
+          </Text>
+        </View>
       </View>
 
       {/* Search */}
@@ -121,100 +316,53 @@ export default function CustomersScreen() {
           <Ionicons name="search-outline" size={18} color={colors.textMuted} />
           <TextInput
             style={[styles.searchInput, { color: colors.textPrimary }]}
-            placeholder="Search clients, contacts, or industry..."
+            placeholder="Search customers, contacts, city..."
             placeholderTextColor={colors.textMuted}
             value={search}
             onChangeText={setSearch}
           />
+          {search.length > 0 && (
+            <TouchableOpacity onPress={() => setSearch("")}>
+              <Ionicons name="close-circle" size={18} color={colors.textMuted} />
+            </TouchableOpacity>
+          )}
         </View>
       </View>
 
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{
-          paddingHorizontal: Spacing.screenPadding,
-          paddingBottom: Math.max(insets.bottom, 16) + 90,
-        }}
-      >
-        {filteredClients.map((client) => (
-          <View
-            key={client.id}
-            style={[
-              styles.clientCard,
-              {
-                backgroundColor: colors.card,
-                borderColor: colors.cardBorder,
-              },
-            ]}
-          >
-            <View style={styles.clientTopRow}>
-              <View style={styles.clientIdentity}>
-                <Text style={[styles.clientName, { color: colors.textPrimary }]}>
-                  {client.name}
-                </Text>
-                <Text style={[styles.clientSub, { color: colors.textSecondary }]}>
-                  {client.contact} · {client.role}
-                </Text>
-              </View>
-
-              <View
-                style={[
-                  styles.statusBadge,
-                  {
-                    backgroundColor: colors.mintTintedSurface,
-                    borderColor: colors.primaryBorder,
-                  },
-                ]}
-              >
-                <Text style={[styles.statusText, { color: colors.primary }]}>
-                  {client.status}
-                </Text>
-              </View>
-            </View>
-
-            <View style={[styles.cardDivider, { backgroundColor: colors.borderLight }]} />
-
-            <View style={styles.clientBottomRow}>
-              <View>
-                <Text style={[styles.fieldLabel, { color: colors.textMuted }]}>
-                  Pipeline Value
-                </Text>
-                <Text style={[styles.fieldValue, { color: colors.textPrimary }]}>
-                  {client.pipelineValue}
-                </Text>
-              </View>
-
-              <View style={styles.actionsRow}>
-                <TouchableOpacity
-                  style={[
-                    styles.actionIconBtn,
-                    { backgroundColor: colors.secondarySurface },
-                  ]}
-                  onPress={() => {
-                    Linking.openURL(`tel:${client.phone}`).catch(() => {
-                      Alert.alert("Error", "Could not open dialer.");
-                    });
-                  }}
-                >
-                  <Ionicons name="call-outline" size={17} color={colors.primary} />
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[
-                    styles.actionIconBtn,
-                    { backgroundColor: colors.secondarySurface },
-                  ]}
-                  onPress={() => {
-                    router.push("/(admin)/leads");
-                  }}
-                >
-                  <Ionicons name="flash-outline" size={17} color={colors.primary} />
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        ))}
-      </ScrollView>
+      {loading ? (
+        <View style={styles.loadingWrap}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={[styles.loadingText, { color: colors.textMuted }]}>
+            Loading customers from database...
+          </Text>
+        </View>
+      ) : filteredCustomers.length === 0 ? (
+        <View style={styles.loadingWrap}>
+          <Ionicons name="people-outline" size={48} color={colors.textMuted} />
+          <Text style={[styles.loadingText, { color: colors.textMuted }]}>
+            {search ? "No customers match your search" : "No customers found"}
+          </Text>
+        </View>
+      ) : (
+        <FlatList
+          data={filteredCustomers}
+          keyExtractor={(item) => String(item.id)}
+          renderItem={renderCustomerCard}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{
+            paddingHorizontal: Spacing.screenPadding,
+            paddingBottom: Math.max(insets.bottom, 16) + 90,
+          }}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={colors.primary}
+              colors={[colors.primary]}
+            />
+          }
+        />
+      )}
     </View>
   );
 }
@@ -242,6 +390,14 @@ const styles = StyleSheet.create({
     fontSize: FontSizes.screenTitle,
     letterSpacing: -0.2,
   },
+  countBadge: {
+    minWidth: 36,
+    alignItems: "center",
+  },
+  countText: {
+    fontFamily: Typography.bold,
+    fontSize: 14,
+  },
   searchWrap: {
     paddingHorizontal: Spacing.screenPadding,
     marginVertical: Spacing.md,
@@ -261,67 +417,123 @@ const styles = StyleSheet.create({
     fontSize: FontSizes.bodySmall,
   },
   clientCard: {
-    borderRadius: Radius.lg,
+    borderRadius: 16,
     borderWidth: 1,
-    padding: 16,
-    marginBottom: 12,
+    padding: 14,
+    marginBottom: 10,
     ...Shadows.card,
   },
   clientTopRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "flex-start",
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  clientHeaderLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+    marginRight: 8,
+  },
+  avatarBox: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 10,
+  },
+  avatarText: {
+    fontFamily: Typography.bold,
+    fontSize: 14,
   },
   clientIdentity: {
     flex: 1,
     gap: 2,
   },
   clientName: {
-    fontFamily: Typography.headingSemi,
-    fontSize: 17,
+    fontFamily: Typography.bold,
+    fontSize: 16,
+    letterSpacing: -0.2,
   },
   clientSub: {
-    fontFamily: Typography.regular,
-    fontSize: FontSizes.label,
-  },
-  statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: Radius.pill,
-    borderWidth: 1,
-  },
-  statusText: {
     fontFamily: Typography.medium,
-    fontSize: FontSizes.caption,
+    fontSize: 13,
   },
-  cardDivider: {
-    height: 1,
-    marginVertical: 12,
+  metaContainer: {
+    flexDirection: "row",
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginBottom: 10,
+    alignItems: "center",
   },
-  clientBottomRow: {
+  metaCol: {
+    flex: 1,
+    gap: 2,
+  },
+  metaDivider: {
+    width: 1,
+    height: 24,
+    marginHorizontal: 10,
+  },
+  fieldLabel: {
+    fontFamily: Typography.semiBold,
+    fontSize: 10,
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+  },
+  fieldValue: {
+    fontFamily: Typography.bold,
+    fontSize: 15,
+  },
+  fieldValueSmall: {
+    fontFamily: Typography.bold,
+    fontSize: 13,
+  },
+  footerRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
   },
-  fieldLabel: {
-    fontFamily: Typography.regular,
-    fontSize: FontSizes.micro,
-    textTransform: "uppercase",
-    marginBottom: 2,
+  footerLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    flex: 1,
+    marginRight: 8,
   },
-  fieldValue: {
-    fontFamily: Typography.semiBold,
-    fontSize: FontSizes.body,
+  footerText: {
+    fontFamily: Typography.medium,
+    fontSize: 12,
   },
   actionsRow: {
     flexDirection: "row",
+    alignItems: "center",
     gap: 8,
   },
-  actionIconBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: Radius.sm,
+  callPillBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: Radius.pill,
+    borderWidth: 1,
+    gap: 4,
+  },
+  callPillText: {
+    fontFamily: Typography.bold,
+    fontSize: 11,
+  },
+  loadingWrap: {
+    flex: 1,
     justifyContent: "center",
     alignItems: "center",
+    gap: 12,
+  },
+  loadingText: {
+    fontFamily: Typography.regular,
+    fontSize: 14,
   },
 });

@@ -20,6 +20,11 @@ urlpatterns = [
     path("products/", views.ProformaProductListView.as_view(), name="proforma_product_list"),
 
     path("<int:invoice_id>/request-price-change/",views.ProformaPriceChangeRequestCreateView.as_view(),name='proforma_price_change_request_create'),
+    path(
+            "quotation/<int:quotation_id>/request-price-change/",
+            views.ProformaPriceChangeRequestCreateView.as_view(),
+            name='quotation_request_price_change'  # <-- Fixes the NoReverseMatch error
+        ),
 
     path(
             "price-change-requests/",views.ProformaPriceChangeRequestListView.as_view(),
@@ -36,6 +41,7 @@ urlpatterns = [
     path('courier-editor/', views.CourierPricingView.as_view(), name='courier_editor'),
     path('courier-editor/save/', views.SaveCourierSlabsView.as_view(), name='save_courier_slabs'),
     path('bulk-update-courier/', views.BulkUpdateCourierView.as_view(), name='bulk_update_courier'),
+    path('dispatch/invoice/<int:pk>/detail/', views.open_dispatch_detail, name='open_dispatch_detail'),
 
     path('new-customer', views.CreateNewProformaCustomerView.as_view(), name='proforma_new_customer'),
     path('dispatch-page/', views.ProformaInvoiceListViewForDispatch.as_view(), name='proforma_invoice_dispatch'),
@@ -68,7 +74,15 @@ urlpatterns = [
     path('quotations/convert/<int:q_id>/', views.convert_quotation_to_pi, name='convert_to_pi'),
     path('api/quotation/request-details/<int:quotation_id>/', views.QuotationRequestDetailsApiView.as_view(),
          name='quotation_request_details_api'),
-
+    path("document-item/delete/<str:doc_type>/<int:item_id>/", views.DeleteDocumentItemView.as_view(),
+         name="delete_document_item"),
+    path("document-item/add/<str:doc_type>/<int:doc_id>/", views.AddItemToDocumentView.as_view(),
+         name="add_document_item"),
+    path("document/edit-history/<str:doc_type>/<int:doc_id>/", views.DocumentEditHistoryApiView.as_view(),
+         name="document_edit_history"),
+    path("document/items/<str:doc_type>/<int:doc_id>/", views.DocumentItemsApiView.as_view(),
+         name="document_items_api"),
+    path("api/search-products/", views.SearchInventoryProductApiView.as_view(), name="search_inventory_products"),
 
     path(
         "dispatch/accounts/",
@@ -92,6 +106,11 @@ urlpatterns = [
         name="notify_warehouse"
     ),
     path(
+        "dispatch/<int:pk>/upload-invoice/",
+        views.UploadInvoicePdfView.as_view(),
+        name="upload_dispatch_invoice"
+    ),
+    path(
         "dispatch/<int:pk>/submit-packing/",
         views.WarehousePackingSubmitView.as_view(),
         name="warehouse_submit_packing"
@@ -112,9 +131,21 @@ urlpatterns = [
         views.WarehouseDispatchView.as_view(),
         name="warehouse_dispatch"
     ),
+
+    path(
+        "dispatch/<int:pk>/edit-docket/",
+        views.EditDocketNumberView.as_view(),
+        name="edit_docket_number"
+    ),
+
     path(
         "dispatch/<int:pk>/complete/",
         views.CompleteDispatchView.as_view(),
         name="complete_dispatch"
     ),
+    path("product-tier-manager/", views.AccountantProductTierManagerView.as_view(), name="accountant_product_tier_manager"),
+    path("product_tier_manager/", views.AccountantProductTierManagerView.as_view()),
+    path("api/product-tier-detail/<int:product_id>/", views.ProductTierDetailApiView.as_view(), name="api_product_tier_detail"),
+    path("api/bulk-update-product-tiers/", views.BulkUpdateProductTiersApiView.as_view(), name="api_bulk_update_product_tiers"),
+    path("api/save-single-product-pricing/", views.SaveSingleProductPricingApiView.as_view(), name="api_save_single_product_pricing"),
 ]

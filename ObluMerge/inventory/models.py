@@ -36,7 +36,15 @@ class InventoryItem(models.Model):
         null=True, blank=True,
         help_text="Minimum quantity that must be ordered from the supplier in a single batch"
     )
-
+    #this field exists so that we can know when a product was added in the company's inventory
+    landing_date = models.DateField(
+        null=True,
+        blank=True,
+        help_text="Date when the product first arrived in the warehouse"
+    )
+    is_new_product = models.BooleanField(
+        default=False
+    )
 
     def __str__(self):
         return self.name
@@ -170,6 +178,10 @@ class PurchaseOrderTracking(models.Model):
     order_date = models.DateField()
     arrival_datetime = models.DateTimeField(null=True, blank=True)
 
+    manual_eta = models.DateField(
+        null=True,
+        blank=True
+    )
     status = models.CharField(
         max_length=20,
         choices=STATUS_CHOICES,

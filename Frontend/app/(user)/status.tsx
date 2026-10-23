@@ -254,23 +254,35 @@ export default function StatusScreen() {
       {/* Header */}
       <View style={styles.topRow}>
         <View style={styles.userHeaderLeft}>
-          <View
+          <TouchableOpacity
             style={[
-              styles.brandLogoContainer,
+              styles.backNavBtn,
               {
-                backgroundColor: "#000000",
-                borderColor: colors.cardBorder,
+                backgroundColor: isDark ? "#121F1B" : "#FFFFFF",
+                borderColor: isDark ? "#294039" : "#D8E0DC",
               },
             ]}
+            onPress={() => {
+              if (router.canGoBack()) {
+                router.back();
+              } else {
+                const isAdmin = (user?.role || "").toLowerCase().includes("admin");
+                router.replace(isAdmin ? "/(admin)/users" : "/(employee)");
+              }
+            }}
+            activeOpacity={0.7}
           >
-            <Image
-              source={require("@/assets/images/logo.png")}
-              style={styles.brandLogo}
-              resizeMode="cover"
+            <Ionicons
+              name="arrow-back"
+              size={18}
+              color={isDark ? "#F1F7F4" : "#101513"}
             />
-          </View>
-          <View>
-            <Text style={[styles.greetingTitle, { color: colors.textPrimary }]}>
+          </TouchableOpacity>
+          <View style={styles.headerInfo}>
+            <Text
+              style={[styles.greetingTitle, { color: colors.textPrimary }]}
+              numberOfLines={1}
+            >
               Hello, {user?.username ?? "Team Member"}
             </Text>
             <View style={styles.appStatusPill}>
@@ -389,7 +401,7 @@ export default function StatusScreen() {
         </View>
 
         <Text style={[styles.heroTitle, { color: colors.textPrimary }]}>
-          Sales Activity Sync
+          Activity Sync
         </Text>
         <Text style={[styles.heroDescription, { color: colors.textSecondary }]}>
           {permissionActive
@@ -573,32 +585,35 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: Spacing.xl,
+    marginBottom: 20,
   },
   userHeaderLeft: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
     flex: 1,
+    marginRight: 12,
   },
-  brandLogoContainer: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    borderWidth: 1.5,
-    justifyContent: "center",
+  backNavBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    borderWidth: 1,
     alignItems: "center",
-    overflow: "hidden",
-    backgroundColor: "#000000",
+    justifyContent: "center",
   },
-  brandLogo: {
-    width: "100%",
-    height: "100%",
+  headerInfo: {
+    flex: 1,
   },
   greetingTitle: {
-    fontFamily: Typography.headingExtra,
-    fontSize: 20,
-    letterSpacing: -0.3,
+    fontFamily: Typography.bold,
+    fontSize: 18,
+    letterSpacing: -0.2,
+  },
+  headerRightActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
   },
   appStatusPill: {
     flexDirection: "row",

@@ -3,7 +3,7 @@ from calendar import month
 from django.shortcuts import render , redirect , reverse
 from django.urls import reverse_lazy
 from django.views.generic import TemplateView, View, CreateView, UpdateView, DeleteView,ListView  # Imports TemplateView, a built-in Django view for rendering templates.
-from .forms import CustomUserCreationForm , InventoryItemForm
+from .forms import CustomUserCreationForm , InventoryItemForm,PurchaseOrderTrackingForm
 from django.contrib.auth import authenticate , login ,logout
 from django.contrib.auth.mixins import LoginRequiredMixin
 from .models import InventoryItem, Category, MonthlyStockData, DailyStockData
@@ -40,6 +40,22 @@ from .utils import (
     get_days_in_current_stage,
     get_remaining_days,
 )
+
+from django.db.models import Q, Sum, Max, F, Count
+from django.core.paginator import Paginator
+import calendar
+import json
+from collections import defaultdict
+from datetime import date
+
+from dateutil.relativedelta import relativedelta
+
+from django.shortcuts import render
+from django.views import View
+from django.contrib.auth.mixins import LoginRequiredMixin
+
+from .models import InventoryItem
+from tally_voucher.models import VoucherStockItem
 logger = logging.getLogger(__name__)
 
 
@@ -47,8 +63,526 @@ logger = logging.getLogger(__name__)
 class WelcomeView(LoginRequiredMixin,TemplateView):
     template_name = "welcome.html"
 
-class Index(TemplateView):
-    template_name = "inventory/index.html"  #Defines a class-based view called Index which will render the inventory/index.html file when called.
+def format_inr(val):
+    """Formats numbers using Indian notation (Lakhs and Crores)."""
+    if not val:
+        return "₹0"
+    try:
+        v = float(val)
+    except (ValueError, TypeError):
+        return "₹0"
+    if abs(v) >= 10000000:
+        return f"₹{v / 10000000:.2f} Cr"
+    elif abs(v) >= 100000:
+        return f"₹{v / 100000:.2f} L"
+    elif abs(v) >= 1000:
+        return f"₹{v:,.0f}"
+    else:
+        return f"₹{v:.2f}"
+
+class Index(AccountantRequiredMixin, TemplateView):
+    template_name = "inventory/index.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        request = self.request
+
+        # ── 1. Global Date Filter & Anchor Mode ──
+        period = request.GET.get("period", "1m").strip().lower()
+        if period not in ["3d", "3w", "1m", "3m"]:
+            period = "1m"
+
+        max_daily_date = DailyStockData.objects.aggregate(m=Max("date"))["m"]
+        today = timezone.now().date()
+
+        # Anchor mode: 'snapshot' (relative to latest DB entry) vs 'today' (relative to live current day)
+        anchor_param = request.GET.get("anchor", "").strip().lower()
+        if anchor_param == "today":
+            anchor_mode = "today"
+            ref_date = today
+        elif anchor_param == "snapshot":
+            anchor_mode = "snapshot"
+            ref_date = max_daily_date or today
+        else:
+            # Smart default: if DB snapshot is older than 3 days, anchor to snapshot so data is visible
+            if max_daily_date and (today - max_daily_date).days > 3:
+                anchor_mode = "snapshot"
+                ref_date = max_daily_date
+            else:
+                anchor_mode = "today"
+                ref_date = today
+
+        if period == "3d":
+            start_date = ref_date - timedelta(days=3)
+            period_label = "Last 3 Days"
+            duration_days = 3
+        elif period == "3w":
+            start_date = ref_date - timedelta(days=21)
+            period_label = "Last 3 Weeks"
+            duration_days = 21
+        elif period == "3m":
+            start_date = ref_date - timedelta(days=90)
+            period_label = "Last 3 Months"
+            duration_days = 90
+        else:
+            period = "1m"
+            start_date = ref_date - timedelta(days=30)
+            period_label = "Last 1 Month"
+            duration_days = 30
+
+        end_date = ref_date
+
+        context["period"] = period
+        context["period_label"] = period_label
+        context["start_date"] = start_date
+        context["end_date"] = end_date
+        context["date_range_display"] = f"{start_date.strftime('%d %b %Y')} – {end_date.strftime('%d %b %Y')}"
+        context["anchor_mode"] = anchor_mode
+        context["is_snapshot_anchor"] = (anchor_mode == "snapshot")
+        context["max_daily_date"] = max_daily_date
+        context["today_date"] = today
+        context["days_behind"] = (today - max_daily_date).days if max_daily_date else 0
+
+        # ── 2. Executive KPIs & Previous Period Comparison ──
+        sales_agg = DailyStockData.objects.filter(
+            date__gte=start_date, date__lte=end_date, outwards_quantity__gt=0
+        ).aggregate(
+            total_val=Sum("outwards_value"),
+            total_qty=Sum("outwards_quantity")
+        )
+        total_sales = float(sales_agg["total_val"] or 0)
+        units_sold = int(round(sales_agg["total_qty"] or 0))
+
+        # Previous period comparison for growth %
+        prev_end_date = start_date - timedelta(days=1)
+        prev_start_date = prev_end_date - timedelta(days=duration_days)
+        prev_sales_agg = DailyStockData.objects.filter(
+            date__gte=prev_start_date, date__lte=prev_end_date, outwards_quantity__gt=0
+        ).aggregate(
+            total_val=Sum("outwards_value"),
+            total_qty=Sum("outwards_quantity")
+        )
+        prev_sales = float(prev_sales_agg["total_val"] or 0)
+        prev_units = int(round(prev_sales_agg["total_qty"] or 0))
+
+        if prev_sales > 0:
+            sales_growth_pct = round(((total_sales - prev_sales) / prev_sales) * 100, 1)
+        else:
+            sales_growth_pct = 0.0
+
+        if prev_units > 0:
+            units_growth_pct = round(((units_sold - prev_units) / prev_units) * 100, 1)
+        else:
+            units_growth_pct = 0.0
+
+        # Orders Dispatched count (from verified Tax Invoices)
+        orders_dispatched_count = Voucher.objects.filter(
+            voucher_type__iexact="TAX INVOICE",
+            date__gte=start_date,
+            date__lte=end_date,
+        ).count()
+
+        prev_orders_dispatched_count = Voucher.objects.filter(
+            voucher_type__iexact="TAX INVOICE",
+            date__gte=prev_start_date,
+            date__lte=prev_end_date,
+        ).count()
+
+        if prev_orders_dispatched_count > 0:
+            orders_growth_pct = round(((orders_dispatched_count - prev_orders_dispatched_count) / prev_orders_dispatched_count) * 100, 1)
+        else:
+            orders_growth_pct = 0.0
+
+        avg_daily_sales = total_sales / max(duration_days, 1)
+
+        # Active POs count
+        try:
+            active_pos_count = PurchaseOrderTracking.objects.defer("manual_eta").filter(status="active").count()
+        except Exception:
+            active_pos_count = 0
+
+        # Low stock count across full catalog
+        low_stock_items_qs = InventoryItem.objects.filter(
+            quantity__lt=F("min_quantity_outwards"),
+            min_quantity_outwards__gt=0
+        )
+        low_stock_count = low_stock_items_qs.count()
+        total_products = InventoryItem.objects.count()
+
+        # ── 3. Sales Trend Data (Chart.js) ──
+        trend_qs = (
+            DailyStockData.objects.filter(
+                date__gte=start_date, date__lte=end_date, outwards_quantity__gt=0
+            )
+            .values("date")
+            .annotate(
+                daily_val=Sum("outwards_value"),
+                daily_qty=Sum("outwards_quantity")
+            )
+            .order_by("date")
+        )
+
+        # Daily dispatched orders mapping
+        daily_orders_map = dict(
+            Voucher.objects.filter(
+                voucher_type__iexact="TAX INVOICE",
+                date__gte=start_date,
+                date__lte=end_date,
+            )
+            .values("date")
+            .annotate(cnt=Count("id"))
+            .values_list("date", "cnt")
+        )
+
+        trend_labels = []
+        trend_values = []
+        trend_quantities = []
+        trend_orders = []
+        peak_val = 0.0
+        peak_day_str = "N/A"
+
+        for t in trend_qs:
+            val = round(float(t["daily_val"] or 0), 2)
+            qty = round(float(t["daily_qty"] or 0), 1)
+            t_date = t["date"]
+            date_str = t_date.strftime("%d %b")
+            orders_cnt = daily_orders_map.get(t_date, 0)
+            trend_labels.append(date_str)
+            trend_values.append(val)
+            trend_quantities.append(qty)
+            trend_orders.append(orders_cnt)
+            if val > peak_val:
+                peak_val = val
+                peak_day_str = date_str
+
+        context["trend_labels_json"] = json.dumps(trend_labels)
+        context["trend_values_json"] = json.dumps(trend_values)
+        context["trend_quantities_json"] = json.dumps(trend_quantities)
+        context["trend_orders_json"] = json.dumps(trend_orders)
+        context["trend_has_data"] = len(trend_labels) > 0
+        context["peak_sales_display"] = format_inr(peak_val) if peak_val > 0 else "N/A"
+        context["peak_sales_day"] = peak_day_str
+        context["avg_daily_sales_display"] = format_inr(avg_daily_sales)
+
+        # ── 4. Top 5 Categories ──
+        cat_qs = (
+            DailyStockData.objects.filter(
+                date__gte=start_date, date__lte=end_date, outwards_quantity__gt=0
+            )
+            .values("product__category__name")
+            .annotate(
+                cat_val=Sum("outwards_value"),
+                cat_qty=Sum("outwards_quantity")
+            )
+            .order_by("-cat_val")[:5]
+        )
+
+        category_colors = [
+            {"bar": "#78c2ad", "bg": "rgba(120, 194, 173, 0.15)", "text": "#317865"},
+            {"bar": "#38bdf8", "bg": "rgba(56, 189, 248, 0.15)", "text": "#0284c7"},
+            {"bar": "#818cf8", "bg": "rgba(129, 140, 248, 0.15)", "text": "#4f46e5"},
+            {"bar": "#fbbf24", "bg": "rgba(251, 191, 36, 0.18)", "text": "#b45309"},
+            {"bar": "#f472b6", "bg": "rgba(244, 114, 182, 0.15)", "text": "#db2777"},
+        ]
+
+        top_categories = []
+        for idx, cat in enumerate(cat_qs, 1):
+            val = float(cat["cat_val"] or 0)
+            qty = int(round(cat["cat_qty"] or 0))
+            share_pct = round((val / total_sales * 100), 1) if total_sales > 0 else 0
+            color_scheme = category_colors[(idx - 1) % len(category_colors)]
+            top_categories.append({
+                "rank": idx,
+                "name": cat["product__category__name"] or "Uncategorized",
+                "sales_value": val,
+                "sales_value_display": format_inr(val),
+                "units_sold": f"{qty:,}",
+                "percent": share_pct,
+                "bar_color": color_scheme["bar"],
+                "bg_color": color_scheme["bg"],
+                "text_color": color_scheme["text"],
+            })
+        context["top_categories"] = top_categories
+
+        # ── 5. Top 5 Products & Low Stock Alerts ──
+        prod_qs = (
+            DailyStockData.objects.filter(
+                date__gte=start_date, date__lte=end_date, outwards_quantity__gt=0
+            )
+            .values(
+                "product__id",
+                "product__name",
+                "product__category__name",
+                "product__quantity",
+                "product__min_quantity_outwards",
+                "product__min_quantity_average",
+                "product__min_quantity",
+                "product__unit",
+            )
+            .annotate(
+                prod_val=Sum("outwards_value"),
+                prod_qty=Sum("outwards_quantity")
+            )
+            .order_by("-prod_val")[:5]
+        )
+
+        top_products = []
+        smart_alerts = []
+        low_stock_fast_movers = 0
+
+        for idx, p in enumerate(prod_qs, 1):
+            val = float(p["prod_val"] or 0)
+            qty_sold = int(round(p["prod_qty"] or 0))
+            current_stock = p["product__quantity"]
+            if current_stock is None:
+                current_stock = 0
+
+            # Determine threshold
+            threshold = (
+                p["product__min_quantity_outwards"]
+                if p["product__min_quantity_outwards"] and p["product__min_quantity_outwards"] > 0
+                else (
+                    p["product__min_quantity_average"]
+                    if p["product__min_quantity_average"] and p["product__min_quantity_average"] > 0
+                    else p["product__min_quantity"]
+                )
+            )
+
+            is_running_low = False
+            is_critical = False
+            if current_stock <= 0:
+                is_running_low = True
+                is_critical = True
+                low_stock_fast_movers += 1
+                stock_ratio = 0
+            elif threshold and threshold > 0:
+                stock_ratio = min(int(round((current_stock / threshold) * 100)), 100)
+                if current_stock < threshold:
+                    is_running_low = True
+                    low_stock_fast_movers += 1
+            else:
+                stock_ratio = 100
+
+            # Initials for avatar
+            p_name = p["product__name"] or "Item"
+            p_words = [w for w in p_name.replace(",", " ").split() if w]
+            p_initials = (p_words[0][:2] if len(p_words) == 1 else p_words[0][0] + p_words[1][0]).upper()
+
+            prod_dict = {
+                "rank": idx,
+                "id": p["product__id"],
+                "name": p_name,
+                "initials": p_initials,
+                "category": p["product__category__name"] or "Uncategorized",
+                "sales_value": val,
+                "sales_value_display": format_inr(val),
+                "units_sold": f"{qty_sold:,}",
+                "current_stock": current_stock,
+                "min_threshold": threshold if (threshold and threshold > 0) else "N/A",
+                "stock_ratio": stock_ratio,
+                "is_running_low": is_running_low,
+                "is_critical": is_critical,
+                "unit": p["product__unit"] or "units",
+            }
+            top_products.append(prod_dict)
+
+            # Build smart alert if running low or out of stock
+            if is_running_low:
+                smart_alerts.append({
+                    "product_id": p["product__id"],
+                    "product_name": p_name,
+                    "category": p["product__category__name"] or "Uncategorized",
+                    "current_stock": current_stock,
+                    "min_threshold": threshold if (threshold and threshold > 0) else "N/A",
+                    "units_sold": f"{qty_sold:,}",
+                    "sales_value_display": format_inr(val),
+                    "severity": "critical" if is_critical else "warning",
+                    "severity_label": "CRITICAL STOCKOUT" if is_critical else "HIGH DEMAND DEFICIT",
+                    "message": (
+                        "Zero stock available! Top-selling SKU is completely out of stock."
+                        if is_critical
+                        else "Fast-moving SKU is operating below safety demand threshold."
+                    ),
+                })
+
+        context["top_products"] = top_products
+        context["smart_alerts"] = smart_alerts
+
+        # Contextual KPI numbers
+        context["kpis"] = {
+            "total_sales_raw": total_sales,
+            "total_sales_display": format_inr(total_sales),
+            "sales_growth_pct": abs(sales_growth_pct),
+            "is_sales_growth_positive": sales_growth_pct >= 0,
+            "orders_dispatched": f"{orders_dispatched_count:,}",
+            "orders_dispatched_raw": orders_dispatched_count,
+            "orders_growth_pct": abs(orders_growth_pct),
+            "is_orders_growth_positive": orders_growth_pct >= 0,
+            "units_sold": f"{units_sold:,}",
+            "units_sold_raw": units_sold,
+            "units_growth_pct": abs(units_growth_pct),
+            "is_units_growth_positive": units_growth_pct >= 0,
+            "active_pos_count": active_pos_count,
+            "low_stock_count": low_stock_count,
+            "low_stock_fast_movers": low_stock_fast_movers,
+            "total_products": total_products,
+        }
+
+        # ── 6. Top 5 Customers (from Tax Invoices) ──
+        cust_qs = (
+            VoucherStockItem.objects.filter(
+                voucher__voucher_type__iexact="TAX INVOICE",
+                voucher__date__gte=start_date,
+                voucher__date__lte=end_date,
+            )
+            .values("voucher__party_name")
+            .annotate(
+                cust_val=Sum("amount"),
+                cust_qty=Sum("quantity"),
+                order_count=Count("voucher_id", distinct=True)
+            )
+            .order_by("-cust_val")[:5]
+        )
+
+        customer_avatar_styles = [
+            {"bg": "linear-gradient(135deg, #059669, #10b981)", "color": "#ffffff"},
+            {"bg": "linear-gradient(135deg, #0284c7, #38bdf8)", "color": "#ffffff"},
+            {"bg": "linear-gradient(135deg, #4f46e5, #818cf8)", "color": "#ffffff"},
+            {"bg": "linear-gradient(135deg, #d97706, #fbbf24)", "color": "#ffffff"},
+            {"bg": "linear-gradient(135deg, #e11d48, #fb7185)", "color": "#ffffff"},
+        ]
+
+        top_customers_total = sum(float(c["cust_val"] or 0) for c in cust_qs)
+        top_customers = []
+        for idx, c in enumerate(cust_qs, 1):
+            c_val = float(c["cust_val"] or 0)
+            c_qty = int(round(c["cust_qty"] or 0))
+            c_name = c["voucher__party_name"] or "Unknown Customer"
+            words = [w for w in c_name.replace(".", " ").replace("-", " ").split() if w]
+            initials = (words[0][:2] if len(words) == 1 else words[0][0] + words[1][0]).upper()
+            share_pct = round((c_val / top_customers_total * 100), 1) if top_customers_total > 0 else 0
+            avatar_style = customer_avatar_styles[(idx - 1) % len(customer_avatar_styles)]
+
+            top_customers.append({
+                "rank": idx,
+                "name": c_name,
+                "initials": initials,
+                "avatar_bg": avatar_style["bg"],
+                "avatar_color": avatar_style["color"],
+                "sales_value": c_val,
+                "sales_value_display": format_inr(c_val),
+                "units_purchased": f"{c_qty:,}",
+                "order_count": c["order_count"],
+                "percent": share_pct,
+            })
+        context["top_customers"] = top_customers
+
+        # ── 7. Active Purchase Orders ──
+        active_purchase_orders = []
+        try:
+            active_pos_raw = (
+                PurchaseOrderTracking.objects
+                .defer("manual_eta")
+                .filter(status="active")
+                .select_related("tally_voucher")
+                .prefetch_related("stage_logs__stage", "items")
+                .order_by("-order_date")[:5]
+            )
+            for po in active_pos_raw:
+                curr_stage = None
+                try:
+                    curr_stage = get_current_stage(po)
+                except Exception:
+                    pass
+                stage_name = curr_stage.stage.name if curr_stage and getattr(curr_stage, "stage", None) else "In Processing"
+
+                eta = None
+                if "manual_eta" not in po.get_deferred_fields():
+                    try:
+                        eta = getattr(po, "manual_eta", None)
+                    except Exception:
+                        eta = None
+                if not eta:
+                    try:
+                        eta = get_expected_arrival_date(po)
+                    except Exception:
+                        eta = None
+
+                items_count = 0
+                try:
+                    items_count = len(po.items.all())
+                except Exception:
+                    pass
+
+                if eta:
+                    eta_display = eta.strftime("%d %b %Y") if hasattr(eta, "strftime") else str(eta)
+                    if hasattr(eta, "date"):
+                        diff = (eta.date() - today).days
+                    elif hasattr(eta, "day"):
+                        diff = (eta - today).days
+                    else:
+                        diff = 10
+
+                    if diff < 0:
+                        status_label = "Delayed"
+                        status_class = "delayed"
+                    elif diff <= 5:
+                        status_label = "Due Soon"
+                        status_class = "due-soon"
+                    else:
+                        status_label = "On Track"
+                        status_class = "on-track"
+                else:
+                    eta_display = "TBD"
+                    status_label = "On Track"
+                    status_class = "on-track"
+
+                # Supplier initials
+                supp_name = po.party_name or "Vendor"
+                swords = [w for w in supp_name.replace(".", " ").split() if w]
+                supp_initials = (swords[0][:2] if len(swords) == 1 else swords[0][0] + swords[1][0]).upper()
+
+                active_purchase_orders.append({
+                    "id": po.id,
+                    "voucher_number": po.voucher_number,
+                    "party_name": supp_name,
+                    "initials": supp_initials,
+                    "order_date": po.order_date.strftime("%d %b %Y") if po.order_date else "N/A",
+                    "stage_name": stage_name,
+                    "eta_display": eta_display,
+                    "items_count": items_count,
+                    "status_label": status_label,
+                    "status_class": status_class,
+                })
+        except Exception as e:
+            active_purchase_orders = []
+        context["active_purchase_orders"] = active_purchase_orders
+
+        # ── 8. Catalog Inventory Health ──
+        catalog_total = InventoryItem.objects.count()
+        total_items = catalog_total or 1
+        catalog_out_of_stock = InventoryItem.objects.filter(
+            Q(quantity__lte=0) | Q(quantity__isnull=True)
+        ).count()
+        catalog_low_stock = InventoryItem.objects.filter(
+            quantity__gt=0,
+            quantity__lt=F("min_quantity_outwards"),
+            min_quantity_outwards__gt=0
+        ).count()
+        catalog_healthy = max(catalog_total - catalog_out_of_stock - catalog_low_stock, 0)
+
+        context["health"] = {
+            "total": catalog_total,
+            "healthy": catalog_healthy,
+            "healthy_pct": round(catalog_healthy / total_items * 100, 1),
+            "low_stock": catalog_low_stock,
+            "low_stock_pct": round(catalog_low_stock / total_items * 100, 1),
+            "out_of_stock": catalog_out_of_stock,
+            "out_of_stock_pct": round(catalog_out_of_stock / total_items * 100, 1),
+            "attention_pct": round((catalog_low_stock + catalog_out_of_stock) / total_items * 100, 1),
+        }
+
+        return context
 
 class Dashboard(AccountantRequiredMixin, View):
     def get(self,request):
@@ -84,10 +618,16 @@ class CategoryDashboard(AccountantRequiredMixin, View):
         return render(request, 'inventory/dashboard.html',{'items':items})
 
 class CategoryListView(AccountantRequiredMixin,ListView):
-    queryset = Category.objects.all()
+    queryset = Category.objects.annotate(
+        product_count=Count('inventoryitem')
+    ).order_by('name')
     template_name = 'inventory/category_list.html'
     context_object_name = 'category_list'
 
+    def get_context_data(self, kwargs):
+        context = super().get_context_data(kwargs)
+        context['total_items'] = InventoryItem.objects.count()
+        return context
 # This view handles both displaying the signup form and processing form submissions
 class SignUpView(CreateView):
     form_class = CustomUserCreationForm
@@ -1544,13 +2084,13 @@ class PurchaseOrderView(AccountantRequiredMixin, View):
         """
         by_month = defaultdict(float)
         for row in sales_rows:
-            d = row["date"] # getting date from each sale  
+            d = row["date"]
             if not d:
-                continue #skip the date 
-            if from_date and d < from_date: # if already f_sal skip the older sales
                 continue
-            by_month[d.strftime("%Y-%m")] += row["qty"] #formatting in "2026 - 05" + quantaties added of same month
-        return [{"month": m, "qty": q} for m, q in sorted(by_month.items())] #ascending order months 
+            if from_date and d < from_date:
+                continue
+            by_month[d.strftime("%Y-%m")] += row["qty"]
+        return [{"month": m, "qty": q} for m, q in sorted(by_month.items())]
 
     # ─────────────────────────────────────────────────────────────────────────
     # Average daily sales (tally data, from April 2025)
@@ -1565,9 +2105,9 @@ class PurchaseOrderView(AccountantRequiredMixin, View):
         today      = datetime.date.today()
         total_qty  = sum(
             row["qty"] for row in sales_rows
-            if row["date"] and row["date"] >= APRIL_2025 # April | ---- -----| till now
+            if row["date"] and row["date"] >= APRIL_2025
         )
-        days_elapsed = (today - APRIL_2025).days or 1 #days passed b/w last april - today
+        days_elapsed = (today - APRIL_2025).days or 1
         return round(total_qty / days_elapsed, 4)
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -1589,20 +2129,20 @@ class PurchaseOrderView(AccountantRequiredMixin, View):
         by_month = defaultdict(float)
         for row in sales_rows:
             if row["date"]:
-                by_month[row["date"].strftime("%Y-%m")] += row["qty"] # again add qty of same month 
+                by_month[row["date"].strftime("%Y-%m")] += row["qty"]
 
         def _sum_window(offset_start, count):
             total = 0.0
             for i in range(offset_start, offset_start + count):
                 key = (today.replace(day=1) - relativedelta(months=i)).strftime("%Y-%m")
                 total += by_month.get(key, 0)
-            return total                # determine the sales of prev groups month from curr
+            return total
 
         r1y = _sum_window(0,  12);  p1y = _sum_window(12, 12)
         r3m = _sum_window(0,   3);  p3m = _sum_window(3,   3)
 
-        growth_1y = round((r1y - p1y) / p1y * 100, 1) if p1y else None # growth % of year
-        growth_3m = round((r3m - p3m) / p3m * 100, 1) if p3m else None # growth % of months 
+        growth_1y = round((r1y - p1y) / p1y * 100, 1) if p1y else None
+        growth_3m = round((r3m - p3m) / p3m * 100, 1) if p3m else None
         return growth_1y, growth_3m
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -1620,7 +2160,7 @@ class PurchaseOrderView(AccountantRequiredMixin, View):
             return None, None, None
 
         # Convert annual / 3-month growth to per-month growth rates
-        rates = [] # per month GROWTH
+        rates = []
         if growth_1y is not None:
             rates.append(growth_1y / 12 / 100)   # monthly equiv of yearly growth
         if growth_3m is not None:
@@ -1628,16 +2168,16 @@ class PurchaseOrderView(AccountantRequiredMixin, View):
 
         if not rates:
             # No growth data — flat forecast
-            base = round(avg_daily * 30) # constant so multiply * 30 
+            base = round(avg_daily * 30)
             return base, base, base
 
         monthly_growth = sum(rates) / len(rates)  # blended rate
 
-        base_monthly = avg_daily * 30 
+        base_monthly = avg_daily * 30
         m1 = max(0, round(base_monthly * (1 + monthly_growth)))
         m2 = max(0, round(base_monthly * (1 + monthly_growth) ** 2))
         m3 = max(0, round(base_monthly * (1 + monthly_growth) ** 3))
-        return m1, m2, m3  # monthly growth for eacah month base - (1 + calcu growth each month )
+        return m1, m2, m3
 
     # ─────────────────────────────────────────────────────────────────────────
     # Order calculation
@@ -1701,7 +2241,7 @@ class PurchaseOrderView(AccountantRequiredMixin, View):
         # ── Step 1: daily growth-adjusted demand projection (180 days horizon)
         horizon = 180
         daily_demand = []
-        for day in range(horizon):  #daily demand for the sales
+        for day in range(horizon):
             month_offset = day // 30
             rate = (1 + monthly_growth_rate) ** month_offset
             daily_demand.append(avg_daily * rate)
@@ -1713,7 +2253,7 @@ class PurchaseOrderView(AccountantRequiredMixin, View):
 
         # ── Step 3: simulate stock level day-by-day to find runway
         stock = float(current_stock)
-        runway_days = None # when stock finishes
+        runway_days = None
 
         graph_data = []   # for chart: day → {stock, demand_per_day}
         incoming_added = False
@@ -1728,8 +2268,8 @@ class PurchaseOrderView(AccountantRequiredMixin, View):
                 stock += incoming_qty
                 incoming_added = True
 
-            demand = daily_demand[day]  # daily 10 units sales 
-            stock -= demand                # -10
+            demand = daily_demand[day]
+            stock -= demand
             buffer_threshold = demand * 30 * 3 * BUFFER  # 3-month buffered demand
 
             graph_data.append({
@@ -1788,7 +2328,7 @@ class PurchaseOrderView(AccountantRequiredMixin, View):
             not incoming_added
         ):
             incoming_after_new_batch = incoming_qty
-        # Order Recommendation 
+
         shortfall = max(0, demand_3m_after - stock_at_arrival - incoming_after_new_batch)
 
         # ── Step 6: urgency
@@ -3287,7 +3827,7 @@ class PurchaseOrderViewPrev(AccountantRequiredMixin, View):
             incoming_qty = 0
             incoming_date = None
 
-            tracking_details = [] # ETA STORED HERE 
+            tracking_details = []
 
             tracking_items = tracking_item_map.get(item.id, [])
 
@@ -3327,7 +3867,7 @@ class PurchaseOrderViewPrev(AccountantRequiredMixin, View):
                     # print("eta:", po.eta)
 
                     print("Function ETA:", get_expected_arrival_date(po))
-                    incoming_date = get_expected_arrival_date(po) # fn in utils.py
+                    incoming_date = get_expected_arrival_date(po)
 
 
 
@@ -3529,7 +4069,7 @@ class PurchaseOrderViewPrev(AccountantRequiredMixin, View):
             "hide_dead":            hide_dead,
         })
 
-class PurchaseOrderView(AccountantRequiredMixin, View):
+class PurchaseOrderViewPrev1(AccountantRequiredMixin, View):
     template_name = "inventory/purchase_order_legacy.html"
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -5155,7 +5695,7 @@ class PurchaseOrderView(AccountantRequiredMixin, View):
 
             for shipment in shipments
 
-            if shipment["arrival_day"] > new_batch_arrival_day #missing >=
+            if shipment["arrival_day"] > new_batch_arrival_day
 
         )
 
@@ -5388,12 +5928,12 @@ class PurchaseOrderView(AccountantRequiredMixin, View):
                     incoming_date = get_expected_arrival_date(po)
 
 
-                   # Start of ETA #             
+
                     incoming_qty = max(
                         0,
                         float(tracking_item.ordered_quantity)
                         - float(tracking_item.arrived_quantity or 0)
-                    ) #   Incoming qty = ordered qty - arrived qty
+                    )
 
                     print("=" * 50)
                     print("Item:", item.name)
@@ -5407,7 +5947,7 @@ class PurchaseOrderView(AccountantRequiredMixin, View):
                         "stage": current_stage.stage.name if current_stage else None,
                         "days_in_stage": (
                             float(days_in_stage)
-                            if days_in_stage is not None #ETA stored in tracking
+                            if days_in_stage is not None
                             else None
                         ),
 
@@ -5435,10 +5975,19 @@ class PurchaseOrderView(AccountantRequiredMixin, View):
             latest_gst = item_gst_rows[0] if item_gst_rows else None
 
             # ── Core order calculation
-           
-                # REMOVED REMAINING TIME HERE
-                
-            delivery_days = item.expected_delivery_days or 30
+            if tracking_items and tracking_details:
+                delivery_days = max(
+                    1,
+                    round(
+                        min(
+                            t["remaining_days"]
+                            for t in tracking_details
+                            if t["remaining_days"] is not None
+                        )
+                    )
+                )
+            else:
+                delivery_days = item.expected_delivery_days or 30
 
             total_incoming_qty = sum(
                 t["incoming_qty"]
@@ -5578,6 +6127,3559 @@ class PurchaseOrderView(AccountantRequiredMixin, View):
             "hide_dead":            hide_dead,
         })
 
+
+#fixing bugs
+
+
+class PurchaseOrderView(AccountantRequiredMixin, View):
+    template_name = "inventory/purchase_order.html"
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Pre-load ALL voucher data once, slice it per item in the loop
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _preload_voucher_data():
+        """
+        Returns three dicts keyed by item_id (int):
+          sales_rows   : list of {"date": date, "qty": float}   — TAX INVOICE
+          po_rows      : list of {"date": date, "qty": float, "voucher_number": str, "party": str}
+                         — PURCHASE ORDER vouchers
+          gst_rows     : list of {"date": date, "qty": float, "voucher_number": str, "party": str}
+                         — GST PURCHASE (received stock)
+        """
+        APRIL_2025 = datetime.date(2025, 4, 1)
+
+        sales_map = defaultdict(list)
+        credit_note_map = defaultdict(list)
+        po_map = defaultdict(list)
+        gst_map = defaultdict(list)
+        internal_customer_map = defaultdict(list)
+
+        # ── All TAX INVOICE stock rows (from April 2025 onwards for sales calc)
+        # We also need older data for 1-year growth, so pull everything and filter in Python
+        for row in (
+                VoucherStockItem.objects
+                        .filter(voucher__voucher_type__iexact="TAX INVOICE")
+                        .select_related("voucher")
+                        .values("item_id", "quantity", "voucher__date", "voucher__party_name")
+        ):
+            iid = row["item_id"]
+            if not iid:
+                continue
+            sales_map[iid].append({
+                "date": row["voucher__date"],
+                "qty": float(row["quantity"] or 0),
+                "party": row["voucher__party_name"] or "Unknown",
+            })
+
+        for row in (
+                VoucherStockItem.objects
+                        .filter(
+                    voucher__voucher_type__iexact="CREDIT NOTE"
+                )
+                        .select_related("voucher")
+                        .values("item_id", "quantity", "voucher__date", "voucher__party_name")
+
+        ):
+            iid = row["item_id"]
+            if not iid:
+                continue
+            credit_note_map[iid].append({
+                "date": row["voucher__date"],
+                "qty": float(row["quantity"] or 0),
+                "party": row["voucher__party_name"] or "Unknown",
+            })
+
+        for row in (
+                VoucherStockItem.objects
+                        .filter(voucher__voucher_type__iexact="TAX INVOICE")
+                        .select_related("voucher")
+                        .values(
+                    "item_id",
+                    "quantity",
+                    "voucher__date",
+                    "voucher__party_name"
+                )
+        ):
+            party = (row["voucher__party_name"] or "").upper()
+
+            if not (
+                    "AMEND" in party
+                    or "SMILIGN" in party
+            ):
+                continue
+
+            iid = row["item_id"]
+
+            if not iid:
+                continue
+
+            internal_customer_map[iid].append({
+                "date": row["voucher__date"],
+                "qty": float(row["quantity"] or 0),
+                "party": row["voucher__party_name"],
+            })
+
+        # ── PURCHASE ORDER vouchers (PO we make, from Dec 2024 onward)
+        for row in (
+                VoucherStockItem.objects
+                        .filter(voucher__voucher_type__iexact="PURCHASE ORDER")
+                        .select_related("voucher")
+                        .values("item_id", "quantity", "voucher__date",
+                                "voucher__voucher_number", "voucher__party_name")
+        ):
+            iid = row["item_id"]
+            if not iid:
+                continue
+            po_map[iid].append({
+                "date": row["voucher__date"],
+                "qty": float(row["quantity"] or 0),
+                "voucher_number": row["voucher__voucher_number"],
+                "party": row["voucher__party_name"],
+            })
+
+        # ── GST PURCHASE (received/booked into stock)
+        for row in (
+                VoucherStockItem.objects
+                        .filter(
+                    voucher__voucher_type__in=[
+                        "GST PURCHASE", "Purchase", "gst purchase", "purchase"
+                    ]
+                )
+                        .select_related("voucher")
+                        .values("item_id", "quantity", "voucher__date",
+                                "voucher__voucher_number", "voucher__party_name")
+        ):
+            iid = row["item_id"]
+            if not iid:
+                continue
+            gst_map[iid].append({
+                "date": row["voucher__date"],
+                "qty": float(row["quantity"] or 0),
+                "voucher_number": row["voucher__voucher_number"],
+                "party": row["voucher__party_name"],
+            })
+
+        return (
+            sales_map,
+            credit_note_map,
+            internal_customer_map,
+            po_map,
+            gst_map,
+        )
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Pre-load Purchase Order Tracking data
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _preload_tracking_data():
+        """
+        Returns dict keyed by InventoryItem.id
+
+        {
+            item_id: PurchaseOrderTrackingItem
+        }
+        """
+
+        from collections import defaultdict
+
+        tracking_map = defaultdict(list)
+
+        tracking_items = (
+            PurchaseOrderTrackingItem.objects
+            .filter(purchase_order__status__in=["active", "arrived"])
+            .select_related(
+                "purchase_order",
+                "inventory_item",
+            )
+            .prefetch_related(
+                "purchase_order__stage_logs__stage"
+            )
+        )
+
+        for tracking_item in tracking_items:
+
+            if tracking_item.inventory_item_id:
+                tracking_map[tracking_item.inventory_item_id].append(tracking_item)
+
+        return tracking_map
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Monthly sales aggregation (from tally data)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _monthly_sales(sales_rows, from_date=None):
+        """
+        Returns sorted list of {"month": "YYYY-MM", "qty": float}
+        Optional from_date to filter.
+        """
+        by_month = defaultdict(float)
+        for row in sales_rows:
+            d = row["date"]
+            if not d:
+                continue
+            if from_date and d < from_date:
+                continue
+            by_month[d.strftime("%Y-%m")] += row["qty"]
+        return [{"month": m, "qty": q} for m, q in sorted(by_month.items())]
+
+    @staticmethod
+    def _daily_sales(sales_rows, credit_note_rows, internal_rows):
+
+        by_month = defaultdict(list)
+
+        # Normal Sales
+
+        INTERNAL_CUSTOMERS = (
+            "AMEND",
+            "SMILIGN",
+        )
+        for row in sales_rows:
+
+            d = row["date"]
+
+            if not d:
+                continue
+
+            by_month[d.strftime("%Y-%m")].append({
+
+                "date": d.strftime("%Y-%m-%d"),
+                "party": row.get("party", "Unknown"),
+                "qty": row["qty"],
+                "status": "Included",
+                "reason": "",
+
+            })
+
+        # Credit Notes
+        for row in credit_note_rows:
+
+            d = row["date"]
+
+            if not d:
+                continue
+
+            by_month[d.strftime("%Y-%m")].append({
+
+                "date": d.strftime("%Y-%m-%d"),
+                "qty": row["qty"],
+                "party": row.get("party", "Unknown"),
+                "status": "Excluded",
+                "reason": "Credit Note",
+
+            })
+
+        # Internal Customers
+        for row in internal_rows:
+
+            d = row["date"]
+
+            if not d:
+                continue
+
+            by_month[d.strftime("%Y-%m")].append({
+
+                "date": d.strftime("%Y-%m-%d"),
+                "qty": row["qty"],
+                "party": row.get("party", "Unknown"),
+                "status": "Excluded",
+                "reason": "Internal Customer",
+
+            })
+
+        for month in by_month:
+            by_month[month].sort(key=lambda x: x["date"])
+
+        return dict(by_month)
+
+    @staticmethod
+    def _net_sales(item_sales, item_credit_notes):
+
+        if not item_sales:
+            return []
+
+        if not item_credit_notes:
+            return item_sales
+
+        # Work on a copy so we never modify the original sales_map
+        sales = [
+            {
+                "date": row["date"],
+                "qty": float(row["qty"]),
+                "party": row.get("party", "Unknown"),
+            }
+            for row in item_sales
+        ]
+
+        # Process every Credit Note
+        for credit in item_credit_notes:
+
+            remaining_credit = float(credit["qty"])
+            credit_party = credit.get("party")
+            credit_date = credit.get("date")
+
+            if remaining_credit <= 0:
+                continue
+
+            # Oldest sale first (FIFO)
+            for sale in sorted(sales, key=lambda x: x["date"]):
+
+                if remaining_credit <= 0:
+                    break
+
+                # Same customer only
+                if sale["party"] != credit_party:
+                    continue
+
+                # Credit Note cannot cancel a future sale
+                if sale["date"] > credit_date:
+                    continue
+
+                available = sale["qty"]
+
+                if available <= 0:
+                    continue
+
+                deduction = min(available, remaining_credit)
+
+                sale["qty"] -= deduction
+                remaining_credit -= deduction
+
+        # Remove fully cancelled sales
+        return [row for row in sales if row["qty"] > 0]
+
+    @staticmethod
+    def _remove_internal_sales(item_sales, internal_sales):
+
+        if not item_sales:
+            return []
+
+        if not internal_sales:
+            return item_sales
+
+        # Work on a copy
+        sales = [
+            {
+                "date": row["date"],
+                "qty": float(row["qty"]),
+                "party": row.get("party", "Unknown"),
+            }
+            for row in item_sales
+        ]
+
+        # FIFO deduction (same logic as Credit Notes)
+        for internal in internal_sales:
+
+            remaining_qty = float(internal["qty"])
+            internal_party = internal.get("party")
+            internal_date = internal.get("date")
+
+            if remaining_qty <= 0:
+                continue
+
+            for sale in sorted(sales, key=lambda x: x["date"]):
+
+                if remaining_qty <= 0:
+                    break
+
+                sale_party = (sale.get("party") or "").upper()
+
+                if not (
+                        "AMEND" in sale_party or
+                        "SMILIGN" in sale_party
+                ):
+                    continue
+
+                if sale["date"] > internal_date:
+                    continue
+
+                available = sale["qty"]
+
+                if available <= 0:
+                    continue
+
+                deduction = min(available, remaining_qty)
+
+                sale["qty"] -= deduction
+                remaining_qty -= deduction
+
+        return [row for row in sales if row["qty"] > 0]
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Average daily sales (tally data, from April 2025)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _avg_daily_from_tally(sales_rows):
+        """
+        Avg daily = total qty sold since April 2025 / number of days since April 2025.
+        """
+        APRIL_2025 = datetime.date(2025, 4, 1)
+        today = datetime.date.today()
+        total_qty = sum(
+            row["qty"] for row in sales_rows
+            if row["date"] and row["date"] >= APRIL_2025
+        )
+        days_elapsed = (today - APRIL_2025).days or 1
+        return round(total_qty / days_elapsed, 4)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Growth windows
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _growth_windows(sales_rows):
+        """
+        growth_1y : last 12 months total vs previous 12 months total (all tally data)
+        growth_3m : last  3 months total vs previous  3 months total (tally data)
+
+        Returns (growth_1y, growth_3m) as % floats or None.
+        """
+        if not sales_rows:
+            return None, None
+
+        today = datetime.date.today()
+        by_month = defaultdict(float)
+        for row in sales_rows:
+            if row["date"]:
+                by_month[row["date"].strftime("%Y-%m")] += row["qty"]
+
+        def _sum_window(offset_start, count):
+            total = 0.0
+            for i in range(offset_start, offset_start + count):
+                key = (today.replace(day=1) - relativedelta(months=i)).strftime("%Y-%m")
+                total += by_month.get(key, 0)
+            return total
+
+        r1y = _sum_window(0, 12);
+        p1y = _sum_window(12, 12)
+        r3m = _sum_window(0, 3);
+        p3m = _sum_window(3, 3)
+
+        growth_1y = round((r1y - p1y) / p1y * 100, 1) if p1y else None
+        growth_3m = round((r3m - p3m) / p3m * 100, 1) if p3m else None
+        return growth_1y, growth_3m
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Sales forecast (growth-adjusted)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _forecast_next_3_months(avg_daily, growth_1y, growth_3m, is_dead):
+        """
+        Blended monthly growth = average of growth_1y/12 (monthly equiv) and growth_3m/3.
+        Apply compounding to avg_daily → project M+1, M+2, M+3 monthly totals.
+        Returns (pred_m1, pred_m2, pred_m3) or (None, None, None).
+        """
+        if is_dead or avg_daily <= 0:
+            return None, None, None
+
+        # Convert annual / 3-month growth to per-month growth rates
+        rates = []
+
+        rate_1y = (growth_1y / 12 / 100) if growth_1y is not None else None
+        rate_3m = (growth_3m / 3 / 100) if growth_3m is not None else None
+
+        if rate_1y is not None and rate_3m is not None:
+            monthly_growth = 0.20 * rate_1y + 0.80 * rate_3m
+        elif rate_3m is not None:
+            monthly_growth = rate_3m  # only 3m available
+        elif rate_1y is not None:
+            monthly_growth = rate_1y  # only 1y available
+        else:
+            monthly_growth = 0.0
+        # adding max 40% growth to
+        monthly_growth = min(monthly_growth, 0.40)
+        # ---------
+        base_monthly = avg_daily * 30
+        m1 = max(0, round(base_monthly * (1 + monthly_growth)))
+        m2 = max(0, round(base_monthly * (1 + monthly_growth) ** 2))
+        m3 = max(0, round(base_monthly * (1 + monthly_growth) ** 3))
+        return m1, m2, m3
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Order calculation
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _calc_order(
+            current_stock,
+            avg_daily,
+            delivery_days,
+            incoming_shipments,
+            pred_m1, pred_m2, pred_m3,
+            monthly_growth_rate,  # decimal e.g. 0.03 for 3%
+            moq,
+            is_dead,
+    ):
+        """
+        ALGORITHM
+        ─────────
+        Inputs:
+          • current_stock
+          • incoming_qty / incoming_date  (open PO, if any within delivery window)
+          • avg_daily                     (from tally, April 2025 onwards)
+          • monthly_growth_rate           (blended from 1y + 3m growth)
+          • delivery_days                 (lead time for this product)
+          • pred_m1/m2/m3                 (growth-adjusted monthly forecast)
+          • 20% buffer stock (hardcoded)
+          • moq
+
+        Steps:
+          1. Project daily consumption with growth for each future day.
+          2. Stack current_stock + incoming_qty (if arriving before new batch).
+          3. Find the day stock (with buffer) runs out → "runway".
+          4. Reorder point = runway_day − delivery_days.
+             If reorder_point <= 0 → order NOW.
+          5. Calculate qty needed to cover 3 months from the reorder-arrival date,
+             adjusted for growth, plus 20% buffer, minus incoming (if arriving after).
+          6. Round up to MOQ if needed.
+
+        Returns a dict with all intermediate values for template rendering + graphing.
+        """
+        BUFFER = 1.20  # 20% safety buffer
+
+        today = datetime.date.today()
+
+        shipments = []
+
+        for shipment in incoming_shipments:
+            arrival_day = shipment.get("arrival_day")
+
+            if arrival_day is None:
+                continue
+
+            shipments.append({
+                "arrival_day": max(0, int(arrival_day)),
+                "qty": float(shipment.get("incoming_qty") or 0),
+                "po_number": shipment.get("po_number"),
+                "stage": shipment.get("stage"),
+                "eta": shipment.get("eta"),
+                "remaining_days": shipment.get("remaining_days"),
+                "days_in_stage": shipment.get("days_in_stage"),
+                "type": shipment.get("type"),
+            })
+
+        shipments.sort(
+            key=lambda x: x["arrival_day"]
+        )
+
+        if is_dead:
+            return {
+                "is_dead": True,
+                "order_recommended": 0,
+                "order_final": 0,
+                "order_urgency": "dead",
+                "moq_note": None,
+                "order_lasts_months": None,
+                "runway_days": None,
+                "reorder_point_days": None,
+                "graph_data": [],
+                "calc_steps": {"note": "Product is dead stock — no order recommended."},
+            }
+
+        # ── Step 1: daily growth-adjusted demand projection (180 days horizon)
+        horizon = 180
+        daily_demand = []
+        for day in range(horizon):
+            month_offset = day // 30
+            rate = (1 + monthly_growth_rate) ** month_offset
+            daily_demand.append(avg_daily * rate)
+
+        # # ── Step 2: determine when incoming PO arrives relative to today
+        # incoming_arrives_in = None   # days from today
+        # if incoming_qty > 0 and incoming_date:
+        #     incoming_arrives_in = max(0, (incoming_date - today).days)
+
+        # ── Step 3: simulate stock level day-by-day to find runway
+        stock = float(current_stock)
+        stockout_day = None
+        runway_days = None
+
+        graph_data = []  # for chart: day → {stock, demand_per_day}
+
+        for day in range(horizon):
+            # Add incoming stock on its arrival day
+            events_today = []
+
+            for shipment in shipments:
+
+                if shipment["arrival_day"] == day:
+                    stock += shipment["qty"]
+
+                    events_today.append({
+
+                        "po": shipment["po_number"],
+                        "qty": shipment["qty"],
+                        "stage": shipment["stage"],
+                        "eta": shipment["eta"],
+                        "remaining_days": shipment["remaining_days"],
+                        "days_in_stage": shipment["days_in_stage"],
+                        "type": shipment.get("type"),
+
+                    })
+
+            demand = daily_demand[day]
+            buffer_threshold = demand * 30 * 3 * BUFFER  # 3-month buffered demand
+
+            graph_data.append({
+                "day": day,
+                "stock": round(max(0, stock), 1),
+                "buffer_line": round(buffer_threshold, 1),
+                "demand": round(demand, 2),
+                "events": events_today,
+                "today": day == 0,
+            })
+
+            stock -= demand
+
+            if stockout_day is None and stock <= 0:
+                stockout_day = day
+
+            # Runway = first day stock goes below 0 (without buffer first)
+            if runway_days is None and stock <= 0:
+                runway_days = day
+
+        if runway_days is None:
+            runway_days = horizon  # Stock lasts beyond horizon
+
+        # ── Step 4: reorder point (days from today)
+        reorder_point_days = runway_days - delivery_days
+
+        # ── Step 5: should we order now?
+        order_now = reorder_point_days <= 0
+
+        # Arrival date of NEW batch if ordered today
+        new_batch_arrival_day = delivery_days
+
+        for point in graph_data:
+            point["reorder_day"] = (
+                    point["day"] == reorder_point_days
+            )
+
+            point["new_order_arrival"] = (
+                    point["day"] == delivery_days
+            )
+
+        # Stock on hand when NEW batch arrives
+        stock_at_arrival = float(current_stock)
+
+        for d in range(new_batch_arrival_day + 1):
+
+            # Add all existing PO quantities arriving on this day
+            for shipment in shipments:
+                if shipment["arrival_day"] == d:
+                    stock_at_arrival += shipment["qty"]
+
+            # Consume demand only for days BEFORE the new PO arrives
+            if d < new_batch_arrival_day:
+                stock_at_arrival -= (
+                    daily_demand[d]
+                    if d < len(daily_demand)
+                    else avg_daily
+                )
+
+        stock_at_arrival = max(0, stock_at_arrival)
+
+        # Demand for 3 months AFTER new batch arrives (with buffer)
+        demand_3m_after = 0.0
+        if pred_m1 is not None:
+            demand_3m_after = (pred_m1 + pred_m2 + pred_m3) * BUFFER
+            demand_source = f"forecast {pred_m1}+{pred_m2}+{pred_m3} × 1.20 buffer"
+        else:
+            demand_3m_after = avg_daily * 90 * BUFFER
+            demand_source = f"flat avg {round(avg_daily, 2)}/day × 90 × 1.20 buffer"
+
+        demand_3m_after = round(demand_3m_after)
+
+        # Incoming that arrives AFTER new batch (still helps)
+        incoming_after_new_batch = sum(
+
+            shipment["qty"]
+
+            for shipment in shipments
+
+            if shipment["arrival_day"] > new_batch_arrival_day
+
+        )
+
+        shortfall = max(0, demand_3m_after - stock_at_arrival - incoming_after_new_batch)
+
+        # ── Step 6: urgency
+        if not order_now and shortfall == 0:
+            order_recommended = 0
+            order_urgency = "ok"
+        elif shortfall == 0:
+            order_recommended = 0
+            order_urgency = "ok"
+        else:
+            order_recommended = int(round(shortfall))
+            order_urgency = "urgent" if reorder_point_days <= 0 else "warn"
+
+        # ── MOQ check
+        moq_note = None
+        order_final = order_recommended
+        if moq and order_recommended > 0 and order_recommended < moq:
+            moq_note = moq
+            order_final = moq  # round up to MOQ
+
+        # ── How long will order last (months)
+        order_lasts_months = None
+        if avg_daily > 0 and order_final > 0:
+            total_after = stock_at_arrival + order_final + incoming_after_new_batch
+            order_lasts_months = round(total_after / (avg_daily * 30), 1)
+
+        # ── Runway in months (current trajectory)
+        runway_months = round(runway_days / 30, 1) if runway_days < horizon else None
+
+        calc_steps = {
+            "current_stock": current_stock,
+            "avg_daily": avg_daily,
+            "delivery_days": delivery_days,
+            "monthly_growth_rate_pct": round(monthly_growth_rate * 100, 2),
+            "incoming_shipments": incoming_shipments,
+            "stock_at_arrival": stock_at_arrival,
+            "demand_3m_after": demand_3m_after,
+            "demand_source": demand_source,
+            "shortfall": round(shortfall),
+            "order_urgency": order_urgency,
+            "moq": moq,
+            "moq_note": moq_note,
+            "order_final": order_final,
+            "order_lasts_months": order_lasts_months,
+            "runway_days": runway_days,
+            "runway_months": runway_months,
+            "reorder_point_days": reorder_point_days,
+            "order_now": order_now,
+            "pred_m1": pred_m1,
+            "pred_m2": pred_m2,
+            "pred_m3": pred_m3,
+            "buffer_pct": 20,
+            "incoming_after_new_batch": incoming_after_new_batch,
+        }
+
+        return {
+            "is_dead": False,
+            "order_recommended": int(round(order_recommended)),
+            "order_final": int(round(order_final)),
+            "order_urgency": order_urgency,
+            "moq_note": moq_note,
+            "order_lasts_months": order_lasts_months,
+            "runway_days": runway_days,
+            "runway_months": runway_months,
+            "reorder_point_days": reorder_point_days,
+            "graph_data": graph_data[:90],  # send 90 days to template
+            "calc_steps": calc_steps,
+            "stockout_day": stockout_day,
+        }
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # GET
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def get(self, request):
+        today = datetime.date.today()
+        ninety_days_ago = today - timedelta(days=90)
+        APRIL_2025 = datetime.date(2025, 4, 1)
+
+        categories = Category.objects.all().order_by("name")
+        selected_category_id = request.GET.get("category")
+        hide_dead = request.GET.get("hide_dead") == "1"
+
+        if not selected_category_id:
+            return render(request, self.template_name, {
+                "categories": categories, "products": None,
+                "selected_category_id": None,
+            })
+
+        # ── Pre-load all voucher data (one DB hit per type)
+        sales_map, credit_note_map, internal_customer_map, po_map, gst_map = (
+            PurchaseOrderView._preload_voucher_data()
+        )
+
+        tracking_item_map = PurchaseOrderView._preload_tracking_data()
+
+        items = (
+            InventoryItem.objects
+            .filter(category_id=selected_category_id)
+            .select_related("category")
+            .order_by("name")
+        )
+
+        products_data = []
+
+        for item in items:
+            iid = item.id
+            current_stock = float(item.quantity or 0)
+
+            # ── Tally sales rows for this item
+            item_sales = sales_map.get(iid, [])
+
+            item_credit_notes = credit_note_map.get(iid, [])
+
+            item_sales = PurchaseOrderView._net_sales(
+                item_sales,
+                item_credit_notes,
+            )
+
+            item_internal_sales = internal_customer_map.get(iid, [])
+
+            item_sales = PurchaseOrderView._remove_internal_sales(
+                item_sales,
+                item_internal_sales,
+            )
+
+            # abhijay change to make modal that shows monthly rpoduct sales
+            monthly_sales_breakdown = PurchaseOrderView._monthly_sales(item_sales)
+
+            daily_sales_breakdown = PurchaseOrderView._daily_sales(
+                item_sales,
+                item_credit_notes,
+                item_internal_sales,
+            )
+            # Dead stock = no TAX INVOICE sale in last 90 days
+            is_dead = not any(
+                row["date"] and row["date"] >= ninety_days_ago
+                for row in item_sales
+            )
+
+            if hide_dead and is_dead:
+                continue
+
+            # ── Avg daily (tally, April 2025 onwards)
+            avg_daily = PurchaseOrderView._avg_daily_from_tally(item_sales)
+
+            # ── Growth
+            growth_1y, growth_3m = PurchaseOrderView._growth_windows(item_sales)
+
+            # Blended monthly growth rate (decimal)
+            rates = []
+            # NEW — weighted: 20% YoY, 80% last-3m
+            rate_1y = (growth_1y / 12 / 100) if growth_1y is not None else None
+            rate_3m = (growth_3m / 3 / 100) if growth_3m is not None else None
+
+            if rate_1y is not None and rate_3m is not None:
+                monthly_growth_rate = 0.20 * rate_1y + 0.80 * rate_3m
+            elif rate_3m is not None:
+                monthly_growth_rate = rate_3m  # only 3m available
+            elif rate_1y is not None:
+                monthly_growth_rate = rate_1y  # only 1y available
+            else:
+                monthly_growth_rate = 0.0
+            # adding 40% cap on growth
+            monthly_growth_rate = min(monthly_growth_rate, 0.4)
+            # -------
+            # ── Forecast
+            pred_m1, pred_m2, pred_m3 = PurchaseOrderView._forecast_next_3_months(
+                avg_daily, growth_1y, growth_3m, is_dead
+            )
+
+            # ── PO data (purchase order vouchers we made)
+            item_po_rows = sorted(
+                po_map.get(iid, []),
+                key=lambda r: r["date"] or datetime.date.min,
+                reverse=True,
+            )
+            latest_po = item_po_rows[0] if item_po_rows else None
+
+            incoming_qty = 0
+            incoming_date = None
+
+            tracking_details = []
+
+            tracking_items = tracking_item_map.get(item.id, [])
+
+            print("=" * 80)
+            print(item.name)
+            print("Tracking items:", len(tracking_items))
+
+            for t in tracking_items:
+                print(
+                    "PO:",
+                    t.purchase_order.id,
+                    "Status:",
+                    t.purchase_order.status,
+                    "Ordered:",
+                    t.ordered_quantity,
+                    "Arrived:",
+                    t.arrived_quantity,
+                )
+
+            if tracking_items:
+
+                for tracking_item in tracking_items:
+                    po = tracking_item.purchase_order
+
+                    current_stage = get_current_stage(po)
+
+                    remaining_days = get_remaining_days(po)
+                    days_in_stage = get_days_in_current_stage(po)
+                    print("=" * 60)
+                    print("PO:", po.tally_voucher.voucher_number)
+
+                    # Print every date-related field on PurchaseOrderTracking
+                    print("arrival_datetime:", po.arrival_datetime)
+
+                    # If you have any of these fields, print them too:
+                    # print("expected_arrival_date:", po.expected_arrival_date)
+                    # print("eta:", po.eta)
+
+                    print("Function ETA:", get_expected_arrival_date(po))
+                    incoming_date = get_expected_arrival_date(po)
+
+                    ordered_qty = float(
+                        tracking_item.ordered_quantity or 0
+                    )
+
+                    arrived_qty = float(
+                        tracking_item.arrived_quantity or 0
+                    )
+
+                    pending_qty = max(
+                        0,
+                        ordered_qty - arrived_qty
+                    )
+
+                    # Only pending quantity should appear in transit table
+                    if pending_qty > 0:
+                        tracking_details.append({
+                            "po_number": po.tally_voucher.voucher_number,
+
+                            # Already physically received
+                            "arrived_qty": arrived_qty,
+
+                            # Still waiting to arrive
+                            "incoming_qty": pending_qty,
+
+                            "stage": (
+                                current_stage.stage.name
+                                if current_stage
+                                else None
+                            ),
+
+                            "days_in_stage": (
+                                float(days_in_stage)
+                                if days_in_stage is not None
+                                else None
+                            ),
+
+                            "remaining_days": (
+                                float(remaining_days)
+                                if remaining_days is not None
+                                else None
+                            ),
+
+                            "eta": incoming_date,
+
+                            "type": "pending",
+                        })
+
+            elif latest_po and item.expected_delivery_days:
+                expected_dt = latest_po["date"] + timedelta(days=item.expected_delivery_days)
+
+                if expected_dt > today:
+                    incoming_qty = latest_po["qty"]
+                    incoming_date = expected_dt
+
+            # ── GST purchase data (received stock)
+            item_gst_rows = sorted(
+                gst_map.get(iid, []),
+                key=lambda r: r["date"] or datetime.date.min,
+                reverse=True,
+            )
+            latest_gst = item_gst_rows[0] if item_gst_rows else None
+
+            # ── Core order calculation
+
+            delivery_days = item.expected_delivery_days or 30
+
+            total_incoming_qty = sum(
+                t["incoming_qty"]
+                for t in tracking_details
+            )
+
+            earliest_eta = min(
+                (
+                    t["eta"]
+                    for t in tracking_details
+                    if t["eta"]
+                ),
+                default=None
+            )
+
+            incoming_shipments = []
+
+            for t in tracking_details:
+
+                # Quantity already physically received
+                arrived_qty = float(t.get("arrived_qty") or 0)
+                pending_qty = float(t.get("incoming_qty") or 0)
+
+                if arrived_qty > 0:
+                    incoming_shipments.append({
+                        "incoming_qty": arrived_qty,
+                        "arrival_day": 0,
+                        "po_number": t["po_number"],
+                        "stage": "Arrived",
+                        "eta": today,
+                        "remaining_days": 0,
+                        "days_in_stage": t.get("days_in_stage"),
+                        "type": "arrived",
+                    })
+
+                if pending_qty > 0 and t.get("eta"):
+                    arrival_day = max(0, (t["eta"] - today).days)
+
+                    incoming_shipments.append({
+                        "incoming_qty": pending_qty,
+                        "arrival_day": arrival_day,
+                        "po_number": t["po_number"],
+                        "stage": t.get("stage"),
+                        "eta": t["eta"],
+                        "remaining_days": t.get("remaining_days"),
+                        "days_in_stage": t.get("days_in_stage"),
+                        "type": "pending",
+                    })
+
+            # ── FALLBACK: no tracking data, use latest Tally PO
+            if not incoming_shipments and latest_po and item.expected_delivery_days:
+                expected_dt = latest_po["date"] + timedelta(
+                    days=item.expected_delivery_days
+                )
+
+                if expected_dt > today:
+                    arrival_day = max(0, (expected_dt - today).days)
+
+                    incoming_shipments.append({
+                        "incoming_qty": float(latest_po["qty"]),
+                        "arrival_day": arrival_day,
+                        "po_number": latest_po["voucher_number"],
+                        "stage": "Tally PO",
+                        "eta": expected_dt,
+                        "remaining_days": arrival_day,
+                        "days_in_stage": None,
+                        "type": "tally_fallback",
+                    })
+
+            calc = PurchaseOrderView._calc_order(
+                current_stock=current_stock,
+                avg_daily=avg_daily,
+                delivery_days=delivery_days,
+                incoming_shipments=incoming_shipments,
+                pred_m1=pred_m1,
+                pred_m2=pred_m2,
+                pred_m3=pred_m3,
+                monthly_growth_rate=monthly_growth_rate,
+                moq=item.minimum_order_quantity,
+                is_dead=is_dead,
+            )
+
+            # ── Stock runway (months current stock lasts at flat avg)
+            months_of_stock = (
+                round(current_stock / (avg_daily * 30), 1)
+                if avg_daily > 0 else None
+            )
+            is_overstocked = months_of_stock is not None and months_of_stock >= 9
+
+            # 1. Sanitize graph data for JSON (Convert Decimals/Dates)
+            json_graph_data = []
+            for d in calc.get("graph_data", []):
+                json_graph_data.append({
+                    "day": d["day"],
+                    "stock": float(d["stock"]),
+                    "buffer_line": float(d["buffer_line"]),
+                    "demand": float(d["demand"]),
+                    "events": [
+                        {
+                            "po": e["po"],
+                            "qty": float(e["qty"]),
+                            "stage": e["stage"],
+                            "eta": e["eta"].isoformat() if e["eta"] else None,
+                            "type": e.get("type"),
+
+                        } for e in d.get("events", [])
+                    ]
+                })
+
+            # 2. Sanitize tracking details for JSON
+            json_tracking_details = [
+                {
+                    "po_number": t["po_number"],
+                    "incoming_qty": float(t["incoming_qty"]),
+                    "arrived_qty": float(t.get("arrived_qty") or 0),
+
+                    "stage": t["stage"],
+
+                    "eta": (
+                        t["eta"].isoformat()
+                        if t["eta"]
+                        else None
+                    ),
+
+                    "remaining_days": (
+                        float(t["remaining_days"])
+                        if t["remaining_days"] is not None
+                        else None
+                    ),
+
+                    # Used by the graph to identify an already-arrived PO
+                    "type": t.get("type"),
+
+                    # Already-arrived quantity is available on Day 0
+                    "arrival_day": (
+                        0
+                        if t.get("arrived_qty", 0) > 0 and t.get("incoming_qty", 0) == 0
+                        else (
+                            round(float(t["remaining_days"]))
+                            if t.get("incoming_qty", 0) > 0 and t["remaining_days"] is not None
+                            else 0
+                        )
+                    ),
+                }
+                for t in tracking_details
+            ]
+
+            products_data.append({
+                "id": iid,
+                "name": item.name,
+                "unit": item.unit or "",
+                "category": item.category.name if item.category else "—",
+                "current_stock": current_stock,
+                "avg_daily": round(avg_daily, 2),
+                "growth_1y": growth_1y,
+                "growth_3m": growth_3m,
+                "monthly_growth_rate_pct": round(monthly_growth_rate * 100, 2),
+                "pred_m1": pred_m1,
+                "pred_m2": pred_m2,
+                "pred_m3": pred_m3,
+                "is_dead": is_dead,
+                # product monthly sales modal
+                "monthly_sales_json": json.dumps(monthly_sales_breakdown),
+                "daily_sales_json": json.dumps(daily_sales_breakdown),
+                # PO data
+                "po_rows": item_po_rows,  # all POs (for modal)
+                "latest_po_qty": latest_po["qty"] if latest_po else None,
+                "latest_po_date": latest_po["date"] if latest_po else None,
+                "latest_po_number": latest_po["voucher_number"] if latest_po else None,
+                # GST purchase data
+                "gst_rows": item_gst_rows,  # all GST purchases (for modal)
+                "latest_gst_qty": latest_gst["qty"] if latest_gst else None,
+                "latest_gst_date": latest_gst["date"] if latest_gst else None,
+                # Transit
+                "incoming_qty": total_incoming_qty,
+                "incoming_date": earliest_eta,
+                "tracking_details": tracking_details,
+                "expected_delivery_days": item.expected_delivery_days,
+                # Order calc
+                "order_recommended": calc["order_recommended"],
+                "order_final": calc["order_final"],
+                "order_urgency": calc["order_urgency"],
+                "moq_note": calc["moq_note"],
+                "moq": item.minimum_order_quantity,
+                "order_lasts_months": calc["order_lasts_months"],
+                "runway_days": calc.get("runway_days"),
+                "runway_months": calc.get("runway_months"),
+                "reorder_point_days": calc.get("reorder_point_days"),
+                "graph_data": calc.get("graph_data", []),
+                "calc_steps": calc["calc_steps"],
+                # Overstock
+                "months_of_stock": months_of_stock,
+                "is_overstocked": is_overstocked,
+                "graph_data_json": json.dumps(json_graph_data),
+                "graph_meta_json": json.dumps({
+                    "delivery_days": delivery_days,
+                    "reorder_point": calc.get("reorder_point_days", None),
+                    "stockout_day": calc.get("stockout_day"),
+                    "shipments": json_tracking_details,
+                    "today": 0,
+
+                }),
+            })
+
+        return render(request, self.template_name, {
+            "categories": categories,
+            "selected_category_id": int(selected_category_id),
+            "products": products_data,
+            "today": today,
+            "hide_dead": hide_dead,
+        })
+
+
+class PurchaseOrderView(AccountantRequiredMixin, View):
+    template_name = "inventory/purchase_order.html"
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Pre-load ALL voucher data once, slice it per item in the loop
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _preload_voucher_data():
+        """
+        Returns three dicts keyed by item_id (int):
+          sales_rows   : list of {"date": date, "qty": float}   — TAX INVOICE
+          po_rows      : list of {"date": date, "qty": float, "voucher_number": str, "party": str}
+                         — PURCHASE ORDER vouchers
+          gst_rows     : list of {"date": date, "qty": float, "voucher_number": str, "party": str}
+                         — GST PURCHASE (received stock)
+        """
+        APRIL_2025 = datetime.date(2025, 4, 1)
+
+        sales_map = defaultdict(list)
+        credit_note_map = defaultdict(list)
+        po_map    = defaultdict(list)
+        gst_map   = defaultdict(list)
+        internal_customer_map = defaultdict(list)
+
+        # ── All TAX INVOICE stock rows (from April 2025 onwards for sales calc)
+        # We also need older data for 1-year growth, so pull everything and filter in Python
+        for row in (
+            VoucherStockItem.objects
+            .filter(voucher__voucher_type__iexact="TAX INVOICE")
+            .select_related("voucher")
+            .values("item_id", "quantity", "voucher__date", "voucher__party_name")
+        ):
+            iid = row["item_id"]
+            if not iid:
+                continue
+            sales_map[iid].append({
+                "date": row["voucher__date"],
+                "qty":  float(row["quantity"] or 0),
+                "party": row["voucher__party_name"] or "Unknown",
+            })
+
+        for row in (
+                VoucherStockItem.objects
+                        .filter(
+                    voucher__voucher_type__iexact="CREDIT NOTE"
+                )
+                .select_related("voucher")
+                .values("item_id", "quantity", "voucher__date", "voucher__party_name")
+
+        ):
+            iid = row["item_id"]
+            if not iid:
+                continue
+            credit_note_map[iid].append({
+                "date": row["voucher__date"],
+                "qty": float(row["quantity"] or 0),
+                "party": row["voucher__party_name"] or "Unknown",
+            })
+
+        for row in (
+                VoucherStockItem.objects
+                        .filter(voucher__voucher_type__iexact="TAX INVOICE")
+                        .select_related("voucher")
+                        .values(
+                    "item_id",
+                    "quantity",
+                    "voucher__date",
+                    "voucher__party_name"
+                )
+        ):
+            party = (row["voucher__party_name"] or "").upper()
+
+            if not (
+                    "AMEND" in party
+                    or "SMILIGN" in party
+            ):
+                continue
+
+            iid = row["item_id"]
+
+            if not iid:
+                continue
+
+            internal_customer_map[iid].append({
+                "date": row["voucher__date"],
+                "qty": float(row["quantity"] or 0),
+                "party": row["voucher__party_name"],
+            })
+
+        # ── PURCHASE ORDER vouchers (PO we make, from Dec 2024 onward)
+        for row in (
+            VoucherStockItem.objects
+            .filter(voucher__voucher_type__iexact="PURCHASE ORDER")
+            .select_related("voucher")
+            .values("item_id", "quantity", "voucher__date",
+                    "voucher__voucher_number", "voucher__party_name")
+        ):
+            iid = row["item_id"]
+            if not iid:
+                continue
+            po_map[iid].append({
+                "date":           row["voucher__date"],
+                "qty":            float(row["quantity"] or 0),
+                "voucher_number": row["voucher__voucher_number"],
+                "party":          row["voucher__party_name"],
+            })
+
+        # ── GST PURCHASE (received/booked into stock)
+        for row in (
+            VoucherStockItem.objects
+            .filter(
+                voucher__voucher_type__in=[
+                    "GST PURCHASE", "Purchase", "gst purchase", "purchase"
+                ]
+            )
+            .select_related("voucher")
+            .values("item_id", "quantity", "voucher__date",
+                    "voucher__voucher_number", "voucher__party_name")
+        ):
+            iid = row["item_id"]
+            if not iid:
+                continue
+            gst_map[iid].append({
+                "date":           row["voucher__date"],
+                "qty":            float(row["quantity"] or 0),
+                "voucher_number": row["voucher__voucher_number"],
+                "party":          row["voucher__party_name"],
+            })
+
+        return (
+            sales_map,
+            credit_note_map,
+            internal_customer_map,
+            po_map,
+            gst_map,
+        )
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Pre-load Purchase Order Tracking data
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _preload_tracking_data():
+        """
+        Returns dict keyed by InventoryItem.id
+
+        {
+            item_id: PurchaseOrderTrackingItem
+        }
+        """
+
+        from collections import defaultdict
+
+        tracking_map = defaultdict(list)
+
+        tracking_items = (
+            PurchaseOrderTrackingItem.objects
+            .filter(purchase_order__status__in=["active", "arrived"])
+            .select_related(
+                "purchase_order",
+                "inventory_item",
+            )
+            .prefetch_related(
+                "purchase_order__stage_logs__stage"
+            )
+        )
+
+        for tracking_item in tracking_items:
+
+            if tracking_item.inventory_item_id:
+                tracking_map[tracking_item.inventory_item_id].append(tracking_item)
+
+        return tracking_map
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Monthly sales aggregation (from tally data)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _monthly_sales(sales_rows, from_date=None):
+        """
+        Returns sorted list of {"month": "YYYY-MM", "qty": float}
+        Optional from_date to filter.
+        """
+        by_month = defaultdict(float)
+        for row in sales_rows:
+            d = row["date"]
+            if not d:
+                continue
+            if from_date and d < from_date:
+                continue
+            by_month[d.strftime("%Y-%m")] += row["qty"]
+        return [{"month": m, "qty": q} for m, q in sorted(by_month.items())]
+
+    @staticmethod
+    def _daily_sales(sales_rows, credit_note_rows, internal_rows):
+
+        by_month = defaultdict(list)
+
+        # Normal Sales
+
+        INTERNAL_CUSTOMERS = (
+            "AMEND",
+            "SMILIGN",
+        )
+        for row in sales_rows:
+
+            d = row["date"]
+
+            if not d:
+                continue
+
+            by_month[d.strftime("%Y-%m")].append({
+
+                "date": d.strftime("%Y-%m-%d"),
+                "party": row.get("party", "Unknown"),
+                "qty": row["qty"],
+                "status": "Included",
+                "reason": "",
+
+            })
+
+        # Credit Notes
+        for row in credit_note_rows:
+
+            d = row["date"]
+
+            if not d:
+                continue
+
+            by_month[d.strftime("%Y-%m")].append({
+
+                "date": d.strftime("%Y-%m-%d"),
+                "qty": row["qty"],
+                "party": row.get("party", "Unknown"),
+                "status": "Excluded",
+                "reason": "Credit Note",
+
+            })
+
+        # Internal Customers
+        for row in internal_rows:
+
+            d = row["date"]
+
+            if not d:
+                continue
+
+            by_month[d.strftime("%Y-%m")].append({
+
+                "date": d.strftime("%Y-%m-%d"),
+                "qty": row["qty"],
+                "party": row.get("party", "Unknown"),
+                "status": "Excluded",
+                "reason": "Internal Customer",
+
+            })
+
+        for month in by_month:
+            by_month[month].sort(key=lambda x: x["date"])
+
+        return dict(by_month)
+
+    @staticmethod
+    def _net_sales(item_sales, item_credit_notes):
+
+        if not item_sales:
+            return []
+
+        if not item_credit_notes:
+            return item_sales
+
+        # Work on a copy so we never modify the original sales_map
+        sales = [
+            {
+                "date": row["date"],
+                "qty": float(row["qty"]),
+                "party": row.get("party", "Unknown"),
+            }
+            for row in item_sales
+        ]
+
+        # Process every Credit Note
+        for credit in item_credit_notes:
+
+            remaining_credit = float(credit["qty"])
+            credit_party = credit.get("party")
+            credit_date = credit.get("date")
+
+            if remaining_credit <= 0:
+                continue
+
+            # Oldest sale first (FIFO)
+            for sale in sorted(sales, key=lambda x: x["date"]):
+
+                if remaining_credit <= 0:
+                    break
+
+                # Same customer only
+                if sale["party"] != credit_party:
+                    continue
+
+                # Credit Note cannot cancel a future sale
+                if sale["date"] > credit_date:
+                    continue
+
+                available = sale["qty"]
+
+                if available <= 0:
+                    continue
+
+                deduction = min(available, remaining_credit)
+
+                sale["qty"] -= deduction
+                remaining_credit -= deduction
+
+        # Remove fully cancelled sales
+        return [row for row in sales if row["qty"] > 0]
+
+    @staticmethod
+    def _remove_internal_sales(item_sales, internal_sales):
+
+        if not item_sales:
+            return []
+
+        if not internal_sales:
+            return item_sales
+
+        # Work on a copy
+        sales = [
+            {
+                "date": row["date"],
+                "qty": float(row["qty"]),
+                "party": row.get("party", "Unknown"),
+            }
+            for row in item_sales
+        ]
+
+        # FIFO deduction (same logic as Credit Notes)
+        for internal in internal_sales:
+
+            remaining_qty = float(internal["qty"])
+            internal_party = internal.get("party")
+            internal_date = internal.get("date")
+
+            if remaining_qty <= 0:
+                continue
+
+            for sale in sorted(sales, key=lambda x: x["date"]):
+
+                if remaining_qty <= 0:
+                    break
+
+                sale_party = (sale.get("party") or "").upper()
+
+                if not (
+                        "AMEND" in sale_party or
+                        "SMILIGN" in sale_party
+                ):
+                    continue
+
+                if sale["date"] > internal_date:
+                    continue
+
+                available = sale["qty"]
+
+                if available <= 0:
+                    continue
+
+                deduction = min(available, remaining_qty)
+
+                sale["qty"] -= deduction
+                remaining_qty -= deduction
+
+        return [row for row in sales if row["qty"] > 0]
+    # ─────────────────────────────────────────────────────────────────────────
+    # Average daily sales (tally data, from April 2025)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _avg_daily_from_tally(sales_rows):
+        """
+        Avg daily = total qty sold since April 2025 / number of days since April 2025.
+        """
+        APRIL_2025 = datetime.date(2025, 4, 1)
+        today      = datetime.date.today()
+        total_qty  = sum(
+            row["qty"] for row in sales_rows
+            if row["date"] and row["date"] >= APRIL_2025
+        )
+        days_elapsed = (today - APRIL_2025).days or 1
+        return round(total_qty / days_elapsed, 4)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Growth windows
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _growth_windows(sales_rows):
+        """
+        growth_1y : last 12 months total vs previous 12 months total (all tally data)
+        growth_3m : last  3 months total vs previous  3 months total (tally data)
+
+        Returns (growth_1y, growth_3m) as % floats or None.
+        """
+        if not sales_rows:
+            return None, None
+
+        today   = datetime.date.today()
+        by_month = defaultdict(float)
+        for row in sales_rows:
+            if row["date"]:
+                by_month[row["date"].strftime("%Y-%m")] += row["qty"]
+
+        def _sum_window(offset_start, count):
+            total = 0.0
+            for i in range(offset_start, offset_start + count):
+                key = (today.replace(day=1) - relativedelta(months=i)).strftime("%Y-%m")
+                total += by_month.get(key, 0)
+            return total
+
+        r1y = _sum_window(0,  12);  p1y = _sum_window(12, 12)
+        r3m = _sum_window(0,   3);  p3m = _sum_window(3,   3)
+
+        growth_1y = round((r1y - p1y) / p1y * 100, 1) if p1y else None
+        growth_3m = round((r3m - p3m) / p3m * 100, 1) if p3m else None
+        return growth_1y, growth_3m
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Sales forecast (growth-adjusted)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _forecast_next_3_months(avg_daily, growth_1y, growth_3m, is_dead):
+        """
+        Blended monthly growth = average of growth_1y/12 (monthly equiv) and growth_3m/3.
+        Apply compounding to avg_daily → project M+1, M+2, M+3 monthly totals.
+        Returns (pred_m1, pred_m2, pred_m3) or (None, None, None).
+        """
+        if is_dead or avg_daily <= 0:
+            return None, None, None
+
+        # Convert annual / 3-month growth to per-month growth rates
+        rates = []
+
+        rate_1y = (growth_1y / 12 / 100) if growth_1y is not None else None
+        rate_3m = (growth_3m / 3 / 100) if growth_3m is not None else None
+
+        if rate_1y is not None and rate_3m is not None:
+            monthly_growth = 0.20 * rate_1y + 0.80 * rate_3m
+        elif rate_3m is not None:
+            monthly_growth = rate_3m  # only 3m available
+        elif rate_1y is not None:
+            monthly_growth = rate_1y  # only 1y available
+        else:
+            monthly_growth = 0.0
+        # adding max 40% growth to
+        monthly_growth = min(monthly_growth, 0.40)
+        # ---------
+        base_monthly = avg_daily * 30
+        m1 = max(0, round(base_monthly * (1 + monthly_growth)))
+        m2 = max(0, round(base_monthly * (1 + monthly_growth) ** 2))
+        m3 = max(0, round(base_monthly * (1 + monthly_growth) ** 3))
+        return m1, m2, m3
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Order calculation
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _calc_order(
+        current_stock,
+        avg_daily,
+        delivery_days,
+        incoming_shipments,
+        pred_m1, pred_m2, pred_m3,
+        monthly_growth_rate,   # decimal e.g. 0.03 for 3%
+        moq,
+        is_dead,
+    ):
+        """
+        ALGORITHM
+        ─────────
+        Inputs:
+          • current_stock
+          • incoming_qty / incoming_date  (open PO, if any within delivery window)
+          • avg_daily                     (from tally, April 2025 onwards)
+          • monthly_growth_rate           (blended from 1y + 3m growth)
+          • delivery_days                 (lead time for this product)
+          • pred_m1/m2/m3                 (growth-adjusted monthly forecast)
+          • 20% buffer stock (hardcoded)
+          • moq
+
+        Steps:
+          1. Project daily consumption with growth for each future day.
+          2. Stack current_stock + incoming_qty (if arriving before new batch).
+          3. Find the day stock (with buffer) runs out → "runway".
+          4. Reorder point = runway_day − delivery_days.
+             If reorder_point <= 0 → order NOW.
+          5. Calculate qty needed to cover 3 months from the reorder-arrival date,
+             adjusted for growth, plus 20% buffer, minus incoming (if arriving after).
+          6. Round up to MOQ if needed.
+
+        Returns a dict with all intermediate values for template rendering + graphing.
+        """
+        BUFFER = 1.20   # 20% safety buffer
+
+        today = datetime.date.today()
+
+        shipments = []
+
+        for shipment in incoming_shipments:
+            arrival_day = shipment.get("arrival_day")
+
+            if arrival_day is None:
+                continue
+
+            shipments.append({
+                "arrival_day": max(0, int(arrival_day)),
+                "qty": float(shipment.get("incoming_qty") or 0),
+                "po_number": shipment.get("po_number"),
+                "stage": shipment.get("stage"),
+                "eta": shipment.get("eta"),
+                "remaining_days": shipment.get("remaining_days"),
+                "days_in_stage": shipment.get("days_in_stage"),
+                "type": shipment.get("type"),
+            })
+
+        shipments.sort(
+            key=lambda x: x["arrival_day"]
+        )
+
+        if is_dead:
+            return {
+                "is_dead":           True,
+                "order_recommended": 0,
+                "order_final":       0,
+                "order_urgency":     "dead",
+                "moq_note":          None,
+                "order_lasts_months": None,
+                "runway_days":       None,
+                "reorder_point_days": None,
+                "graph_data":        [],
+                "calc_steps":        {"note": "Product is dead stock — no order recommended."},
+            }
+
+        # ── Step 1: daily growth-adjusted demand projection (180 days horizon)
+        horizon = 180
+        daily_demand = []
+        for day in range(horizon):
+            month_offset = day // 30
+            rate = (1 + monthly_growth_rate) ** month_offset
+            daily_demand.append(avg_daily * rate)
+
+        # # ── Step 2: determine when incoming PO arrives relative to today
+        # incoming_arrives_in = None   # days from today
+        # if incoming_qty > 0 and incoming_date:
+        #     incoming_arrives_in = max(0, (incoming_date - today).days)
+
+        # ── Step 3: simulate stock level day-by-day to find runway
+        stock = float(current_stock)
+        stockout_day = None
+        runway_days = None
+
+        graph_data = []   # for chart: day → {stock, demand_per_day}
+
+
+        for day in range(horizon):
+            # Add incoming stock on its arrival day
+            events_today = []
+
+            for shipment in shipments:
+
+                if shipment["arrival_day"] == day:
+                    stock += shipment["qty"]
+
+                    events_today.append({
+
+                        "po": shipment["po_number"],
+                        "qty": shipment["qty"],
+                        "stage": shipment["stage"],
+                        "eta": shipment["eta"],
+                        "remaining_days": shipment["remaining_days"],
+                        "days_in_stage": shipment["days_in_stage"],
+                        "type": shipment.get("type"),
+
+                    })
+
+            demand = daily_demand[day]
+            buffer_threshold = demand * 30 * 3 * BUFFER  # 3-month buffered demand
+
+            graph_data.append({
+                "day": day,
+                "stock": round(max(0, stock), 1),
+                "buffer_line": round(buffer_threshold, 1),
+                "demand": round(demand, 2),
+                "events": events_today,
+                "today": day == 0,
+            })
+
+            stock -= demand
+
+            if stockout_day is None and stock <= 0:
+                stockout_day = day
+
+            # Runway = first day stock goes below 0 (without buffer first)
+            if runway_days is None and stock <= 0:
+                runway_days = day
+
+        if runway_days is None:
+            runway_days = horizon  # Stock lasts beyond horizon
+
+        # ── Step 4: reorder point (days from today)
+        reorder_point_days = runway_days - delivery_days
+
+        # ── Step 5: should we order now?
+        order_now = reorder_point_days <= 0
+
+        # Arrival date of NEW batch if ordered today
+        new_batch_arrival_day = delivery_days
+
+        for point in graph_data:
+            point["reorder_day"] = (
+                    point["day"] == reorder_point_days
+            )
+
+            point["new_order_arrival"] = (
+                    point["day"] == delivery_days
+            )
+
+        # Stock on hand when NEW batch arrives
+        stock_at_arrival = float(current_stock)
+
+        for d in range(new_batch_arrival_day + 1):
+
+            # Add all existing PO quantities arriving on this day
+            for shipment in shipments:
+                if shipment["arrival_day"] == d:
+                    stock_at_arrival += shipment["qty"]
+
+            # Consume demand only for days BEFORE the new PO arrives
+            if d < new_batch_arrival_day:
+                stock_at_arrival -= (
+                    daily_demand[d]
+                    if d < len(daily_demand)
+                    else avg_daily
+                )
+
+        stock_at_arrival = max(0, stock_at_arrival)
+
+        # Demand for 3 months AFTER new batch arrives (with buffer)
+        demand_3m_after = 0.0
+        if pred_m1 is not None:
+            demand_3m_after = (pred_m1 + pred_m2 + pred_m3) * BUFFER
+            demand_source = f"forecast {pred_m1}+{pred_m2}+{pred_m3} × 1.20 buffer"
+        else:
+            demand_3m_after = avg_daily * 90 * BUFFER
+            demand_source = f"flat avg {round(avg_daily,2)}/day × 90 × 1.20 buffer"
+
+        demand_3m_after = round(demand_3m_after)
+
+        # Incoming that arrives AFTER new batch (still helps)
+        incoming_after_new_batch = sum(
+
+            shipment["qty"]
+
+            for shipment in shipments
+
+            if shipment["arrival_day"] > new_batch_arrival_day
+
+        )
+
+        shortfall = max(0, demand_3m_after - stock_at_arrival - incoming_after_new_batch)
+
+        # ── Step 6: urgency
+        if not order_now and shortfall == 0:
+            order_recommended = 0
+            order_urgency     = "ok"
+        elif shortfall == 0:
+            order_recommended = 0
+            order_urgency     = "ok"
+        else:
+            order_recommended = int(round(shortfall))
+            order_urgency     = "urgent" if reorder_point_days <= 0 else "warn"
+
+        # ── MOQ check
+        moq_note    = None
+        order_final = order_recommended
+        if moq and order_recommended > 0 and order_recommended < moq:
+            moq_note    = moq
+            order_final = moq   # round up to MOQ
+
+        # ── How long will order last (months)
+        order_lasts_months = None
+        if avg_daily > 0 and order_final > 0:
+            total_after = stock_at_arrival + order_final + incoming_after_new_batch
+            order_lasts_months = round(total_after / (avg_daily * 30), 1)
+
+
+        # ── Runway in months (current trajectory)
+        runway_months = round(runway_days / 30, 1) if runway_days < horizon else None
+
+        calc_steps = {
+            "current_stock":          current_stock,
+            "avg_daily":              avg_daily,
+            "delivery_days":          delivery_days,
+            "monthly_growth_rate_pct": round(monthly_growth_rate * 100, 2),
+            "incoming_shipments": incoming_shipments,
+            "stock_at_arrival":       stock_at_arrival,
+            "demand_3m_after":        demand_3m_after,
+            "demand_source":          demand_source,
+            "shortfall":              round(shortfall),
+            "order_urgency":          order_urgency,
+            "moq":                    moq,
+            "moq_note":               moq_note,
+            "order_final":            order_final,
+            "order_lasts_months":     order_lasts_months,
+            "runway_days":            runway_days,
+            "runway_months":          runway_months,
+            "reorder_point_days":     reorder_point_days,
+            "order_now":              order_now,
+            "pred_m1":                pred_m1,
+            "pred_m2":                pred_m2,
+            "pred_m3":                pred_m3,
+            "buffer_pct":             20,
+            "incoming_after_new_batch": incoming_after_new_batch,
+        }
+
+        return {
+            "is_dead":            False,
+            "order_recommended":  int(round(order_recommended)),
+            "order_final":        int(round(order_final)),
+            "order_urgency":      order_urgency,
+            "moq_note":           moq_note,
+            "order_lasts_months": order_lasts_months,
+            "runway_days":        runway_days,
+            "runway_months":      runway_months,
+            "reorder_point_days": reorder_point_days,
+            "graph_data":         graph_data[:90],  # send 90 days to template
+            "calc_steps":         calc_steps,
+            "stockout_day":       stockout_day,
+        }
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # GET
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def get(self, request):
+        today            = datetime.date.today()
+        ninety_days_ago  = today - timedelta(days=90)
+        APRIL_2025       = datetime.date(2025, 4, 1)
+
+        categories           = Category.objects.all().order_by("name")
+        selected_category_id = request.GET.get("category")
+        hide_dead            = request.GET.get("hide_dead") == "1"
+
+        if not selected_category_id:
+            return render(request, self.template_name, {
+                "categories": categories, "products": None,
+                "selected_category_id": None,
+            })
+
+        # ── Pre-load all voucher data (one DB hit per type)
+        sales_map, credit_note_map, internal_customer_map, po_map, gst_map = (
+            PurchaseOrderView._preload_voucher_data()
+        )
+
+        tracking_item_map = PurchaseOrderView._preload_tracking_data()
+
+        items = (
+            InventoryItem.objects
+            .filter(category_id=selected_category_id)
+            .select_related("category")
+            .order_by("name")
+        )
+
+        products_data = []
+
+        for item in items:
+            iid           = item.id
+            current_stock = float(item.quantity or 0)
+
+            # ── Tally sales rows for this item
+            item_sales = sales_map.get(iid, [])
+
+            item_credit_notes = credit_note_map.get(iid, [])
+
+            item_sales = PurchaseOrderView._net_sales(
+                item_sales,
+                item_credit_notes,
+            )
+
+            item_internal_sales = internal_customer_map.get(iid, [])
+
+            item_sales = PurchaseOrderView._remove_internal_sales(
+                item_sales,
+                item_internal_sales,
+            )
+
+
+            # abhijay change to make modal that shows monthly rpoduct sales
+            monthly_sales_breakdown = PurchaseOrderView._monthly_sales(item_sales)
+
+            daily_sales_breakdown = PurchaseOrderView._daily_sales(
+                item_sales,
+                item_credit_notes,
+                item_internal_sales,
+            )
+            # Dead stock = no TAX INVOICE sale in last 90 days
+            is_dead = not any(
+                row["date"] and row["date"] >= ninety_days_ago
+                for row in item_sales
+            )
+
+            if hide_dead and is_dead:
+                continue
+
+            # ── Avg daily (tally, April 2025 onwards)
+            avg_daily = PurchaseOrderView._avg_daily_from_tally(item_sales)
+
+            # ── Growth
+            growth_1y, growth_3m = PurchaseOrderView._growth_windows(item_sales)
+
+            # Blended monthly growth rate (decimal)
+            rates = []
+            # NEW — weighted: 20% YoY, 80% last-3m
+            rate_1y = (growth_1y / 12 / 100) if growth_1y is not None else None
+            rate_3m = (growth_3m / 3 / 100) if growth_3m is not None else None
+
+            if rate_1y is not None and rate_3m is not None:
+                monthly_growth_rate = 0.20 * rate_1y + 0.80 * rate_3m
+            elif rate_3m is not None:
+                monthly_growth_rate = rate_3m  # only 3m available
+            elif rate_1y is not None:
+                monthly_growth_rate = rate_1y  # only 1y available
+            else:
+                monthly_growth_rate = 0.0
+            # adding 40% cap on growth
+            monthly_growth_rate = min(monthly_growth_rate, 0.4)
+            # -------
+            # ── Forecast
+            pred_m1, pred_m2, pred_m3 = PurchaseOrderView._forecast_next_3_months(
+                avg_daily, growth_1y, growth_3m, is_dead
+            )
+
+            # ── PO data (purchase order vouchers we made)
+            item_po_rows = sorted(
+                po_map.get(iid, []),
+                key=lambda r: r["date"] or datetime.date.min,
+                reverse=True,
+            )
+            latest_po = item_po_rows[0] if item_po_rows else None
+
+
+
+            incoming_qty = 0
+            incoming_date = None
+
+            tracking_details = []
+
+            tracking_items = tracking_item_map.get(item.id, [])
+
+            print("=" * 80)
+            print(item.name)
+            print("Tracking items:", len(tracking_items))
+
+            for t in tracking_items:
+                print(
+                    "PO:",
+                    t.purchase_order.id,
+                    "Status:",
+                    t.purchase_order.status,
+                    "Ordered:",
+                    t.ordered_quantity,
+                    "Arrived:",
+                    t.arrived_quantity,
+                )
+
+            if tracking_items:
+
+                for tracking_item in tracking_items:
+                    po = tracking_item.purchase_order
+                    current_stage = get_current_stage(po)
+
+                    # remaining_days = get_remaining_days(po) removed
+                    days_in_stage = get_days_in_current_stage(po)
+
+                    # incoming_date = get_expected_arrival_date(po) removed
+                    #added new manual eta
+                    system_eta = get_expected_arrival_date(po)
+                    if po.manual_eta:
+                        incoming_date = po.manual_eta
+                        remaining_days = max(0, (po.manual_eta - today).days)
+                    else:
+                        incoming_date = system_eta
+                        remaining_days = get_remaining_days(po)
+
+                    ordered_qty = float(
+                        tracking_item.ordered_quantity or 0
+                    )
+
+                    arrived_qty = float(
+                        tracking_item.arrived_quantity or 0
+                    )
+
+                    pending_qty = max(
+                        0,
+                        ordered_qty - arrived_qty
+                    )
+
+                    # Only pending quantity should appear in transit table
+                    if pending_qty > 0:
+                        tracking_details.append({
+                            "po_number": po.tally_voucher.voucher_number,
+
+                            # Already physically received
+                            "arrived_qty": arrived_qty,
+
+                            # Still waiting to arrive
+                            "incoming_qty": pending_qty,
+
+                            "stage": (
+                                current_stage.stage.name
+                                if current_stage
+                                else None
+                            ),
+
+                            "days_in_stage": (
+                                float(days_in_stage)
+                                if days_in_stage is not None
+                                else None
+                            ),
+
+                            "remaining_days": (
+                                float(remaining_days)
+                                if remaining_days is not None
+                                else None
+                            ),
+
+                            "eta": incoming_date,
+
+                            "type": "pending",
+                        })
+
+
+            # ── GST purchase data (received stock)
+            item_gst_rows = sorted(
+                gst_map.get(iid, []),
+                key=lambda r: r["date"] or datetime.date.min,
+                reverse=True,
+            )
+            latest_gst = item_gst_rows[0] if item_gst_rows else None
+
+            # ── Core order calculation
+
+            delivery_days = item.expected_delivery_days or 30
+
+            total_incoming_qty = sum(
+                t["incoming_qty"]
+                for t in tracking_details
+            )
+
+            earliest_eta = min(
+                (
+                    t["eta"]
+                    for t in tracking_details
+                    if t["eta"]
+                ),
+                default=None
+            )
+
+            incoming_shipments = []
+
+            for t in tracking_details:
+
+                # Quantity already physically received
+                arrived_qty = float(t.get("arrived_qty") or 0)
+                pending_qty = float(t.get("incoming_qty") or 0)
+
+                if arrived_qty > 0:
+                    incoming_shipments.append({
+                        "incoming_qty": arrived_qty,
+                        "arrival_day": 0,
+                        "po_number": t["po_number"],
+                        "stage": "Arrived",
+                        "eta": today,
+                        "remaining_days": 0,
+                        "days_in_stage": t.get("days_in_stage"),
+                        "type": "arrived",
+                    })
+
+                if pending_qty > 0 and t.get("eta"):
+                    arrival_day = max(0, (t["eta"] - today).days)
+
+                    incoming_shipments.append({
+                        "incoming_qty": pending_qty,
+                        "arrival_day": arrival_day,
+                        "po_number": t["po_number"],
+                        "stage": t.get("stage"),
+                        "eta": t["eta"],
+                        "remaining_days": t.get("remaining_days"),
+                        "days_in_stage": t.get("days_in_stage"),
+                        "type": "pending",
+                    })
+
+
+
+            calc = PurchaseOrderView._calc_order(
+            current_stock       = current_stock,
+            avg_daily           = avg_daily,
+            delivery_days       = delivery_days,
+            incoming_shipments=incoming_shipments,
+            pred_m1             = pred_m1,
+            pred_m2             = pred_m2,
+            pred_m3             = pred_m3,
+            monthly_growth_rate = monthly_growth_rate,
+            moq                 = item.minimum_order_quantity,
+            is_dead             = is_dead,
+            )
+
+            # ── Stock runway (months current stock lasts at flat avg)
+            months_of_stock = (
+                round(current_stock / (avg_daily * 30), 1)
+                if avg_daily > 0 else None
+            )
+            is_overstocked = months_of_stock is not None and months_of_stock >= 9
+
+            # 1. Sanitize graph data for JSON (Convert Decimals/Dates)
+            json_graph_data = []
+            for d in calc.get("graph_data", []):
+                json_graph_data.append({
+                            "day": d["day"],
+                            "stock": float(d["stock"]),
+                            "buffer_line": float(d["buffer_line"]),
+                            "demand": float(d["demand"]),
+                            "events": [
+                                {
+                                    "po": e["po"],
+                                    "qty": float(e["qty"]),
+                                    "stage": e["stage"],
+                                    "eta": e["eta"].isoformat() if e["eta"] else None,
+                                    "type": e.get("type"),
+
+                                } for e in d.get("events", [])
+                            ]
+                        })
+
+            # 2. Sanitize tracking details for JSON
+            json_tracking_details = [
+                {
+                    "po_number": t["po_number"],
+                    "incoming_qty": float(t["incoming_qty"]),
+                    "arrived_qty": float(t.get("arrived_qty") or 0),
+
+                    "stage": t["stage"],
+
+                    "eta": (
+                        t["eta"].isoformat()
+                        if t["eta"]
+                        else None
+                    ),
+
+                    "remaining_days": (
+                        float(t["remaining_days"])
+                        if t["remaining_days"] is not None
+                        else None
+                    ),
+
+                    # Used by the graph to identify an already-arrived PO
+                    "type": t.get("type"),
+
+                    # Already-arrived quantity is available on Day 0
+                    "arrival_day": (
+                        0
+                        if t.get("arrived_qty", 0) > 0 and t.get("incoming_qty", 0) == 0
+                        else (
+                            round(float(t["remaining_days"]))
+                            if t.get("incoming_qty", 0) > 0 and t["remaining_days"] is not None
+                            else 0
+                        )
+                    ),
+                }
+                for t in tracking_details
+            ]
+
+
+            products_data.append({
+                        "id":                     iid,
+                        "name":                   item.name,
+                        "unit":                   item.unit or "",
+                        "category":               item.category.name if item.category else "—",
+                        "current_stock":          current_stock,
+                        "avg_daily":              round(avg_daily, 2),
+                        "growth_1y":              growth_1y,
+                        "growth_3m":              growth_3m,
+                        "monthly_growth_rate_pct": round(monthly_growth_rate * 100, 2),
+                        "pred_m1":                pred_m1,
+                        "pred_m2":                pred_m2,
+                        "pred_m3":                pred_m3,
+                        "is_dead":                is_dead,
+                        #product monthly sales modal
+                        "monthly_sales_json": json.dumps(monthly_sales_breakdown),
+                        "daily_sales_json": json.dumps(daily_sales_breakdown),
+                        # PO data
+                        "po_rows":                item_po_rows,        # all POs (for modal)
+                        "latest_po_qty":          latest_po["qty"]  if latest_po else None,
+                        "latest_po_date":         latest_po["date"] if latest_po else None,
+                        "latest_po_number":       latest_po["voucher_number"] if latest_po else None,
+                        # GST purchase data
+                        "gst_rows":               item_gst_rows,       # all GST purchases (for modal)
+                        "latest_gst_qty":         latest_gst["qty"]  if latest_gst else None,
+                        "latest_gst_date":        latest_gst["date"] if latest_gst else None,
+                        # Transit
+                        "incoming_qty":           total_incoming_qty,
+                        "incoming_date":          earliest_eta,
+                        "tracking_details": tracking_details,
+                        "expected_delivery_days": item.expected_delivery_days,
+                        # Order calc
+                        "order_recommended":      calc["order_recommended"],
+                        "order_final":            calc["order_final"],
+                        "order_urgency":          calc["order_urgency"],
+                        "moq_note":               calc["moq_note"],
+                        "moq":                    item.minimum_order_quantity,
+                        "order_lasts_months":     calc["order_lasts_months"],
+                        "runway_days":            calc.get("runway_days"),
+                        "runway_months":          calc.get("runway_months"),
+                        "reorder_point_days":     calc.get("reorder_point_days"),
+                        "graph_data":             calc.get("graph_data", []),
+                        "calc_steps":             calc["calc_steps"],
+                        # Overstock
+                        "months_of_stock":        months_of_stock,
+                        "is_overstocked":         is_overstocked,
+                        "graph_data_json": json.dumps(json_graph_data),
+                        "graph_meta_json": json.dumps({
+                            "delivery_days": delivery_days,
+                            "reorder_point": calc.get("reorder_point_days", None),
+                            "stockout_day": calc.get("stockout_day"),
+                            "shipments": json_tracking_details,
+                            "today": 0,
+
+                        }),
+                    })
+
+        return render(request, self.template_name, {
+            "categories":           categories,
+            "selected_category_id": int(selected_category_id),
+            "products":             products_data,
+            "today":                today,
+            "hide_dead":            hide_dead,
+        })
+
+class PurchaseOrderView(AccountantRequiredMixin, View):
+    template_name = "inventory/purchase_order.html"
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Pre-load ALL voucher data once, slice it per item in the loop
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _preload_voucher_data():
+        """
+        Returns three dicts keyed by item_id (int):
+          sales_rows   : list of {"date": date, "qty": float}   — TAX INVOICE
+          po_rows      : list of {"date": date, "qty": float, "voucher_number": str, "party": str}
+                         — PURCHASE ORDER vouchers
+          gst_rows     : list of {"date": date, "qty": float, "voucher_number": str, "party": str}
+                         — GST PURCHASE (received stock)
+        """
+        APRIL_2025 = datetime.date(2025, 4, 1)
+
+        sales_map = defaultdict(list)
+        credit_note_map = defaultdict(list)
+        po_map    = defaultdict(list)
+        gst_map   = defaultdict(list)
+        internal_customer_map = defaultdict(list)
+
+        # ── All TAX INVOICE stock rows (from April 2025 onwards for sales calc)
+        # We also need older data for 1-year growth, so pull everything and filter in Python
+        for row in (
+            VoucherStockItem.objects
+            .filter(voucher__voucher_type__iexact="TAX INVOICE")
+            .select_related("voucher")
+            .values("item_id", "quantity", "voucher__date", "voucher__party_name")
+        ):
+            iid = row["item_id"]
+            if not iid:
+                continue
+            sales_map[iid].append({
+                "date": row["voucher__date"],
+                "qty":  float(row["quantity"] or 0),
+                "party": row["voucher__party_name"] or "Unknown",
+            })
+
+        for row in (
+                VoucherStockItem.objects
+                        .filter(
+                    voucher__voucher_type__iexact="CREDIT NOTE"
+                )
+                .select_related("voucher")
+                .values("item_id", "quantity", "voucher__date", "voucher__party_name")
+
+        ):
+            iid = row["item_id"]
+            if not iid:
+                continue
+            credit_note_map[iid].append({
+                "date": row["voucher__date"],
+                "qty": float(row["quantity"] or 0),
+                "party": row["voucher__party_name"] or "Unknown",
+            })
+
+        for row in (
+                VoucherStockItem.objects
+                        .filter(voucher__voucher_type__iexact="TAX INVOICE")
+                        .select_related("voucher")
+                        .values(
+                    "item_id",
+                    "quantity",
+                    "voucher__date",
+                    "voucher__party_name"
+                )
+        ):
+            party = (row["voucher__party_name"] or "").upper()
+
+            if not (
+                    "AMEND" in party
+                    or "SMILIGN" in party
+            ):
+                continue
+
+            iid = row["item_id"]
+
+            if not iid:
+                continue
+
+            internal_customer_map[iid].append({
+                "date": row["voucher__date"],
+                "qty": float(row["quantity"] or 0),
+                "party": row["voucher__party_name"],
+            })
+
+        # ── PURCHASE ORDER vouchers (PO we make, from Dec 2024 onward)
+        for row in (
+            VoucherStockItem.objects
+            .filter(voucher__voucher_type__iexact="PURCHASE ORDER")
+            .select_related("voucher")
+            .values("item_id", "quantity", "voucher__date",
+                    "voucher__voucher_number", "voucher__party_name")
+        ):
+            iid = row["item_id"]
+            if not iid:
+                continue
+            po_map[iid].append({
+                "date":           row["voucher__date"],
+                "qty":            float(row["quantity"] or 0),
+                "voucher_number": row["voucher__voucher_number"],
+                "party":          row["voucher__party_name"],
+            })
+
+        # ── GST PURCHASE (received/booked into stock)
+        for row in (
+            VoucherStockItem.objects
+            .filter(
+                voucher__voucher_type__in=[
+                    "GST PURCHASE", "Purchase", "gst purchase", "purchase"
+                ]
+            )
+            .select_related("voucher")
+            .values("item_id", "quantity", "voucher__date",
+                    "voucher__voucher_number", "voucher__party_name")
+        ):
+            iid = row["item_id"]
+            if not iid:
+                continue
+            gst_map[iid].append({
+                "date":           row["voucher__date"],
+                "qty":            float(row["quantity"] or 0),
+                "voucher_number": row["voucher__voucher_number"],
+                "party":          row["voucher__party_name"],
+            })
+
+        return (
+            sales_map,
+            credit_note_map,
+            internal_customer_map,
+            po_map,
+            gst_map,
+        )
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Pre-load Purchase Order Tracking data
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _preload_tracking_data():
+        """
+        Returns dict keyed by InventoryItem.id
+
+        {
+            item_id: PurchaseOrderTrackingItem
+        }
+        """
+
+        from collections import defaultdict
+
+        tracking_map = defaultdict(list)
+
+        tracking_items = (
+            PurchaseOrderTrackingItem.objects
+            .filter(purchase_order__status__in=["active", "arrived"])
+            .select_related(
+                "purchase_order",
+                "inventory_item",
+            )
+            .prefetch_related(
+                "purchase_order__stage_logs__stage"
+            )
+        )
+
+        for tracking_item in tracking_items:
+
+            if tracking_item.inventory_item_id:
+                tracking_map[tracking_item.inventory_item_id].append(tracking_item)
+
+        return tracking_map
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Monthly sales aggregation (from tally data)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _monthly_sales(sales_rows, from_date=None):
+        """
+        Returns sorted list of {"month": "YYYY-MM", "qty": float}
+        Optional from_date to filter.
+        """
+        by_month = defaultdict(float)
+        for row in sales_rows:
+            d = row["date"]
+            if not d:
+                continue
+            if from_date and d < from_date:
+                continue
+            by_month[d.strftime("%Y-%m")] += row["qty"]
+        return [{"month": m, "qty": q} for m, q in sorted(by_month.items())]
+
+    @staticmethod
+    def _daily_sales(sales_rows, credit_note_rows, internal_rows):
+
+        by_month = defaultdict(list)
+
+        # Normal Sales
+
+        INTERNAL_CUSTOMERS = (
+            "AMEND",
+            "SMILIGN",
+        )
+        for row in sales_rows:
+
+            d = row["date"]
+
+            if not d:
+                continue
+
+            by_month[d.strftime("%Y-%m")].append({
+
+                "date": d.strftime("%Y-%m-%d"),
+                "party": row.get("party", "Unknown"),
+                "qty": row["qty"],
+                "status": "Included",
+                "reason": "",
+
+            })
+
+        # Credit Notes
+        for row in credit_note_rows:
+
+            d = row["date"]
+
+            if not d:
+                continue
+
+            by_month[d.strftime("%Y-%m")].append({
+
+                "date": d.strftime("%Y-%m-%d"),
+                "qty": row["qty"],
+                "party": row.get("party", "Unknown"),
+                "status": "Excluded",
+                "reason": "Credit Note",
+
+            })
+
+        # Internal Customers
+        for row in internal_rows:
+
+            d = row["date"]
+
+            if not d:
+                continue
+
+            by_month[d.strftime("%Y-%m")].append({
+
+                "date": d.strftime("%Y-%m-%d"),
+                "qty": row["qty"],
+                "party": row.get("party", "Unknown"),
+                "status": "Excluded",
+                "reason": "Internal Customer",
+
+            })
+
+        for month in by_month:
+            by_month[month].sort(key=lambda x: x["date"])
+
+        return dict(by_month)
+
+    @staticmethod
+    def _net_sales(item_sales, item_credit_notes):
+
+        if not item_sales:
+            return []
+
+        if not item_credit_notes:
+            return item_sales
+
+        # Work on a copy so we never modify the original sales_map
+        sales = [
+            {
+                "date": row["date"],
+                "qty": float(row["qty"]),
+                "party": row.get("party", "Unknown"),
+            }
+            for row in item_sales
+        ]
+
+        # Process every Credit Note
+        for credit in item_credit_notes:
+
+            remaining_credit = float(credit["qty"])
+            credit_party = credit.get("party")
+            credit_date = credit.get("date")
+
+            if remaining_credit <= 0:
+                continue
+
+            # Oldest sale first (FIFO)
+            for sale in sorted(sales, key=lambda x: x["date"]):
+
+                if remaining_credit <= 0:
+                    break
+
+                # Same customer only
+                if sale["party"] != credit_party:
+                    continue
+
+                # Credit Note cannot cancel a future sale
+                if sale["date"] > credit_date:
+                    continue
+
+                available = sale["qty"]
+
+                if available <= 0:
+                    continue
+
+                deduction = min(available, remaining_credit)
+
+                sale["qty"] -= deduction
+                remaining_credit -= deduction
+
+        # Remove fully cancelled sales
+        return [row for row in sales if row["qty"] > 0]
+
+    @staticmethod
+    def _remove_internal_sales(item_sales, internal_sales):
+
+        if not item_sales:
+            return []
+
+        if not internal_sales:
+            return item_sales
+
+        # Work on a copy
+        sales = [
+            {
+                "date": row["date"],
+                "qty": float(row["qty"]),
+                "party": row.get("party", "Unknown"),
+            }
+            for row in item_sales
+        ]
+
+        # FIFO deduction (same logic as Credit Notes)
+        for internal in internal_sales:
+
+            remaining_qty = float(internal["qty"])
+            internal_party = internal.get("party")
+            internal_date = internal.get("date")
+
+            if remaining_qty <= 0:
+                continue
+
+            for sale in sorted(sales, key=lambda x: x["date"]):
+
+                if remaining_qty <= 0:
+                    break
+
+                sale_party = (sale.get("party") or "").upper()
+
+                if not (
+                        "AMEND" in sale_party or
+                        "SMILIGN" in sale_party
+                ):
+                    continue
+
+                if sale["date"] > internal_date:
+                    continue
+
+                available = sale["qty"]
+
+                if available <= 0:
+                    continue
+
+                deduction = min(available, remaining_qty)
+
+                sale["qty"] -= deduction
+                remaining_qty -= deduction
+
+        return [row for row in sales if row["qty"] > 0]
+    # ─────────────────────────────────────────────────────────────────────────
+    # Average daily sales (tally data, from April 2025)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _avg_daily_from_tally(sales_rows):
+        """
+        Avg daily = total qty sold since April 2025 / number of days since April 2025.
+        """
+        APRIL_2025 = datetime.date(2025, 4, 1)
+        today      = datetime.date.today()
+        total_qty  = sum(
+            row["qty"] for row in sales_rows
+            if row["date"] and row["date"] >= APRIL_2025
+        )
+        days_elapsed = (today - APRIL_2025).days or 1
+        return round(total_qty / days_elapsed, 4)
+
+    @staticmethod
+    def _avg_daily_from_landing_date(sales_rows, landing_date):
+        total_qty = sum(
+            row["qty"]
+            for row in sales_rows
+            if row["date"] and row["date"] >= landing_date
+        )
+
+        days_elapsed = max(
+            1,
+            (datetime.date.today() - landing_date).days
+        )
+
+        return round(total_qty / days_elapsed, 4)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Growth windows
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _growth_windows(sales_rows):
+        """
+        growth_1y : last 12 months total vs previous 12 months total (all tally data)
+        growth_3m : last  3 months total vs previous  3 months total (tally data)
+
+        Returns (growth_1y, growth_3m) as % floats or None.
+        """
+        if not sales_rows:
+            return None, None
+
+        today   = datetime.date.today()
+        by_month = defaultdict(float)
+        for row in sales_rows:
+            if row["date"]:
+                by_month[row["date"].strftime("%Y-%m")] += row["qty"]
+
+        def _sum_window(offset_start, count):
+            total = 0.0
+            for i in range(offset_start, offset_start + count):
+                key = (today.replace(day=1) - relativedelta(months=i)).strftime("%Y-%m")
+                total += by_month.get(key, 0)
+            return total
+
+        r1y = _sum_window(0,  12);  p1y = _sum_window(12, 12)
+        r3m = _sum_window(0,   3);  p3m = _sum_window(3,   3)
+
+        growth_1y = round((r1y - p1y) / p1y * 100, 1) if p1y else None
+        growth_3m = round((r3m - p3m) / p3m * 100, 1) if p3m else None
+        return growth_1y, growth_3m
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Sales forecast (growth-adjusted)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _forecast_next_3_months(avg_daily, growth_1y, growth_3m, is_dead):
+        """
+        Blended monthly growth = average of growth_1y/12 (monthly equiv) and growth_3m/3.
+        Apply compounding to avg_daily → project M+1, M+2, M+3 monthly totals.
+        Returns (pred_m1, pred_m2, pred_m3) or (None, None, None).
+        """
+        if is_dead or avg_daily <= 0:
+            return None, None, None
+
+        # Convert annual / 3-month growth to per-month growth rates
+        rates = []
+
+        rate_1y = (growth_1y / 12 / 100) if growth_1y is not None else None
+        rate_3m = (growth_3m / 3 / 100) if growth_3m is not None else None
+
+        if rate_1y is not None and rate_3m is not None:
+            monthly_growth = 0.20 * rate_1y + 0.80 * rate_3m
+        elif rate_3m is not None:
+            monthly_growth = rate_3m  # only 3m available
+        elif rate_1y is not None:
+            monthly_growth = rate_1y  # only 1y available
+        else:
+            monthly_growth = 0.0
+        # adding max 40% growth to
+        monthly_growth = min(monthly_growth, 0.40)
+        # ---------
+        base_monthly = avg_daily * 30
+        m1 = max(0, round(base_monthly * (1 + monthly_growth)))
+        m2 = max(0, round(base_monthly * (1 + monthly_growth) ** 2))
+        m3 = max(0, round(base_monthly * (1 + monthly_growth) ** 3))
+        return m1, m2, m3
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Order calculation
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _calc_order(
+        current_stock,
+        avg_daily,
+        delivery_days,
+        incoming_shipments,
+        pred_m1, pred_m2, pred_m3,
+        monthly_growth_rate,   # decimal e.g. 0.03 for 3%
+        moq,
+        is_dead,
+    ):
+        """
+        ALGORITHM
+        ─────────
+        Inputs:
+          • current_stock
+          • incoming_qty / incoming_date  (open PO, if any within delivery window)
+          • avg_daily                     (from tally, April 2025 onwards)
+          • monthly_growth_rate           (blended from 1y + 3m growth)
+          • delivery_days                 (lead time for this product)
+          • pred_m1/m2/m3                 (growth-adjusted monthly forecast)
+          • 20% buffer stock (hardcoded)
+          • moq
+
+        Steps:
+          1. Project daily consumption with growth for each future day.
+          2. Stack current_stock + incoming_qty (if arriving before new batch).
+          3. Find the day stock (with buffer) runs out → "runway".
+          4. Reorder point = runway_day − delivery_days.
+             If reorder_point <= 0 → order NOW.
+          5. Calculate qty needed to cover 3 months from the reorder-arrival date,
+             adjusted for growth, plus 20% buffer, minus incoming (if arriving after).
+          6. Round up to MOQ if needed.
+
+        Returns a dict with all intermediate values for template rendering + graphing.
+        """
+        BUFFER = 1.20   # 20% safety buffer
+
+        today = datetime.date.today()
+
+        shipments = []
+
+        for shipment in incoming_shipments:
+            arrival_day = shipment.get("arrival_day")
+
+            if arrival_day is None:
+                continue
+
+            shipments.append({
+                "arrival_day": max(0, int(arrival_day)),
+                "qty": float(shipment.get("incoming_qty") or 0),
+                "po_number": shipment.get("po_number"),
+                "stage": shipment.get("stage"),
+                "eta": shipment.get("eta"),
+                "remaining_days": shipment.get("remaining_days"),
+                "days_in_stage": shipment.get("days_in_stage"),
+                "type": shipment.get("type"),
+            })
+
+        shipments.sort(
+            key=lambda x: x["arrival_day"]
+        )
+
+        if is_dead:
+            return {
+                "is_dead":           True,
+                "order_recommended": 0,
+                "order_final":       0,
+                "order_urgency":     "dead",
+                "moq_note":          None,
+                "order_lasts_months": None,
+                "runway_days":       None,
+                "reorder_point_days": None,
+                "graph_data":        [],
+                "calc_steps":        {"note": "Product is dead stock — no order recommended."},
+            }
+
+        # ── Step 1: daily growth-adjusted demand projection (180 days horizon)
+        horizon = 180
+        daily_demand = []
+        for day in range(horizon):
+            month_offset = day // 30
+            rate = (1 + monthly_growth_rate) ** month_offset
+            daily_demand.append(avg_daily * rate)
+
+        # # ── Step 2: determine when incoming PO arrives relative to today
+        # incoming_arrives_in = None   # days from today
+        # if incoming_qty > 0 and incoming_date:
+        #     incoming_arrives_in = max(0, (incoming_date - today).days)
+
+        # ── Step 3: simulate stock level day-by-day to find runway
+        stock = float(current_stock)
+        stockout_day = None
+        runway_days = None
+
+        graph_data = []   # for chart: day → {stock, demand_per_day}
+
+
+        for day in range(horizon):
+            # Add incoming stock on its arrival day
+            events_today = []
+
+            for shipment in shipments:
+
+                if shipment["arrival_day"] == day:
+                    stock += shipment["qty"]
+
+                    events_today.append({
+
+                        "po": shipment["po_number"],
+                        "qty": shipment["qty"],
+                        "stage": shipment["stage"],
+                        "eta": shipment["eta"],
+                        "remaining_days": shipment["remaining_days"],
+                        "days_in_stage": shipment["days_in_stage"],
+                        "type": shipment.get("type"),
+
+                    })
+
+            demand = daily_demand[day]
+            buffer_threshold = demand * 30 * 3 * BUFFER  # 3-month buffered demand
+
+            graph_data.append({
+                "day": day,
+                "stock": round(max(0, stock), 1),
+                "buffer_line": round(buffer_threshold, 1),
+                "demand": round(demand, 2),
+                "events": events_today,
+                "today": day == 0,
+            })
+
+            stock -= demand
+
+            if stockout_day is None and stock <= 0:
+                stockout_day = day
+
+            # Runway = first day stock goes below 0 (without buffer first)
+            if runway_days is None and stock <= 0:
+                runway_days = day
+
+        if runway_days is None:
+            runway_days = horizon  # Stock lasts beyond horizon
+
+        # ── Step 4: reorder point (days from today)
+        reorder_point_days = runway_days - delivery_days
+
+        # ── Step 5: should we order now?
+        order_now = reorder_point_days <= 0
+
+        # Arrival date of NEW batch if ordered today
+        new_batch_arrival_day = delivery_days
+
+        for point in graph_data:
+            point["reorder_day"] = (
+                    point["day"] == reorder_point_days
+            )
+
+            point["new_order_arrival"] = (
+                    point["day"] == delivery_days
+            )
+
+        # Stock on hand when NEW batch arrives
+        stock_at_arrival = float(current_stock)
+
+        for d in range(new_batch_arrival_day + 1):
+
+            # Add all existing PO quantities arriving on this day
+            for shipment in shipments:
+                if shipment["arrival_day"] == d:
+                    stock_at_arrival += shipment["qty"]
+
+            # Consume demand only for days BEFORE the new PO arrives
+            if d < new_batch_arrival_day:
+                stock_at_arrival -= (
+                    daily_demand[d]
+                    if d < len(daily_demand)
+                    else avg_daily
+                )
+
+        stock_at_arrival = max(0, stock_at_arrival)
+
+        # Demand for 3 months AFTER new batch arrives (with buffer)
+        demand_3m_after = 0.0
+        if pred_m1 is not None:
+            demand_3m_after = (pred_m1 + pred_m2 + pred_m3) * BUFFER
+            demand_source = f"forecast {pred_m1}+{pred_m2}+{pred_m3} × 1.20 buffer"
+        else:
+            demand_3m_after = avg_daily * 90 * BUFFER
+            demand_source = f"flat avg {round(avg_daily,2)}/day × 90 × 1.20 buffer"
+
+        demand_3m_after = round(demand_3m_after)
+
+        # Incoming that arrives AFTER new batch (still helps)
+        incoming_after_new_batch = sum(
+
+            shipment["qty"]
+
+            for shipment in shipments
+
+            if shipment["arrival_day"] > new_batch_arrival_day
+
+        )
+
+        shortfall = max(0, demand_3m_after - stock_at_arrival)
+
+        # ── Step 6: urgency
+        if not order_now and shortfall == 0:
+            order_recommended = 0
+            order_urgency     = "ok"
+        elif shortfall == 0:
+            order_recommended = 0
+            order_urgency     = "ok"
+        else:
+            order_recommended = int(round(shortfall))
+            order_urgency     = "urgent" if reorder_point_days <= 0 else "warn"
+
+        # ── MOQ check
+        moq_note    = None
+        order_final = order_recommended
+        if moq and order_recommended > 0 and order_recommended < moq:
+            moq_note    = moq
+            order_final = moq   # round up to MOQ
+
+        # ── How long will order last (months)
+        order_lasts_months = None
+        if avg_daily > 0 and order_final > 0:
+            total_after = stock_at_arrival + order_final + incoming_after_new_batch
+            order_lasts_months = round(total_after / (avg_daily * 30), 1)
+
+
+        # ── Runway in months (current trajectory)
+        runway_months = round(runway_days / 30, 1) if runway_days < horizon else None
+
+        calc_steps = {
+            "current_stock":          current_stock,
+            "avg_daily":              avg_daily,
+            "delivery_days":          delivery_days,
+            "monthly_growth_rate_pct": round(monthly_growth_rate * 100, 2),
+            "incoming_shipments": incoming_shipments,
+            "stock_at_arrival":       stock_at_arrival,
+            "demand_3m_after":        demand_3m_after,
+            "demand_source":          demand_source,
+            "shortfall":              round(shortfall),
+            "order_urgency":          order_urgency,
+            "moq":                    moq,
+            "moq_note":               moq_note,
+            "order_final":            order_final,
+            "order_lasts_months":     order_lasts_months,
+            "runway_days":            runway_days,
+            "runway_months":          runway_months,
+            "reorder_point_days":     reorder_point_days,
+            "order_now":              order_now,
+            "pred_m1":                pred_m1,
+            "pred_m2":                pred_m2,
+            "pred_m3":                pred_m3,
+            "buffer_pct":             20,
+            "incoming_after_new_batch": incoming_after_new_batch,
+        }
+
+        return {
+            "is_dead":            False,
+            "order_recommended":  int(round(order_recommended)),
+            "order_final":        int(round(order_final)),
+            "order_urgency":      order_urgency,
+            "moq_note":           moq_note,
+            "order_lasts_months": order_lasts_months,
+            "runway_days":        runway_days,
+            "runway_months":      runway_months,
+            "reorder_point_days": reorder_point_days,
+            "graph_data":         graph_data[:90],  # send 90 days to template
+            "calc_steps":         calc_steps,
+            "stockout_day":       stockout_day,
+        }
+
+    def post(self, request, item_id):
+        try:
+            item = InventoryItem.objects.get(id=item_id)
+
+            item.is_new_product = not item.is_new_product
+            item.save(update_fields=["is_new_product"])
+
+            return JsonResponse({
+                "success": True,
+                "is_new_product": item.is_new_product,
+            })
+
+        except InventoryItem.DoesNotExist:
+            return JsonResponse({
+                "success": False,
+                "error": "Product not found"
+            }, status=404)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # GET
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def get(self, request):
+        today            = datetime.date.today()
+        ninety_days_ago  = today - timedelta(days=90)
+        APRIL_2025       = datetime.date(2025, 4, 1)
+
+        categories           = Category.objects.all().order_by("name")
+        selected_category_id = request.GET.get("category")
+        hide_dead            = request.GET.get("hide_dead") == "1"
+
+        if not selected_category_id:
+            return render(request, self.template_name, {
+                "categories": categories, "products": None,
+                "selected_category_id": None,
+            })
+
+        # ── Pre-load all voucher data (one DB hit per type)
+        sales_map, credit_note_map, internal_customer_map, po_map, gst_map = (
+            PurchaseOrderView._preload_voucher_data()
+        )
+
+        tracking_item_map = PurchaseOrderView._preload_tracking_data()
+
+        items = (
+            InventoryItem.objects
+            .filter(category_id=selected_category_id)
+            .select_related("category")
+            .order_by("name")
+        )
+
+        products_data = []
+
+        for item in items:
+            iid           = item.id
+            current_stock = float(item.quantity or 0)
+
+            # ── Landing date from Tally GST Purchase
+            landing_date = None
+
+            if item.is_new_product:
+                item_gst_rows = gst_map.get(iid, [])
+
+                valid_dates = [
+                    row["date"]
+                    for row in item_gst_rows
+                    if row["date"]
+                ]
+
+                if valid_dates:
+                    landing_date = min(valid_dates)
+
+            # ── Tally sales rows for this item
+            item_sales = sales_map.get(iid, [])
+
+            item_credit_notes = credit_note_map.get(iid, [])
+
+            item_sales = PurchaseOrderView._net_sales(
+                item_sales,
+                item_credit_notes,
+            )
+
+            item_internal_sales = internal_customer_map.get(iid, [])
+
+            item_sales = PurchaseOrderView._remove_internal_sales(
+                item_sales,
+                item_internal_sales,
+            )
+
+
+            # abhijay change to make modal that shows monthly rpoduct sales
+            monthly_sales_breakdown = PurchaseOrderView._monthly_sales(item_sales)
+
+            daily_sales_breakdown = PurchaseOrderView._daily_sales(
+                item_sales,
+                item_credit_notes,
+                item_internal_sales,
+            )
+            # Dead stock = no TAX INVOICE sale in last 90 days
+            is_dead = not any(
+                row["date"] and row["date"] >= ninety_days_ago
+                for row in item_sales
+            )
+
+            if hide_dead and is_dead:
+                continue
+
+            # ── Avg daily
+            if item.is_new_product and landing_date:
+                avg_daily = PurchaseOrderView._avg_daily_from_landing_date(
+                    item_sales,
+                    landing_date
+                )
+            else:
+                avg_daily = PurchaseOrderView._avg_daily_from_tally(item_sales)
+
+            # ── Growth
+            growth_1y, growth_3m = PurchaseOrderView._growth_windows(item_sales)
+
+            # Blended monthly growth rate (decimal)
+            rates = []
+            # NEW — weighted: 20% YoY, 80% last-3m
+            rate_1y = (growth_1y / 12 / 100) if growth_1y is not None else None
+            rate_3m = (growth_3m / 3 / 100) if growth_3m is not None else None
+
+            if rate_1y is not None and rate_3m is not None:
+                monthly_growth_rate = 0.20 * rate_1y + 0.80 * rate_3m
+            elif rate_3m is not None:
+                monthly_growth_rate = rate_3m  # only 3m available
+            elif rate_1y is not None:
+                monthly_growth_rate = rate_1y  # only 1y available
+            else:
+                monthly_growth_rate = 0.0
+            # adding 40% cap on growth
+            monthly_growth_rate = min(monthly_growth_rate, 0.4)
+            # -------
+            # ── Forecast
+            pred_m1, pred_m2, pred_m3 = PurchaseOrderView._forecast_next_3_months(
+                avg_daily, growth_1y, growth_3m, is_dead
+            )
+
+            # ── PO data (purchase order vouchers we made)
+            item_po_rows = sorted(
+                po_map.get(iid, []),
+                key=lambda r: r["date"] or datetime.date.min,
+                reverse=True,
+            )
+            latest_po = item_po_rows[0] if item_po_rows else None
+
+
+
+            incoming_qty = 0
+            incoming_date = None
+
+            tracking_details = []
+
+            tracking_items = tracking_item_map.get(item.id, [])
+
+
+
+            if tracking_items:
+
+                for tracking_item in tracking_items:
+                    po = tracking_item.purchase_order
+                    current_stage = get_current_stage(po)
+
+                    # remaining_days = get_remaining_days(po) removed
+                    days_in_stage = get_days_in_current_stage(po)
+
+                    # incoming_date = get_expected_arrival_date(po) removed
+                    #added new manual eta
+                    system_eta = get_expected_arrival_date(po)
+                    if po.manual_eta:
+                        incoming_date = po.manual_eta
+                        remaining_days = max(0, (po.manual_eta - today).days)
+                    else:
+                        incoming_date = system_eta
+                        remaining_days = get_remaining_days(po)
+
+                    ordered_qty = float(
+                        tracking_item.ordered_quantity or 0
+                    )
+
+                    arrived_qty = float(
+                        tracking_item.arrived_quantity or 0
+                    )
+
+                    pending_qty = max(
+                        0,
+                        ordered_qty - arrived_qty
+                    )
+
+                    # Only pending quantity should appear in transit table
+                    if pending_qty > 0:
+                        tracking_details.append({
+                            "po_number": po.tally_voucher.voucher_number,
+
+                            # Already physically received
+                            "arrived_qty": arrived_qty,
+
+                            # Still waiting to arrive
+                            "incoming_qty": pending_qty,
+
+                            "stage": (
+                                current_stage.stage.name
+                                if current_stage
+                                else None
+                            ),
+
+                            "days_in_stage": (
+                                float(days_in_stage)
+                                if days_in_stage is not None
+                                else None
+                            ),
+
+                            "remaining_days": (
+                                float(remaining_days)
+                                if remaining_days is not None
+                                else None
+                            ),
+
+                            "eta": incoming_date,
+
+                            "type": "pending",
+                        })
+
+
+            # ── GST purchase data (received stock)
+            # ── GST purchase data (received stock)
+            item_gst_rows = sorted(
+                gst_map.get(iid, []),
+                key=lambda r: r["date"] or datetime.date.min,
+                reverse=True,
+            )
+
+            latest_gst = item_gst_rows[0] if item_gst_rows else None
+
+            landing_date = None
+
+            if item.is_new_product and item_gst_rows:
+                valid_dates = [
+                    row["date"]
+                    for row in item_gst_rows
+                    if row["date"]
+                ]
+
+                if valid_dates:
+                    landing_date = min(valid_dates)
+
+            if item.is_new_product and item_gst_rows:
+                valid_dates = [
+                    row["date"]
+                    for row in item_gst_rows
+                    if row["date"]
+                ]
+
+                if valid_dates:
+                    landing_date = min(valid_dates)
+
+            # ── Core order calculation
+
+            delivery_days = item.expected_delivery_days or 30
+
+            total_incoming_qty = sum(
+                t["incoming_qty"]
+                for t in tracking_details
+            )
+
+            earliest_eta = min(
+                (
+                    t["eta"]
+                    for t in tracking_details
+                    if t["eta"]
+                ),
+                default=None
+            )
+
+            incoming_shipments = []
+
+            for t in tracking_details:
+
+                # Quantity already physically received
+                arrived_qty = float(t.get("arrived_qty") or 0)
+                pending_qty = float(t.get("incoming_qty") or 0)
+
+                if arrived_qty > 0:
+                    incoming_shipments.append({
+                        "incoming_qty": arrived_qty,
+                        "arrival_day": 0,
+                        "po_number": t["po_number"],
+                        "stage": "Arrived",
+                        "eta": today,
+                        "remaining_days": 0,
+                        "days_in_stage": t.get("days_in_stage"),
+                        "type": "arrived",
+                    })
+
+                if pending_qty > 0 and t.get("eta"):
+                    arrival_day = max(0, (t["eta"] - today).days)
+
+                    incoming_shipments.append({
+                        "incoming_qty": pending_qty,
+                        "arrival_day": arrival_day,
+                        "po_number": t["po_number"],
+                        "stage": t.get("stage"),
+                        "eta": t["eta"],
+                        "remaining_days": t.get("remaining_days"),
+                        "days_in_stage": t.get("days_in_stage"),
+                        "type": "pending",
+                    })
+
+
+
+            calc = PurchaseOrderView._calc_order(
+            current_stock       = current_stock,
+            avg_daily           = avg_daily,
+            delivery_days       = delivery_days,
+            incoming_shipments=incoming_shipments,
+            pred_m1             = pred_m1,
+            pred_m2             = pred_m2,
+            pred_m3             = pred_m3,
+            monthly_growth_rate = monthly_growth_rate,
+            moq                 = item.minimum_order_quantity,
+            is_dead             = is_dead,
+            )
+
+            # ── Stock runway (months current stock lasts at flat avg)
+            months_of_stock = (
+                round(current_stock / (avg_daily * 30), 1)
+                if avg_daily > 0 else None
+            )
+            is_overstocked = months_of_stock is not None and months_of_stock >= 9
+
+            # 1. Sanitize graph data for JSON (Convert Decimals/Dates)
+            json_graph_data = []
+            for d in calc.get("graph_data", []):
+                json_graph_data.append({
+                            "day": d["day"],
+                            "stock": float(d["stock"]),
+                            "buffer_line": float(d["buffer_line"]),
+                            "demand": float(d["demand"]),
+                            "events": [
+                                {
+                                    "po": e["po"],
+                                    "qty": float(e["qty"]),
+                                    "stage": e["stage"],
+                                    "eta": e["eta"].isoformat() if e["eta"] else None,
+                                    "type": e.get("type"),
+
+                                } for e in d.get("events", [])
+                            ]
+                        })
+
+            # 2. Sanitize tracking details for JSON
+            json_tracking_details = [
+                {
+                    "po_number": t["po_number"],
+                    "incoming_qty": float(t["incoming_qty"]),
+                    "arrived_qty": float(t.get("arrived_qty") or 0),
+
+                    "stage": t["stage"],
+
+                    "eta": (
+                        t["eta"].isoformat()
+                        if t["eta"]
+                        else None
+                    ),
+
+                    "remaining_days": (
+                        float(t["remaining_days"])
+                        if t["remaining_days"] is not None
+                        else None
+                    ),
+
+                    # Used by the graph to identify an already-arrived PO
+                    "type": t.get("type"),
+
+                    # Already-arrived quantity is available on Day 0
+                    "arrival_day": (
+                        0
+                        if t.get("arrived_qty", 0) > 0 and t.get("incoming_qty", 0) == 0
+                        else (
+                            round(float(t["remaining_days"]))
+                            if t.get("incoming_qty", 0) > 0 and t["remaining_days"] is not None
+                            else 0
+                        )
+                    ),
+                }
+                for t in tracking_details
+            ]
+
+
+            products_data.append({
+                        "id":                     iid,
+                        "name":                   item.name,
+                        "unit":                   item.unit or "",
+                        "category":               item.category.name if item.category else "—",
+                        "is_new_product": item.is_new_product,
+                        "landing_date": landing_date,
+                        "current_stock":          current_stock,
+                        "avg_daily":              round(avg_daily, 2),
+                        "growth_1y":              growth_1y,
+                        "growth_3m":              growth_3m,
+                        "monthly_growth_rate_pct": round(monthly_growth_rate * 100, 2),
+                        "pred_m1":                pred_m1,
+                        "pred_m2":                pred_m2,
+                        "pred_m3":                pred_m3,
+                        "is_dead":                is_dead,
+                        #product monthly sales modal
+                        "monthly_sales_json": json.dumps(monthly_sales_breakdown),
+                        "daily_sales_json": json.dumps(daily_sales_breakdown),
+                        # PO data
+                        "po_rows":                item_po_rows,        # all POs (for modal)
+                        "latest_po_qty":          latest_po["qty"]  if latest_po else None,
+                        "latest_po_date":         latest_po["date"] if latest_po else None,
+                        "latest_po_number":       latest_po["voucher_number"] if latest_po else None,
+                        # GST purchase data
+                        "gst_rows":               item_gst_rows,       # all GST purchases (for modal)
+                        "latest_gst_qty":         latest_gst["qty"]  if latest_gst else None,
+                        "latest_gst_date":        latest_gst["date"] if latest_gst else None,
+                        # Transit
+                        "incoming_qty":           total_incoming_qty,
+                        "incoming_date":          earliest_eta,
+                        "tracking_details": tracking_details,
+                        "expected_delivery_days": item.expected_delivery_days,
+                        # Order calc
+                        "order_recommended":      calc["order_recommended"],
+                        "order_final":            calc["order_final"],
+                        "order_urgency":          calc["order_urgency"],
+                        "moq_note":               calc["moq_note"],
+                        "moq":                    item.minimum_order_quantity,
+                        "order_lasts_months":     calc["order_lasts_months"],
+                        "runway_days":            calc.get("runway_days"),
+                        "runway_months":          calc.get("runway_months"),
+                        "reorder_point_days":     calc.get("reorder_point_days"),
+                        "graph_data":             calc.get("graph_data", []),
+                        "calc_steps":             calc["calc_steps"],
+                        # Overstock
+                        "months_of_stock":        months_of_stock,
+                        "is_overstocked":         is_overstocked,
+                        "graph_data_json": json.dumps(json_graph_data),
+                        "graph_meta_json": json.dumps({
+                            "delivery_days": delivery_days,
+                            "reorder_point": calc.get("reorder_point_days", None),
+                            "stockout_day": calc.get("stockout_day"),
+                            "shipments": json_tracking_details,
+                            "today": 0,
+
+                        }),
+                    })
+
+        return render(request, self.template_name, {
+            "categories":           categories,
+            "selected_category_id": int(selected_category_id),
+            "products":             products_data,
+            "today":                today,
+            "hide_dead":            hide_dead,
+        })
+
+
+from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib import messages
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse_lazy
@@ -5643,7 +9745,7 @@ def create_po_tracking(request, voucher_id):
                 inventory_item=stock_row.item,
                 item_name_text=stock_row.item_name_text,
                 ordered_quantity=stock_row.quantity,
-                arrived_quantity=0,  #this should be reintialised with 0 ..(Marked as fully received)
+                arrived_quantity=0,
             )
 
         messages.success(request, "Purchase order tracking created successfully.")
@@ -5672,6 +9774,12 @@ class PurchaseOrderTrackingDetailView(LoginRequiredMixin, DetailView):
     template_name = "inventory/purchase_orders/po_tracking_detail.html"
     context_object_name = "po"
 
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["eta_form"] = PurchaseOrderTrackingForm(
+            instance=self.object
+        )
+        return context
 
 @login_required
 def update_arrived_quantities(request, pk):
@@ -5727,32 +9835,88 @@ class PurchaseOrderStageLogCreateView(LoginRequiredMixin, CreateView):
     template_name = "inventory/purchase_orders/stage_log_form.html"
 
     def dispatch(self, request, *args, **kwargs):
-        self.po = get_object_or_404(PurchaseOrderTracking, pk=self.kwargs["po_pk"])
+        self.po = get_object_or_404(
+            PurchaseOrderTracking,
+            pk=self.kwargs["po_pk"]
+        )
         return super().dispatch(request, *args, **kwargs)
+
+    def get_form(self, form_class=None):
+        form = super().get_form(form_class)
+
+        # Show currently saved Manual ETA
+        form.fields["manual_eta"].initial = self.po.manual_eta
+
+        return form
 
     def form_valid(self, form):
         form.instance.purchase_order = self.po
         form.instance.created_by = self.request.user
-        messages.success(self.request, "Stage added to purchase order.")
+
+        # UPDATE Manual ETA
+        manual_eta = form.cleaned_data.get("manual_eta")
+
+        if manual_eta:
+            self.po.manual_eta = manual_eta
+            self.po.save(update_fields=["manual_eta", "updated_at"])
+
+        messages.success(
+            self.request,
+            "Stage added to purchase order."
+        )
+
         return super().form_valid(form)
 
     def get_success_url(self):
-        return reverse_lazy("po_tracking_detail", kwargs={"pk": self.po.pk})
+        return reverse_lazy(
+            "po_tracking_detail",
+            kwargs={"pk": self.po.pk}
+        )
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["po"] = self.po
         return context
 
-
 class PurchaseOrderStageLogUpdateView(LoginRequiredMixin, UpdateView):
     model = PurchaseOrderStageLog
     form_class = PurchaseOrderStageLogForm
     template_name = "inventory/purchase_orders/stage_log_form.html"
 
-    def get_success_url(self):
-        return reverse_lazy("po_tracking_detail", kwargs={"pk": self.object.purchase_order.pk})
+    def get_form(self, form_class=None):
+        form = super().get_form(form_class)
 
+        # Show currently saved Manual ETA
+        form.fields["manual_eta"].initial = (
+            self.object.purchase_order.manual_eta
+        )
+
+        return form
+
+    def form_valid(self, form):
+        # Get the PO linked to this stage
+        po = self.object.purchase_order
+
+        # Get the new Manual ETA from the form
+        manual_eta = form.cleaned_data.get("manual_eta")
+
+        if manual_eta:
+            # Replace old ETA with new ETA
+            po.manual_eta = manual_eta
+            po.save(update_fields=["manual_eta", "updated_at"])
+
+        messages.success(
+            self.request,
+            "Stage updated successfully."
+        )
+
+        return super().form_valid(form)
+
+    def get_success_url(self):
+        return reverse_lazy(
+            "po_tracking_detail",
+            kwargs={"pk": self.object.purchase_order.pk}
+        )
 
 
 
@@ -6284,3 +10448,1310 @@ def _avg_daily(sales_rows, today):
     total = sum(r["qty"] for r in sales_rows if r["date"] and r["date"] >= APRIL_2025)
     days  = (today - APRIL_2025).days or 1
     return round(total / days, 4)
+
+
+class ProductListView(AccountantRequiredMixin, View):
+    def get(self, request, category=None):
+        category_obj = None
+        if category:
+            category_obj = get_object_or_404(Category, id=category)
+            base_items = InventoryItem.objects.filter(category=category_obj)
+        else:
+            category_id = request.GET.get('category')
+            if category_id:
+                category_obj = Category.objects.filter(id=category_id).first()
+                base_items = InventoryItem.objects.filter(
+                    category=category_obj) if category_obj else InventoryItem.objects.all()
+            else:
+                base_items = InventoryItem.objects.all()
+
+        all_categories = Category.objects.annotate(item_count=Count('inventoryitem')).order_by('-item_count')
+
+        # Scope KPIs based on category scope
+        total_items = base_items.count()
+        total_quantity = base_items.aggregate(total=Sum('quantity'))['total'] or 0
+        low_stock_count = base_items.filter(quantity__lte=F('min_quantity'), min_quantity__gt=0, quantity__gt=0).count()
+        out_of_stock_count = base_items.filter(Q(quantity__lte=0) | Q(quantity__isnull=True)).count()
+        optimal_count = max(0, total_items - low_stock_count - out_of_stock_count)
+
+        # Filters for query
+        items_qs = base_items.select_related('category').order_by('name')
+
+        # 1. Text Search Filter
+        search_query = request.GET.get('q', '').strip()
+        if search_query:
+            q_filter = Q(name__icontains=search_query) | Q(category__name__icontains=search_query)
+            if search_query.isdigit():
+                q_filter |= Q(id=int(search_query))
+            items_qs = items_qs.filter(q_filter)
+
+        # 2. Stock Health Status Filter
+        status_filter = request.GET.get('status', 'all').strip().lower()
+        if status_filter == 'in-stock':
+            items_qs = items_qs.filter(quantity__gt=F('min_quantity')).filter(quantity__gt=0)
+        elif status_filter == 'low-stock':
+            items_qs = items_qs.filter(quantity__lte=F('min_quantity'), min_quantity__gt=0, quantity__gt=0)
+        elif status_filter == 'out-stock':
+            items_qs = items_qs.filter(Q(quantity__lte=0) | Q(quantity__isnull=True))
+        else:
+            status_filter = 'all'
+
+        # Matching items count
+        matching_count = items_qs.count()
+
+        # 3. Server Pagination (default 50 items per page)
+        per_page = request.GET.get('per_page', '50').strip()
+        try:
+            per_page = int(per_page)
+            if per_page not in [25, 50, 100, 200]:
+                per_page = 50
+        except ValueError:
+            per_page = 50
+
+        paginator = Paginator(items_qs, per_page)
+        page_number = request.GET.get('page', 1)
+        page_obj = paginator.get_page(page_number)
+
+        # Build preserved query string for pagination links (excluding 'page')
+        query_params = request.GET.copy()
+        query_params.pop('page', None)
+        preserved_query = query_params.urlencode()
+
+        return render(request, 'inventory/dashboard.html', {
+            'page_obj': page_obj,
+            'items': page_obj,
+            'paginator': paginator,
+            'is_paginated': page_obj.has_other_pages(),
+            'category': category_obj,
+            'all_categories': all_categories,
+            'total_items': total_items,
+            'total_quantity': total_quantity,
+            'low_stock_count': low_stock_count,
+            'out_of_stock_count': out_of_stock_count,
+            'optimal_count': optimal_count,
+            'search_query': search_query,
+            'status_filter': status_filter,
+            'matching_count': matching_count,
+            'per_page': per_page,
+            'preserved_query': preserved_query,
+        })
+
+
+class YearOnYearSalesComparisonView(AccountantRequiredMixin, View):
+    """
+    Year-on-Year Sales Comparison
+
+    Completely separate from SalesComparisonDashboardView.
+
+    Data source:
+        VoucherStockItem
+
+    Sales:
+        TAX INVOICE
+        quantity
+        voucher__date
+
+    Comparison:
+        2025 vs 2026
+
+    Groups:
+        Erkodent
+        Bay Materials
+        Coherz
+
+    Supports:
+        - Single month comparison
+        - Date range comparison
+        - Individual product
+        - Product group
+    """
+
+    template_name = "inventory/year_on_year_sales_comparison.html"
+
+    START_DATE = date(2025, 4, 1)
+
+    GROUP_ORDER = [
+        "Erkodent",
+        "Bay Materials",
+        "Coherz",
+    ]
+
+    GROUP_RULES = {
+        "Erkodent": {
+            "categories": [
+                "Erkodent",
+            ],
+            "prefixes": [
+                "erkodent",
+                "erkodur",
+                "erkoflex",
+                "erkoloc",
+                "erkolen",
+                "erkolign",
+                "playsafe",
+            ],
+        },
+
+        "Bay Materials": {
+            "categories": [
+                "Bay Materials",
+                "Bay Material",
+            ],
+            "prefixes": [
+                "zendura",
+            ],
+        },
+
+        "Coherz": {
+            "categories": [
+                "Coherz",
+            ],
+            "prefixes": [
+                "molekur",
+            ],
+        },
+    }
+
+    # ============================================================
+    # GET
+    # ============================================================
+
+    def get(self, request):
+
+        today = date.today()
+
+        # --------------------------------------------------------
+        # ALL INVENTORY PRODUCTS
+        # --------------------------------------------------------
+
+        all_products = (
+            InventoryItem.objects
+            .select_related("category")
+            .order_by("name")
+        )
+
+        # --------------------------------------------------------
+        # BUILD ONLY THE REQUIRED THERMOFORMING GROUPS
+        # --------------------------------------------------------
+
+        product_groups = self._build_product_groups(all_products)
+
+        # --------------------------------------------------------
+        # CREATE A CLEAN LIST OF THERMOFORMING PRODUCTS
+        # --------------------------------------------------------
+
+        thermoforming_products = []
+
+        seen_ids = set()
+
+        for group_name in self.GROUP_ORDER:
+
+            for product in product_groups.get(group_name, []):
+
+                if product.id not in seen_ids:
+
+                    thermoforming_products.append(product)
+
+                    seen_ids.add(product.id)
+
+        # --------------------------------------------------------
+        # USER SELECTION
+        # --------------------------------------------------------
+
+        comparison_type = request.GET.get(
+            "comparison_type",
+            "month",
+        )
+
+        selected_month = request.GET.get(
+            "month",
+            today.strftime("%Y-%m"),
+        )
+
+        selected_from = request.GET.get(
+            "from_date",
+            "",
+        )
+
+        selected_to = request.GET.get(
+            "to_date",
+            "",
+        )
+
+        selected_product = request.GET.get(
+            "product",
+            "",
+        )
+
+        selected_group = request.GET.get(
+            "group",
+            "",
+        )
+
+        # --------------------------------------------------------
+        # DEFAULT MONTH
+        # --------------------------------------------------------
+
+        # If current month is before April, there is no matching
+        # 2025 period available from the START_DATE.
+        #
+        # Current date in normal use is Sep 2026, so this will
+        # normally be today's month.
+
+        if not selected_month:
+
+            selected_month = today.strftime("%Y-%m")
+
+        # --------------------------------------------------------
+        # GRAPH
+        # --------------------------------------------------------
+
+        comparison_data = []
+
+        selected_label = ""
+
+        selected_items = []
+
+        error = None
+
+        try:
+
+            # ====================================================
+            # SINGLE MONTH
+            # ====================================================
+
+            if comparison_type == "month":
+
+                # ------------------------------------------------
+                # PARSE MONTH
+                # ------------------------------------------------
+
+                try:
+
+                    selected_year, selected_month_number = (
+                        selected_month.split("-")
+                    )
+
+                    selected_year = int(selected_year)
+
+                    month = int(selected_month_number)
+
+                except (
+                    ValueError,
+                    AttributeError,
+                ):
+
+                    raise ValueError(
+                        "Please select a valid month."
+                    )
+
+                # ------------------------------------------------
+                # VALID MONTH NUMBER
+                # ------------------------------------------------
+
+                if month < 1 or month > 12:
+
+                    raise ValueError(
+                        "Please select a valid month."
+                    )
+
+                selected_month_date = date(
+                    selected_year,
+                    month,
+                    1,
+                )
+
+                minimum_month = date(
+                    2025,
+                    4,
+                    1,
+                )
+
+                maximum_month = date(
+                    today.year,
+                    today.month,
+                    1,
+                )
+
+                # ------------------------------------------------
+                # MONTH RANGE
+                # ------------------------------------------------
+
+                if selected_month_date < minimum_month:
+
+                    raise ValueError(
+                        "Sales comparison starts from April 2025."
+                    )
+
+                if selected_month_date > maximum_month:
+
+                    raise ValueError(
+                        "You cannot select a future month."
+                    )
+
+                # ------------------------------------------------
+                # IMPORTANT:
+                #
+                # We only have 2025 sales from April onward.
+                #
+                # Therefore Jan-Mar 2026 cannot have a true
+                # year-on-year comparison.
+                # ------------------------------------------------
+
+                if selected_year == 2026 and month < 4:
+
+                    raise ValueError(
+                        "Year-on-year comparison for 2026 starts "
+                        "from April because 2025 sales data starts "
+                        "from April."
+                    )
+
+                # ------------------------------------------------
+                # 2025
+                # ------------------------------------------------
+
+                start_2025 = date(
+                    2025,
+                    month,
+                    1,
+                )
+
+                last_day_2025 = calendar.monthrange(
+                    2025,
+                    month,
+                )[1]
+
+                end_2025 = date(
+                    2025,
+                    month,
+                    last_day_2025,
+                )
+
+                # ------------------------------------------------
+                # 2026
+                # ------------------------------------------------
+
+                start_2026 = date(
+                    2026,
+                    month,
+                    1,
+                )
+
+                last_day_2026 = calendar.monthrange(
+                    2026,
+                    month,
+                )[1]
+
+                end_2026 = date(
+                    2026,
+                    month,
+                    last_day_2026,
+                )
+
+                # ------------------------------------------------
+                # CURRENT MONTH = LIKE FOR LIKE
+                # ------------------------------------------------
+
+                if (
+                    today.year == 2026
+                    and month == today.month
+                ):
+
+                    elapsed_day = today.day
+
+                    end_2025 = date(
+                        2025,
+                        month,
+                        min(
+                            elapsed_day,
+                            calendar.monthrange(
+                                2025,
+                                month,
+                            )[1],
+                        ),
+                    )
+
+                    end_2026 = today
+
+                # ------------------------------------------------
+                # SELECT PRODUCTS
+                # ------------------------------------------------
+
+                selected_items = self._get_selected_items(
+                    selected_product,
+                    selected_group,
+                    thermoforming_products,
+                    product_groups,
+                )
+
+                # ------------------------------------------------
+                # LABEL
+                # ------------------------------------------------
+
+                selected_label = (
+                    f"{calendar.month_name[month]} "
+                    f"2025 vs "
+                    f"{calendar.month_name[month]} "
+                    f"2026"
+                )
+
+                # ------------------------------------------------
+                # CALCULATE
+                # ------------------------------------------------
+
+                comparison_data = (
+                    self._calculate_month_comparison(
+                        start_2025,
+                        end_2025,
+                        start_2026,
+                        end_2026,
+                        selected_items,
+                    )
+                )
+
+            # ====================================================
+            # DATE RANGE
+            # ====================================================
+
+            elif comparison_type == "range":
+
+                if not selected_from or not selected_to:
+
+                    raise ValueError(
+                        "Please select both From and To dates."
+                    )
+
+                # ------------------------------------------------
+                # PARSE
+                # ------------------------------------------------
+
+                try:
+
+                    range_from = date.fromisoformat(
+                        selected_from
+                    )
+
+                    range_to = date.fromisoformat(
+                        selected_to
+                    )
+
+                except ValueError:
+
+                    raise ValueError(
+                        "Please enter valid dates."
+                    )
+
+                # ------------------------------------------------
+                # VALIDATION
+                # ------------------------------------------------
+
+                if range_from > range_to:
+
+                    raise ValueError(
+                        "From date cannot be after To date."
+                    )
+
+                if range_from < self.START_DATE:
+
+                    raise ValueError(
+                        "Sales comparison starts from April 2025."
+                    )
+
+                if range_from.year != 2025:
+
+                    raise ValueError(
+                        "The From date must be in 2025."
+                    )
+
+                if range_to.year != 2025:
+
+                    raise ValueError(
+                        "The To date must be in 2025."
+                    )
+
+                # ------------------------------------------------
+                # 2025 PERIOD
+                # ------------------------------------------------
+
+                start_2025 = range_from
+
+                end_2025 = range_to
+
+                # ------------------------------------------------
+                # SAME PERIOD IN 2026
+                # ------------------------------------------------
+
+                start_2026 = self._add_one_year(
+                    range_from
+                )
+
+                end_2026 = self._add_one_year(
+                    range_to
+                )
+
+                # ------------------------------------------------
+                # FUTURE CHECK
+                # ------------------------------------------------
+
+                if start_2026 > today:
+
+                    raise ValueError(
+                        "The selected 2025 range maps to "
+                        "a future 2026 period."
+                    )
+
+                # If the range extends into the current
+                # incomplete month, cap it at today.
+
+                if end_2026 > today:
+
+                    end_2026 = today
+
+                # ------------------------------------------------
+                # SELECT PRODUCTS
+                # ------------------------------------------------
+
+                selected_items = self._get_selected_items(
+                    selected_product,
+                    selected_group,
+                    thermoforming_products,
+                    product_groups,
+                )
+
+                # ------------------------------------------------
+                # LABEL
+                # ------------------------------------------------
+
+                selected_label = (
+                    f"{start_2025.strftime('%d %b %Y')}"
+                    f" → "
+                    f"{end_2025.strftime('%d %b %Y')}"
+                )
+
+                # ------------------------------------------------
+                # CALCULATE
+                # ------------------------------------------------
+
+                comparison_data = (
+                    self._calculate_range_comparison(
+                        start_2025,
+                        end_2025,
+                        start_2026,
+                        end_2026,
+                        selected_items,
+                    )
+                )
+
+            else:
+
+                raise ValueError(
+                    "Invalid comparison type."
+                )
+
+        except ValueError as exc:
+
+            error = str(exc)
+
+        # ========================================================
+        # SUMMARY
+        # ========================================================
+
+        total_2025 = sum(
+            float(row.get("year_2025", 0) or 0)
+            for row in comparison_data
+        )
+
+        total_2026 = sum(
+            float(row.get("year_2026", 0) or 0)
+            for row in comparison_data
+        )
+
+        difference = (
+            total_2026
+            - total_2025
+        )
+
+        # --------------------------------------------------------
+        # GROWTH
+        # --------------------------------------------------------
+
+        if total_2025 != 0:
+
+            growth_percent = (
+                difference
+                / total_2025
+            ) * 100
+
+        else:
+
+            growth_percent = None
+
+        # ========================================================
+        # CONTEXT
+        # ========================================================
+
+        context = {
+
+            "products": thermoforming_products,
+
+            "product_groups": product_groups,
+
+            "comparison_type": comparison_type,
+
+            "selected_month": selected_month,
+
+            "selected_from": selected_from,
+
+            "selected_to": selected_to,
+
+            "selected_product": selected_product,
+
+            "selected_group": selected_group,
+
+            "selected_label": selected_label,
+
+            "comparison_data": comparison_data,
+
+            "comparison_data_json": comparison_data,
+
+            "total_2025": round(
+                total_2025,
+                2,
+            ),
+
+            "total_2026": round(
+                total_2026,
+                2,
+            ),
+
+            "difference": round(
+                difference,
+                2,
+            ),
+
+            "growth_percent": (
+                round(
+                    growth_percent,
+                    2,
+                )
+                if growth_percent is not None
+                else None
+            ),
+
+            "error": error,
+
+            "today": today,
+
+            "start_date": self.START_DATE,
+        }
+
+        return render(
+            request,
+            self.template_name,
+            context,
+        )
+
+    # ============================================================
+    # BUILD PRODUCT GROUPS
+    # ============================================================
+
+    def _build_product_groups(self, products):
+
+        groups = {}
+
+        for group_name in self.GROUP_ORDER:
+
+            rules = self.GROUP_RULES.get(
+                group_name,
+                {},
+            )
+
+            categories = {
+                value.strip().lower()
+                for value in rules.get(
+                    "categories",
+                    [],
+                )
+                if value
+            }
+
+            prefixes = {
+                value.strip().lower()
+                for value in rules.get(
+                    "prefixes",
+                    [],
+                )
+                if value
+            }
+
+            matching_products = []
+
+            seen_ids = set()
+
+            for product in products:
+
+                # ------------------------------------------------
+                # CATEGORY MATCH
+                # ------------------------------------------------
+
+                category_match = False
+
+                if product.category:
+
+                    category_name = (
+                        product.category.name or ""
+                    ).strip().lower()
+
+                    if category_name in categories:
+
+                        category_match = True
+
+                # ------------------------------------------------
+                # PRODUCT NAME MATCH
+                # ------------------------------------------------
+
+                product_name = (
+                    product.name or ""
+                ).strip().lower()
+
+                product_match = False
+
+                for prefix in prefixes:
+
+                    if product_name.startswith(prefix):
+
+                        product_match = True
+
+                        break
+
+                # ------------------------------------------------
+                # ADD
+                # ------------------------------------------------
+
+                if category_match or product_match:
+
+                    if product.id not in seen_ids:
+
+                        matching_products.append(
+                            product
+                        )
+
+                        seen_ids.add(
+                            product.id
+                        )
+
+            groups[group_name] = matching_products
+
+        return groups
+
+    # ============================================================
+    # SELECT PRODUCTS
+    # ============================================================
+
+    @staticmethod
+    def _get_selected_items(
+            selected_product,
+            selected_group,
+            products,
+            product_groups
+    ):
+        # ============================================================
+        # INDIVIDUAL PRODUCT HAS HIGHEST PRIORITY
+        # ============================================================
+
+        if selected_product:
+            try:
+                product_id = int(selected_product)
+
+                # `products` is a Python list in this view
+                for product in products:
+                    if product.id == product_id:
+                        return [product]
+
+            except (ValueError, TypeError):
+                pass
+
+        # ============================================================
+        # IF NO PRODUCT IS SELECTED, USE THE SELECTED GROUP
+        # ============================================================
+
+        if selected_group:
+            return list(
+                product_groups.get(selected_group, [])
+            )
+
+        # ============================================================
+        # OTHERWISE USE ALL THERMOFORMING PRODUCTS
+        # ============================================================
+
+        return list(products)
+
+    # ============================================================
+    # MONTH COMPARISON
+    # ============================================================
+
+    @staticmethod
+    def _calculate_month_comparison(
+            start_2025,
+            end_2025,
+            start_2026,
+            end_2026,
+            selected_items,
+    ):
+        """
+        Calculate sales using the actual Tally stock-item name.
+
+        IMPORTANT:
+        Do not blindly trust item_id because the same/similar Tally
+        stock item can exist with different InventoryItem mappings.
+
+        We match:
+            1. InventoryItem.id
+            2. item_name_text
+
+        and only use TAX INVOICE rows.
+        """
+
+        if not selected_items:
+            return []
+
+        # ---------------------------------------------------------
+        # SELECTED INVENTORY ITEM NAMES
+        # ---------------------------------------------------------
+
+        item_ids = [
+            item.id
+            for item in selected_items
+        ]
+
+        item_names = {
+            (item.name or "").strip().lower()
+            for item in selected_items
+            if item.name
+        }
+
+        # ---------------------------------------------------------
+        # TALLY ROWS
+        # ---------------------------------------------------------
+
+        rows = (
+            VoucherStockItem.objects
+            .filter(
+                voucher__voucher_type__iexact="TAX INVOICE",
+                voucher__date__gte=start_2025,
+                voucher__date__lte=end_2026,
+            )
+            .filter(
+                Q(item_id__in=item_ids)
+                |
+                Q(item_name_text__isnull=False)
+            )
+            .select_related("voucher", "item")
+        )
+
+        total_2025 = 0.0
+        total_2026 = 0.0
+
+        # ---------------------------------------------------------
+        # CALCULATE
+        # ---------------------------------------------------------
+
+        print("\n================ YOY DEBUG ================")
+        print("SELECTED ITEMS:")
+        for item in selected_items:
+            print(
+                "ID:",
+                item.id,
+                "| NAME:",
+                item.name
+            )
+
+        print("\nTALLY ROWS:")
+
+        for row in rows:
+
+
+
+            # ---------------------------------------------
+            # Determine actual Tally product name
+            # ---------------------------------------------
+
+            tally_name = ""
+
+            if row.item_name_text:
+                tally_name = row.item_name_text.strip().lower()
+
+            elif row.item:
+                tally_name = (
+                        row.item.name or ""
+                ).strip().lower()
+
+            # ---------------------------------------------
+            # Match selected product
+            # ---------------------------------------------
+
+            matched = False
+
+            # Exact InventoryItem match
+            if row.item_id in item_ids:
+                matched = True
+
+            # Exact Tally name match
+            elif tally_name in item_names:
+                matched = True
+
+            if not matched:
+                continue
+
+            # ---------------------------------------------
+            # Quantity
+            # ---------------------------------------------
+
+            quantity = float(
+                row.quantity or 0
+            )
+
+            sale_date = row.voucher.date
+
+            # ---------------------------------------------
+            # 2025
+            # ---------------------------------------------
+
+            if (
+                    start_2025
+                    <= sale_date
+                    <= end_2025
+            ):
+
+                total_2025 += quantity
+
+            # ---------------------------------------------
+            # 2026
+            # ---------------------------------------------
+
+            elif (
+                    start_2026
+                    <= sale_date
+                    <= end_2026
+            ):
+
+                total_2026 += quantity
+
+        # ---------------------------------------------------------
+        # DIFFERENCE
+        # ---------------------------------------------------------
+
+        difference = (
+                total_2026
+                - total_2025
+        )
+
+        # ---------------------------------------------------------
+        # GROWTH
+        # ---------------------------------------------------------
+
+        if total_2025 != 0:
+
+            growth_percent = (
+                                     difference
+                                     / total_2025
+                             ) * 100
+
+        else:
+
+            growth_percent = None
+
+        return [
+            {
+                "label": start_2025.strftime("%b"),
+
+                "year_2025": round(
+                    total_2025,
+                    2,
+                ),
+
+                "year_2026": round(
+                    total_2026,
+                    2,
+                ),
+
+                "difference": round(
+                    difference,
+                    2,
+                ),
+
+                "growth_percent": (
+                    round(
+                        growth_percent,
+                        2,
+                    )
+                    if growth_percent is not None
+                    else None
+                ),
+            }
+        ]
+
+    # ============================================================
+    # DATE RANGE COMPARISON
+    # ============================================================
+
+    @staticmethod
+    def _calculate_range_comparison(
+            start_2025,
+            end_2025,
+            start_2026,
+            end_2026,
+            selected_items,
+    ):
+        """
+        Month-by-month year-on-year comparison.
+
+        Uses Tally VoucherStockItem data and matches the actual
+        selected Tally stock item instead of relying only on
+        InventoryItem.id.
+        """
+
+        if not selected_items:
+            return []
+
+        # ---------------------------------------------------------
+        # SELECTED PRODUCTS
+        # ---------------------------------------------------------
+
+        item_ids = [
+            item.id
+            for item in selected_items
+        ]
+
+        item_names = {
+            (item.name or "").strip().lower()
+            for item in selected_items
+            if item.name
+        }
+
+        # ---------------------------------------------------------
+        # FETCH TALLY DATA
+        # ---------------------------------------------------------
+
+        rows = (
+            VoucherStockItem.objects
+            .filter(
+                voucher__voucher_type__iexact="TAX INVOICE",
+                voucher__date__gte=start_2025,
+                voucher__date__lte=end_2026,
+            )
+            .select_related(
+                "voucher",
+                "item",
+            )
+        )
+
+        # ---------------------------------------------------------
+        # MONTH BUCKETS
+        # ---------------------------------------------------------
+
+        sales_2025 = defaultdict(float)
+        sales_2026 = defaultdict(float)
+
+        # ---------------------------------------------------------
+        # PROCESS TALLY ROWS
+        # ---------------------------------------------------------
+
+        for row in rows:
+
+            # ---------------------------------------------
+            # Determine Tally item name
+            # ---------------------------------------------
+
+            tally_name = ""
+
+            if row.item_name_text:
+
+                tally_name = (
+                    row.item_name_text
+                    .strip()
+                    .lower()
+                )
+
+            elif row.item:
+
+                tally_name = (
+                        row.item.name or ""
+                ).strip().lower()
+
+            # ---------------------------------------------
+            # MATCH PRODUCT
+            # ---------------------------------------------
+
+            matched = False
+
+            if row.item_id in item_ids:
+
+                matched = True
+
+            elif tally_name in item_names:
+
+                matched = True
+
+            if not matched:
+                continue
+
+            # ---------------------------------------------
+            # DATE + QUANTITY
+            # ---------------------------------------------
+
+            sale_date = row.voucher.date
+
+            quantity = float(
+                row.quantity or 0
+            )
+
+            # ---------------------------------------------
+            # 2025
+            # ---------------------------------------------
+
+            if (
+                    start_2025
+                    <= sale_date
+                    <= end_2025
+            ):
+
+                sales_2025[
+                    sale_date.month
+                ] += quantity
+
+            # ---------------------------------------------
+            # 2026
+            # ---------------------------------------------
+
+            elif (
+                    start_2026
+                    <= sale_date
+                    <= end_2026
+            ):
+
+                sales_2026[
+                    sale_date.month
+                ] += quantity
+
+        # ---------------------------------------------------------
+        # MONTH LIST
+        # ---------------------------------------------------------
+
+        months = []
+
+        current = date(
+            start_2025.year,
+            start_2025.month,
+            1,
+        )
+
+        last = date(
+            end_2025.year,
+            end_2025.month,
+            1,
+        )
+
+        while current <= last:
+            months.append(
+                current.month
+            )
+
+            current += relativedelta(
+                months=1
+            )
+
+        # ---------------------------------------------------------
+        # BUILD RESULT
+        # ---------------------------------------------------------
+
+        result = []
+
+        for month_number in months:
+
+            value_2025 = sales_2025.get(
+                month_number,
+                0,
+            )
+
+            value_2026 = sales_2026.get(
+                month_number,
+                0,
+            )
+
+            difference = (
+                    value_2026
+                    - value_2025
+            )
+
+            if value_2025 != 0:
+
+                growth = (
+                                 difference
+                                 / value_2025
+                         ) * 100
+
+            else:
+
+                growth = None
+
+            result.append(
+                {
+                    "label":
+                        calendar.month_abbr[
+                            month_number
+                        ],
+
+                    "year_2025":
+                        round(
+                            value_2025,
+                            2,
+                        ),
+
+                    "year_2026":
+                        round(
+                            value_2026,
+                            2,
+                        ),
+
+                    "difference":
+                        round(
+                            difference,
+                            2,
+                        ),
+
+                    "growth_percent":
+                        (
+                            round(
+                                growth,
+                                2,
+                            )
+                            if growth is not None
+                            else None
+                        ),
+                }
+            )
+
+        return result
+
+    # ============================================================
+    # SAFE ONE YEAR SHIFT
+    # ============================================================
+
+    @staticmethod
+    def _add_one_year(value):
+
+        try:
+
+            return value.replace(
+                year=value.year + 1,
+            )
+
+        except ValueError:
+
+            # Handles Feb 29
+
+            return value.replace(
+                year=value.year + 1,
+                day=28,
+            )

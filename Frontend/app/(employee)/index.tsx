@@ -116,7 +116,7 @@ export default function EmployeeHomeScreen() {
     const uName = ((user as any)?.username || "").toLowerCase();
     const uRole = ((user as any)?.role || "").toLowerCase();
     return uName.includes("vanshika") || uName.includes("anshika") || uRole.includes("hr")
-      ? [{ id: "hrms", label: "HR Operations", icon: "briefcase" }]
+      ? [{ id: "hrms", label: "HRMS", icon: "briefcase" }]
       : DEFAULT_ALLOWED_APPS;
   });
   const [userProfile, setUserProfile] = useState<UserPermissionProfile | null>(null);
@@ -249,7 +249,7 @@ export default function EmployeeHomeScreen() {
 
       if (isHRPerson) {
         setAllowedApps([
-          { id: "hrms", label: "HR Operations", icon: "briefcase" },
+          { id: "hrms", label: "HRMS", icon: "briefcase" },
         ]);
         setSelectedCategory("hrms");
         return;
@@ -479,8 +479,8 @@ export default function EmployeeHomeScreen() {
         {/* Workspace Header */}
         <WorkspaceHeader onProfilePress={handleProfilePress} />
 
-        {/* Global Search Bar (hidden for HR when in hrms view to avoid duplicate inputs) */}
-        {selectedCategory !== "hrms" && (
+        {/* Global Search Bar (hidden when HRMS operations is active so search bar sits directly above HRMS header) */}
+        {selectedCategory !== "hrms" && !(isHR && selectedCategory === "all") && (
           <View style={styles.searchBarWrapper}>
             <SearchBar
               value={searchQuery}
@@ -1164,6 +1164,22 @@ export default function EmployeeHomeScreen() {
         {/* ── 2. FULL WORKING HRMS OPERATIONS SUITE (Dedicated for HR & Vanshika/Anshika) ─── */}
         {(selectedCategory === "hrms" || (selectedCategory === "all" && isHR)) && (
           <View style={styles.moduleSection}>
+            {/* Search Bar directly above HRMS Operations Header */}
+            <View style={[styles.searchBarWrapper, { marginBottom: 14 }]}>
+              <SearchBar
+                value={hrmsSearch || searchQuery}
+                onChangeText={(text) => {
+                  setSearchQuery(text);
+                  setHrmsSearch(text);
+                }}
+                placeholder="Search staff by name, code or department..."
+                onClear={() => {
+                  setSearchQuery("");
+                  setHrmsSearch("");
+                }}
+              />
+            </View>
+
             {/* Header */}
             <View style={styles.moduleHeader}>
               <View style={{ flex: 1 }}>
@@ -1176,38 +1192,90 @@ export default function EmployeeHomeScreen() {
               </View>
             </View>
 
-            {/* 4 Telemetry Metric Tiles */}
+            {/* 4 Telemetry Metric Tiles - 3D Outward Boxes with Specular Lighting */}
             <View style={styles.hrmsMetricsGrid}>
-              <View style={[styles.hrmsMetricTile, { backgroundColor: isDark ? "#0E1714" : "#FFFFFF", borderColor: isDark ? "#294039" : "#D8E0DC" }]}>
-                <Text style={styles.hrmsMetricLabel}>WORKFORCE</Text>
+              <View
+                style={[
+                  styles.hrmsMetricTile,
+                  {
+                    backgroundColor: isDark ? "#12201B" : "#FFFFFF",
+                    borderColor: isDark ? "rgba(53, 214, 160, 0.18)" : "rgba(13, 43, 32, 0.08)",
+                    borderTopColor: isDark ? "rgba(53, 214, 160, 0.40)" : "rgba(255, 255, 255, 0.98)",
+                    borderBottomColor: isDark ? "#080F0C" : "rgba(13, 43, 32, 0.14)",
+                    shadowColor: isDark ? "#000000" : "#0D2B20",
+                    shadowOpacity: isDark ? 0.46 : 0.09,
+                  },
+                ]}
+              >
+                <Text style={[styles.hrmsMetricLabel, { color: isDark ? "#8FA09A" : "#5E6964" }]}>WORKFORCE</Text>
                 <Text style={[styles.hrmsMetricValue, { color: isDark ? "#F1F7F4" : "#101513" }]}>
                   {hrmsData?.stats?.total_employees ?? 12}
                 </Text>
-                <Text style={styles.hrmsMetricSub}>Active employees</Text>
+                <Text style={[styles.hrmsMetricSub, { color: isDark ? "#8FA09A" : "#5E6964" }]}>Active employees</Text>
               </View>
 
-              <View style={[styles.hrmsMetricTile, { backgroundColor: isDark ? "#0E1714" : "#FFFFFF", borderColor: isDark ? "#294039" : "#D8E0DC" }]}>
+              <View
+                style={[
+                  styles.hrmsMetricTile,
+                  {
+                    backgroundColor: isDark ? "#12201B" : "#FFFFFF",
+                    borderColor: isDark ? "rgba(16, 185, 129, 0.28)" : "rgba(16, 185, 129, 0.20)",
+                    borderTopColor: isDark ? "rgba(16, 185, 129, 0.50)" : "rgba(255, 255, 255, 0.98)",
+                    borderBottomColor: isDark ? "#080F0C" : "rgba(13, 43, 32, 0.14)",
+                    shadowColor: isDark ? "#000000" : "#0D2B20",
+                    shadowOpacity: isDark ? 0.46 : 0.09,
+                  },
+                ]}
+              >
                 <Text style={[styles.hrmsMetricLabel, { color: "#10B981" }]}>PRESENT TODAY</Text>
                 <Text style={[styles.hrmsMetricValue, { color: "#10B981" }]}>
                   {hrmsData?.stats?.present_today ?? 4}
                 </Text>
-                <Text style={styles.hrmsMetricSub}>{hrmsData?.stats?.absent_today ?? 8} on leave / absent</Text>
+                <Text style={[styles.hrmsMetricSub, { color: isDark ? "#8FA09A" : "#5E6964" }]}>{hrmsData?.stats?.absent_today ?? 8} on leave / absent</Text>
               </View>
 
-              <View style={[styles.hrmsMetricTile, { backgroundColor: isDark ? "#0E1714" : "#FFFFFF", borderColor: isDark ? "#294039" : "#D8E0DC" }]}>
+              <View
+                style={[
+                  styles.hrmsMetricTile,
+                  {
+                    backgroundColor: isDark ? "#12201B" : "#FFFFFF",
+                    borderColor: (hrmsData?.stats?.pending_leaves ?? 2) > 0
+                      ? isDark ? "rgba(245, 158, 11, 0.35)" : "rgba(217, 119, 6, 0.25)"
+                      : isDark ? "rgba(53, 214, 160, 0.18)" : "rgba(13, 43, 32, 0.08)",
+                    borderTopColor: (hrmsData?.stats?.pending_leaves ?? 2) > 0
+                      ? isDark ? "rgba(245, 158, 11, 0.55)" : "rgba(255, 255, 255, 0.98)"
+                      : isDark ? "rgba(53, 214, 160, 0.40)" : "rgba(255, 255, 255, 0.98)",
+                    borderBottomColor: isDark ? "#080F0C" : "rgba(13, 43, 32, 0.14)",
+                    shadowColor: isDark ? "#000000" : "#0D2B20",
+                    shadowOpacity: isDark ? 0.46 : 0.09,
+                  },
+                ]}
+              >
                 <Text style={[styles.hrmsMetricLabel, { color: isDark ? "#35D6A0" : "#00A879" }]}>PENDING LEAVES</Text>
                 <Text style={[styles.hrmsMetricValue, { color: isDark ? "#35D6A0" : "#00A879" }]}>
                   {hrmsData?.stats?.pending_leaves ?? 2}
                 </Text>
-                <Text style={styles.hrmsMetricSub}>Approvals required</Text>
+                <Text style={[styles.hrmsMetricSub, { color: isDark ? "#8FA09A" : "#5E6964" }]}>Approvals required</Text>
               </View>
 
-              <View style={[styles.hrmsMetricTile, { backgroundColor: isDark ? "#0E1714" : "#FFFFFF", borderColor: isDark ? "#294039" : "#D8E0DC" }]}>
-                <Text style={styles.hrmsMetricLabel}>DEPARTMENTS</Text>
+              <View
+                style={[
+                  styles.hrmsMetricTile,
+                  {
+                    backgroundColor: isDark ? "#12201B" : "#FFFFFF",
+                    borderColor: isDark ? "rgba(53, 214, 160, 0.18)" : "rgba(13, 43, 32, 0.08)",
+                    borderTopColor: isDark ? "rgba(53, 214, 160, 0.40)" : "rgba(255, 255, 255, 0.98)",
+                    borderBottomColor: isDark ? "#080F0C" : "rgba(13, 43, 32, 0.14)",
+                    shadowColor: isDark ? "#000000" : "#0D2B20",
+                    shadowOpacity: isDark ? 0.46 : 0.09,
+                  },
+                ]}
+              >
+                <Text style={[styles.hrmsMetricLabel, { color: isDark ? "#8FA09A" : "#5E6964" }]}>DEPARTMENTS</Text>
                 <Text style={[styles.hrmsMetricValue, { color: isDark ? "#F1F7F4" : "#101513" }]}>
                   {hrmsData?.stats?.total_departments ?? 5}
                 </Text>
-                <Text style={styles.hrmsMetricSub}>Corporate units</Text>
+                <Text style={[styles.hrmsMetricSub, { color: isDark ? "#8FA09A" : "#5E6964" }]}>Corporate units</Text>
               </View>
             </View>
 
@@ -1218,7 +1286,16 @@ export default function EmployeeHomeScreen() {
               </Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingVertical: 4 }}>
                 <TouchableOpacity
-                  style={[styles.hrToolChip, { backgroundColor: isDark ? "#0E1714" : "#FFFFFF", borderColor: isDark ? "#294039" : "#D8E0DC" }]}
+                  style={[
+                    styles.hrToolChip,
+                    {
+                      backgroundColor: isDark ? "#12201B" : "#FFFFFF",
+                      borderColor: isDark ? "rgba(53, 214, 160, 0.22)" : "rgba(13, 43, 32, 0.10)",
+                      borderTopColor: isDark ? "rgba(53, 214, 160, 0.40)" : "rgba(255, 255, 255, 0.98)",
+                      shadowColor: isDark ? "#000000" : "#0D2B20",
+                      shadowOpacity: isDark ? 0.35 : 0.08,
+                    },
+                  ]}
                   onPress={() => setActiveHRModal("holidays")}
                   activeOpacity={0.75}
                 >
@@ -1227,7 +1304,16 @@ export default function EmployeeHomeScreen() {
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={[styles.hrToolChip, { backgroundColor: isDark ? "#0E1714" : "#FFFFFF", borderColor: isDark ? "#294039" : "#D8E0DC" }]}
+                  style={[
+                    styles.hrToolChip,
+                    {
+                      backgroundColor: isDark ? "#12201B" : "#FFFFFF",
+                      borderColor: isDark ? "rgba(53, 214, 160, 0.22)" : "rgba(13, 43, 32, 0.10)",
+                      borderTopColor: isDark ? "rgba(53, 214, 160, 0.40)" : "rgba(255, 255, 255, 0.98)",
+                      shadowColor: isDark ? "#000000" : "#0D2B20",
+                      shadowOpacity: isDark ? 0.35 : 0.08,
+                    },
+                  ]}
                   onPress={() => setActiveHRModal("policies")}
                   activeOpacity={0.75}
                 >
@@ -1236,7 +1322,16 @@ export default function EmployeeHomeScreen() {
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={[styles.hrToolChip, { backgroundColor: isDark ? "#0E1714" : "#FFFFFF", borderColor: isDark ? "#294039" : "#D8E0DC" }]}
+                  style={[
+                    styles.hrToolChip,
+                    {
+                      backgroundColor: isDark ? "#12201B" : "#FFFFFF",
+                      borderColor: isDark ? "rgba(53, 214, 160, 0.22)" : "rgba(13, 43, 32, 0.10)",
+                      borderTopColor: isDark ? "rgba(53, 214, 160, 0.40)" : "rgba(255, 255, 255, 0.98)",
+                      shadowColor: isDark ? "#000000" : "#0D2B20",
+                      shadowOpacity: isDark ? 0.35 : 0.08,
+                    },
+                  ]}
                   onPress={() => setActiveHRModal("leave_bank")}
                   activeOpacity={0.75}
                 >
@@ -1245,7 +1340,16 @@ export default function EmployeeHomeScreen() {
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={[styles.hrToolChip, { backgroundColor: isDark ? "#0E1714" : "#FFFFFF", borderColor: isDark ? "#294039" : "#D8E0DC" }]}
+                  style={[
+                    styles.hrToolChip,
+                    {
+                      backgroundColor: isDark ? "#12201B" : "#FFFFFF",
+                      borderColor: isDark ? "rgba(53, 214, 160, 0.22)" : "rgba(13, 43, 32, 0.10)",
+                      borderTopColor: isDark ? "rgba(53, 214, 160, 0.40)" : "rgba(255, 255, 255, 0.98)",
+                      shadowColor: isDark ? "#000000" : "#0D2B20",
+                      shadowOpacity: isDark ? 0.35 : 0.08,
+                    },
+                  ]}
                   onPress={() => setActiveHRModal("hiring")}
                   activeOpacity={0.75}
                 >
@@ -1254,7 +1358,16 @@ export default function EmployeeHomeScreen() {
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={[styles.hrToolChip, { backgroundColor: isDark ? "#0E1714" : "#FFFFFF", borderColor: isDark ? "#294039" : "#D8E0DC" }]}
+                  style={[
+                    styles.hrToolChip,
+                    {
+                      backgroundColor: isDark ? "#12201B" : "#FFFFFF",
+                      borderColor: isDark ? "rgba(53, 214, 160, 0.22)" : "rgba(13, 43, 32, 0.10)",
+                      borderTopColor: isDark ? "rgba(53, 214, 160, 0.40)" : "rgba(255, 255, 255, 0.98)",
+                      shadowColor: isDark ? "#000000" : "#0D2B20",
+                      shadowOpacity: isDark ? 0.35 : 0.08,
+                    },
+                  ]}
                   onPress={() => setActiveHRModal("biometric")}
                   activeOpacity={0.75}
                 >
@@ -1267,7 +1380,19 @@ export default function EmployeeHomeScreen() {
             {/* Attendance Punch Terminal Card */}
             {!isStaffTab && (
             <>
-            <View style={[styles.punchTerminalCard, { backgroundColor: isDark ? "#0E1714" : "#FFFFFF", borderColor: isDark ? "#294039" : "#D8E0DC" }]}>
+            <View
+              style={[
+                styles.punchTerminalCard,
+                {
+                  backgroundColor: isDark ? "#12201B" : "#FFFFFF",
+                  borderColor: isDark ? "rgba(53, 214, 160, 0.20)" : "rgba(13, 43, 32, 0.08)",
+                  borderTopColor: isDark ? "rgba(53, 214, 160, 0.42)" : "rgba(255, 255, 255, 0.98)",
+                  borderBottomColor: isDark ? "#080F0C" : "rgba(13, 43, 32, 0.14)",
+                  shadowColor: isDark ? "#000000" : "#0D2B20",
+                  shadowOpacity: isDark ? 0.48 : 0.09,
+                },
+              ]}
+            >
               <View style={styles.punchTerminalTop}>
                 <View style={styles.punchIconBox}>
                   <Ionicons name="time" size={24} color={isDark ? "#35D6A0" : "#00A879"} />
@@ -1347,8 +1472,12 @@ export default function EmployeeHomeScreen() {
                     style={[
                       styles.leaveCard,
                       {
-                        backgroundColor: isDark ? "#0E1714" : "#FFFFFF",
-                        borderColor: isDark ? "#294039" : "#D8E0DC",
+                        backgroundColor: isDark ? "#12201B" : "#FFFFFF",
+                        borderColor: isDark ? "rgba(53, 214, 160, 0.18)" : "rgba(13, 43, 32, 0.08)",
+                        borderTopColor: isDark ? "rgba(53, 214, 160, 0.38)" : "rgba(255, 255, 255, 0.98)",
+                        borderBottomColor: isDark ? "#080F0C" : "rgba(13, 43, 32, 0.14)",
+                        shadowColor: isDark ? "#000000" : "#0D2B20",
+                        shadowOpacity: isDark ? 0.45 : 0.09,
                       },
                     ]}
                   >
@@ -1409,62 +1538,15 @@ export default function EmployeeHomeScreen() {
 
             </>
             )}
-            {/* On HRMS Dashboard tab: Quick Link to Staff Directory */}
-            {!isStaffTab ? (
-              <TouchableOpacity
-                style={[
-                  styles.hrmsLaunchBanner,
-                  {
-                    backgroundColor: isDark ? "rgba(53, 214, 160, 0.12)" : "#E8F5EE",
-                    borderColor: isDark ? "rgba(53, 214, 160, 0.3)" : "#C0E8D7",
-                    marginTop: 16,
-                  },
-                ]}
-                onPress={() => router.replace({ pathname: "/(employee)", params: { tab: "staff" } } as any)}
-                activeOpacity={0.8}
-              >
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 12, flex: 1 }}>
-                  <View style={styles.hrmsLaunchIcon}>
-                    <Ionicons name="people" size={20} color="#FFFFFF" />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.hrmsLaunchTitle, { color: isDark ? "#F1F7F4" : "#0E3E2B" }]}>
-                      Workforce Staff Directory ({filteredEmployees.length})
-                    </Text>
-                    <Text style={[styles.hrmsLaunchSub, { color: isDark ? "#8FA09A" : "#32634E" }]}>
-                      Search directory, call or email staff across all departments
-                    </Text>
-                  </View>
-                </View>
-                <Ionicons name="arrow-forward-circle" size={24} color={isDark ? "#35D6A0" : "#00A879"} />
-              </TouchableOpacity>
-            ) : (
-              <>
-                {/* Dedicated Workforce Staff Directory (Staff Tab Only) */}
-                <View style={styles.subSectionHeader}>
-                  <Text style={[styles.subSectionTitle, { color: isDark ? "#F1F7F4" : "#101513" }]}>
-                    Workforce Directory ({filteredEmployees.length})
-                  </Text>
-                </View>
-
-                {/* Search within Directory */}
-                <View style={styles.directorySearchWrapper}>
-                  <Ionicons name="search" size={16} color="#8FA09A" style={{ marginRight: 8 }} />
-                  <TextInput
-                    style={[styles.directorySearchInput, { color: isDark ? "#F1F7F4" : "#101513" }]}
-                    placeholder="Search staff by name, code or department..."
-                    placeholderTextColor={isDark ? "#8FA09A" : "#5E6964"}
-                    value={hrmsSearch}
-                    onChangeText={setHrmsSearch}
-                  />
-                  {hrmsSearch ? (
-                    <TouchableOpacity onPress={() => setHrmsSearch("")}>
-                      <Ionicons name="close-circle" size={16} color="#8FA09A" />
-                    </TouchableOpacity>
-                  ) : null}
-                </View>
-              </>
-            )}
+            {/* Workforce Staff Directory Section Header */}
+            <View style={[styles.subSectionHeader, { marginTop: 16, marginBottom: 12 }]}>
+              <Text style={[styles.subSectionTitle, { color: isDark ? "#F1F7F4" : "#101513" }]}>
+                Workforce Directory ({filteredEmployees.length})
+              </Text>
+              <Text style={[styles.subSectionBadge, { color: isDark ? "#35D6A0" : "#00A879" }]}>
+                Active Staff
+              </Text>
+            </View>
 
             {/* Employee Cards List */}
             <View style={{ gap: 10 }}>
@@ -1495,8 +1577,12 @@ export default function EmployeeHomeScreen() {
                     style={[
                       styles.employeeCard,
                       {
-                        backgroundColor: isDark ? "#0E1714" : "#FFFFFF",
-                        borderColor: isDark ? "#294039" : "#D8E0DC",
+                        backgroundColor: isDark ? "#12201B" : "#FFFFFF",
+                        borderColor: isDark ? "rgba(53, 214, 160, 0.18)" : "rgba(13, 43, 32, 0.08)",
+                        borderTopColor: isDark ? "rgba(53, 214, 160, 0.38)" : "rgba(255, 255, 255, 0.98)",
+                        borderBottomColor: isDark ? "#080F0C" : "rgba(13, 43, 32, 0.14)",
+                        shadowColor: isDark ? "#000000" : "#0D2B20",
+                        shadowOpacity: isDark ? 0.45 : 0.09,
                       },
                     ]}
                   >
@@ -2396,33 +2482,42 @@ const styles = StyleSheet.create({
   },
   hrmsMetricTile: {
     width: "48%",
-    borderRadius: 14,
-    borderWidth: 1,
-    padding: 12,
+    borderRadius: 20,
+    borderWidth: 1.2,
+    padding: 16,
+    zIndex: 2,
+    shadowOffset: { width: 0, height: 6 },
+    shadowRadius: 14,
+    elevation: 6,
   },
   hrmsMetricLabel: {
     fontSize: 10,
     fontFamily: Typography.bold,
-    letterSpacing: 0.5,
-    color: "#64748B",
+    letterSpacing: 0.8,
+    color: "#8FA09A",
     marginBottom: 4,
   },
   hrmsMetricValue: {
-    fontSize: 22,
+    fontSize: 26,
     fontFamily: Typography.bold,
-    letterSpacing: -0.4,
+    letterSpacing: -0.5,
+    marginVertical: 2,
   },
   hrmsMetricSub: {
     fontSize: 11,
-    fontFamily: Typography.regular,
+    fontFamily: Typography.medium,
     color: "#8FA09A",
     marginTop: 2,
   },
   punchTerminalCard: {
-    borderRadius: 16,
-    borderWidth: 1,
-    padding: 14,
+    borderRadius: 20,
+    borderWidth: 1.2,
+    padding: 16,
     marginBottom: 20,
+    zIndex: 2,
+    shadowOffset: { width: 0, height: 6 },
+    shadowRadius: 14,
+    elevation: 6,
   },
   punchTerminalTop: {
     flexDirection: "row",

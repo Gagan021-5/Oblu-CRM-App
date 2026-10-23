@@ -12,7 +12,7 @@ import { useLocalSearchParams, router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "@/contexts/ThemeContext";
-import { Typography, FontSizes } from "@/constants/theme";
+import { Typography, FontSizes, Shadows, Radius } from "@/constants/theme";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { TimelineItem } from "@/components/employee/TimelineItem";
 import { AddCustomerRemarkModal } from "@/components/employee/AddCustomerRemarkModal";
@@ -173,8 +173,9 @@ export default function LeadDetailScreen() {
               backgroundColor: isDark ? "#121F1B" : "#FFFFFF",
               borderColor: isDark ? "#294039" : "#D8E0DC",
             },
+            Shadows.card,
           ]}
-          onPress={() => router.back()}
+          onPress={() => (router.canGoBack() ? router.back() : router.replace("/(employee)/leads"))}
           activeOpacity={0.7}
         >
           <Ionicons
@@ -304,33 +305,27 @@ export default function LeadDetailScreen() {
             </View>
           </View>
 
-          {/* Primary Action Buttons */}
+          {/* Sleek Tactile Quick Actions */}
           <View style={styles.primaryActionRow}>
             <TouchableOpacity
               style={[
                 styles.actionBtn,
+                styles.actionBtnCall,
                 {
-                  backgroundColor: isDark
-                    ? "rgba(53, 214, 160, 0.14)"
-                    : "#DDF4EA",
-                  borderColor: isDark
-                    ? "rgba(53, 214, 160, 0.3)"
-                    : "rgba(0, 168, 121, 0.3)",
+                  backgroundColor: isDark ? "#103C2E" : "#00A879",
+                  borderColor: isDark ? "#35D6A0" : "#008E66",
                 },
               ]}
               onPress={handleCall}
-              activeOpacity={0.7}
+              activeOpacity={0.8}
             >
               <Ionicons
                 name="call"
-                size={18}
-                color={isDark ? "#35D6A0" : "#00A879"}
+                size={15}
+                color="#FFFFFF"
               />
               <Text
-                style={[
-                  styles.actionBtnText,
-                  { color: isDark ? "#35D6A0" : "#00A879" },
-                ]}
+                style={[styles.actionBtnText, { color: "#FFFFFF" }]}
                 numberOfLines={1}
                 adjustsFontSizeToFit
               >
@@ -342,16 +337,16 @@ export default function LeadDetailScreen() {
               style={[
                 styles.actionBtn,
                 {
-                  backgroundColor: isDark ? "#121F1B" : "#F7F9F8",
-                  borderColor: isDark ? "#294039" : "#D8E0DC",
+                  backgroundColor: isDark ? "#121F1B" : "#F4F7F5",
+                  borderColor: isDark ? "#243831" : "#D8E0DC",
                 },
               ]}
               onPress={() => setNoteModalVisible(true)}
-              activeOpacity={0.7}
+              activeOpacity={0.75}
             >
               <Ionicons
                 name="document-text-outline"
-                size={18}
+                size={15}
                 color={isDark ? "#F1F7F4" : "#101513"}
               />
               <Text
@@ -370,16 +365,16 @@ export default function LeadDetailScreen() {
               style={[
                 styles.actionBtn,
                 {
-                  backgroundColor: isDark ? "#121F1B" : "#F7F9F8",
-                  borderColor: isDark ? "#294039" : "#D8E0DC",
+                  backgroundColor: isDark ? "#121F1B" : "#F4F7F5",
+                  borderColor: isDark ? "#243831" : "#D8E0DC",
                 },
               ]}
               onPress={() => setFollowUpModalVisible(true)}
-              activeOpacity={0.7}
+              activeOpacity={0.75}
             >
               <Ionicons
                 name="calendar-outline"
-                size={18}
+                size={15}
                 color={isDark ? "#F1F7F4" : "#101513"}
               />
               <Text
@@ -865,6 +860,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: 16,
     marginBottom: 14,
+    ...Shadows.card,
   },
   avatarRow: {
     flexDirection: "row",
@@ -873,8 +869,7 @@ const styles = StyleSheet.create({
   largeAvatar: {
     width: 52,
     height: 52,
-    borderRadius: 16,
-    borderWidth: 1,
+    borderRadius: 26,
     alignItems: "center",
     justifyContent: "center",
     marginRight: 14,
@@ -950,18 +945,21 @@ const styles = StyleSheet.create({
   },
   actionBtn: {
     flex: 1,
-    flexDirection: "column",
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 10,
-    paddingHorizontal: 4,
-    borderRadius: 14,
+    height: 40,
+    paddingHorizontal: 6,
+    borderRadius: 12,
     borderWidth: 1,
     gap: 5,
-    minHeight: 58,
+    ...Shadows.card,
+  },
+  actionBtnCall: {
+    ...Shadows.mintButton,
   },
   actionBtnText: {
-    fontSize: 11,
+    fontSize: 12,
     fontFamily: Typography.semiBold,
     textAlign: "center",
   },
@@ -970,6 +968,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: 16,
     marginBottom: 14,
+    ...Shadows.card,
   },
   stageStepper: {
     flexDirection: "row",
@@ -1015,6 +1014,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: 16,
     marginBottom: 16,
+    ...Shadows.card,
   },
   boxTitle: {
     fontSize: FontSizes.micro,

@@ -1,0 +1,178 @@
+{% extends 'customers/base.html' %}
+
+{% block title %}Dashboard | Oblu{% endblock %}
+
+{% block content %}
+<style>
+    .hero-container {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 18px 0 24px 0; gap: 30px;
+    }
+    .hero-text { flex: 1; }
+    .system-badge {
+        background: #f0fdfa; color: #2dd4bf; padding: 3px 10px; border-radius: 20px;
+        font-size: 0.68rem; font-weight: 700; text-transform: uppercase; display: inline-block; margin-bottom: 9px;
+    }
+    .hero-title { font-size: 2.5rem; font-weight: 800; color: #0f172a; line-height: 1.05; margin-bottom: 10px; }
+    .hero-title span { color: #50bda1; }
+    .hero-desc { color: #64748b; font-size: 0.9rem; max-width: 500px; line-height: 1.45; margin-bottom: 12px; }
+    .auth-badge { font-size: 0.75rem; color: #94a3b8; display: flex; align-items: center; gap: 6px; }
+
+    .quick-access-header { margin-top: 5px; margin-bottom: 20px; }
+    .quick-section { margin-bottom: 26px; }
+    .quick-section-title {
+        display: flex; align-items: center; gap: 10px; font-size: 0.75rem; font-weight: 800;
+        letter-spacing: 0.08em; text-transform: uppercase; color: #64748b; margin-bottom: 11px;
+    }
+    .quick-section-title::before { content: ""; width: 4px; height: 17px; border-radius: 4px; background: #50bda1; }
+
+    .features-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+    .feature-card {
+        background: #fdfdfd; border: 1px solid #f1f5f9; border-radius: 14px; padding: 17px;
+        min-height: 145px; transition: transform 0.25s ease, box-shadow 0.25s ease;
+        text-decoration: none; color: inherit; display: flex; flex-direction: column;
+    }
+    .feature-card:hover { transform: translateY(-3px); box-shadow: 0 12px 25px rgba(15, 23, 42, 0.07); border-color: #d8f3eb; }
+
+    .icon-box {
+        width: 38px; height: 38px; background: #f0fdfa; border-radius: 10px;
+        display: flex; align-items: center; justify-content: center; color: #50bda1; margin-bottom: 12px; font-size: 0.95rem;
+    }
+    .feature-card h5 { font-size: 0.95rem; font-weight: 700; margin-bottom: 5px; }
+    .feature-card p { font-size: 0.78rem; color: #64748b; line-height: 1.45; margin: 0; padding-right: 8px; }
+    .feature-card .open-link { margin-top: auto; padding-top: 11px; font-size: 0.73rem; font-weight: 700; color: #50bda1; }
+
+    @media (max-width: 1100px) { .features-grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 768px) { .features-grid { grid-template-columns: 1fr; } }
+</style>
+
+<!-- HERO -->
+<div class="hero-container">
+    <div class="hero-text">
+        <span class="system-badge"><i class="bi bi-circle-fill me-1" style="font-size: 8px;"></i> Oblu Internal System</span>
+        <h1 class="hero-title">Customers,<br><span>managed smarter.</span></h1>
+        <p class="hero-desc">Centralized workspace for account management, payment follow-ups, and sales tracking.</p>
+        <div class="auth-badge"><i class="bi bi-shield-check"></i> Role: <strong>{{ role_display_name }}</strong></div>
+    </div>
+</div>
+
+<div class="quick-access-header text-center">
+    <h4 class="fw-bold">Quick Access</h4>
+    <p class="text-muted small">Tools and dashboards available to your role.</p>
+</div>
+
+<!-- ============================================================
+     1. WORKSPACE & DIRECTORY
+============================================================= -->
+{% if '*' in permissions or 'customer.view_all' in permissions %}
+<div class="quick-section">
+    <div class="quick-section-title">Directory &amp; Analytics</div>
+    <div class="features-grid">
+        <a href="{% url 'customers:data' %}" class="feature-card">
+            <div class="icon-box"><i class="bi bi-people-fill"></i></div>
+            <h5>Customer Directory</h5>
+            <p>Master database of all accounts and assignments.</p>
+            <span class="open-link">Open →</span>
+        </a>
+        <a href="{% url 'customers:charts' %}" class="feature-card">
+            <div class="icon-box"><i class="bi bi-bar-chart-line"></i></div>
+            <h5>Analytics</h5>
+            <p>Explore customer and sales metrics nationwide.</p>
+            <span class="open-link">Open →</span>
+        </a>
+        <a href="{% url 'customers:detailedmap' %}" class="feature-card">
+            <div class="icon-box"><i class="bi bi-geo-alt"></i></div>
+            <h5>Detailed Map</h5>
+            <p>Geographic customer distribution across India.</p>
+            <span class="open-link">Open →</span>
+        </a>
+    </div>
+</div>
+{% endif %}
+
+<!-- ============================================================
+     2. SALES & PAYMENTS
+============================================================= -->
+{% if '*' in permissions or 'customer.view' in permissions or 'payment.view' in permissions %}
+<div class="quick-section">
+    <div class="quick-section-title">Customers &amp; Accounts</div>
+    <div class="features-grid">
+        {% if '*' in permissions or 'customer.view' in permissions %}
+        <a href="{% url 'customers:salesperson_customers' %}" class="feature-card">
+            <div class="icon-box"><i class="bi bi-person-badge"></i></div>
+            <h5>{% if 'rsm' in user_roles or is_executive %}Team Customers{% else %}My Customers{% endif %}</h5>
+            <p>Review and manage assigned customers and units.</p>
+            <span class="open-link">Open →</span>
+        </a>
+        {% endif %}
+
+        {% if '*' in permissions or 'payment.view' in permissions %}
+        <a href="{% url 'customers:payment_followup_dashboard' %}" class="feature-card">
+            <div class="icon-box"><i class="bi bi-cash-stack"></i></div>
+            <h5>Payment Follow-ups</h5>
+            <p>Track collections, credit periods, and payment status.</p>
+            <span class="open-link">Open →</span>
+        </a>
+        {% endif %}
+
+        <a href="{% url 'customers:monthly_sales_report' %}" class="feature-card">
+            <div class="icon-box"><i class="bi bi-calendar-check"></i></div>
+            <h5>Monthly Sales Report</h5>
+            <p>Review monthly sales performance breakdown.</p>
+            <span class="open-link">Open →</span>
+        </a>
+    </div>
+</div>
+{% endif %}
+
+<!-- ============================================================
+     3. PERFORMANCE & INCENTIVES
+============================================================= -->
+<div class="quick-section">
+    <div class="quick-section-title">Performance &amp; Incentives</div>
+    <div class="features-grid">
+        <a href="{% url 'incentive_calculator:asm_incentive_paid_only' %}" class="feature-card">
+            <div class="icon-box"><i class="bi bi-wallet2"></i></div>
+            <h5>My Paid Incentives</h5>
+            <p>View your incentive payout records.</p>
+            <span class="open-link">Open →</span>
+        </a>
+
+        {% if 'rsm' in user_roles or 'sales_head' in user_roles or request.user.is_superuser %}
+        <a href="{% url 'incentive_calculator:rsm_team_dashboard' %}" class="feature-card">
+            <div class="icon-box"><i class="bi bi-people"></i></div>
+            <h5>RSM Team Incentives</h5>
+            <p>Review incentive performance across regional sales teams.</p>
+            <span class="open-link">Open →</span>
+        </a>
+        {% endif %}
+
+        {% if 'sales_head' in user_roles or 'business' in user_roles or request.user.is_superuser %}
+        <a href="{% url 'incentive_calculator:sales_head_dashboard' %}" class="feature-card">
+            <div class="icon-box"><i class="bi bi-diagram-3"></i></div>
+            <h5>Sales Head Incentives</h5>
+            <p>Company-wide incentive management dashboard.</p>
+            <span class="open-link">Open →</span>
+        </a>
+        {% endif %}
+    </div>
+</div>
+
+<!-- ============================================================
+     4. SALES INTELLIGENCE
+============================================================= -->
+{% if '*' in permissions or 'customer.view' in permissions %}
+<div class="quick-section">
+    <div class="quick-section-title">Sales Intelligence</div>
+    <div class="features-grid">
+        <a href="{% url 'customers:cross_selling_matrix' %}" class="feature-card">
+            <div class="icon-box"><i class="bi bi-grid-3x3-gap"></i></div>
+            <h5>Cross-Selling Matrix</h5>
+            <p>Identify product gap opportunities across customer accounts.</p>
+            <span class="open-link">Open →</span>
+        </a>
+    </div>
+</div>
+{% endif %}
+
+{% endblock %}

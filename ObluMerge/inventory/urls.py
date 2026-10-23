@@ -5,13 +5,13 @@ from .views import Index, SignUpView, LogoutView, Dashboard, Dashboard2, AddItem
     ShowProductStockHistory, stock_chart_view_3, predict_min_stock_from_daily, CategoryDashboard, CategoryListView, \
     search_items, InventoryReportView, MonthlyStockChartView, PredictMinStockView, LowStockReportView, \
     DailyStockChartView, DeadStockDashboardView, SalesComparisonDashboardView, get_inventory_by_category, \
-    PurchaseOrderView, TopCustomersAPIView, PurchaseOrderViewPrev  # this Index is name of the class we created in views
+    PurchaseOrderView, TopCustomersAPIView, PurchaseOrderViewPrev,ProductListView,YearOnYearSalesComparisonView  # this Index is name of the class we created in views
 from django.contrib.auth import views as auth_views
 from . import views
 
 urlpatterns = [
     path('', Index.as_view(), name="index"),
-    path('dashboard/', Dashboard.as_view(), name="dashboard"),
+    path('dashboard/', Index.as_view(), name="dashboard"),
     path('dashboard-test/', Dashboard2.as_view(), name="dashboard-test"),
     path('add-item/',AddItem.as_view(), name='add-item'),
     # path('edit-item/<int:pk>', EditItem.as_view(), name='edit-item'),
@@ -31,6 +31,11 @@ urlpatterns = [
     path('dead-stock/', DeadStockDashboardView.as_view() , name='dead_stock'),
     path('sales-comparison/', SalesComparisonDashboardView.as_view(), name='sales_comparison'),
     path("api/inventory_by_category/", get_inventory_by_category, name="get_inventory_by_category"),
+    path(
+                "purchase-order/toggle-new-product/<int:item_id>/",
+                PurchaseOrderView.as_view(),
+                name="toggle_new_product",
+        ),
     path('purchase-order/', PurchaseOrderView.as_view(), name='purchase_order'),
     path('purchase-order-prev/', PurchaseOrderViewPrev.as_view(), name='purchase_order_prev'),
     path("purchase-order/top-customers/", TopCustomersAPIView.as_view(), name="po_top_customers"),
@@ -62,5 +67,14 @@ urlpatterns = [
         views.ProductAnalyticsDetailView.as_view(),
         name="product_analytics_detail",
     ),
+    path('products/', ProductListView.as_view(), name="products"),
+    path('products/<int:category>/', ProductListView.as_view(), name="category_products"),
+    path('product/', ProductListView.as_view(), name="product"),
+    path('product/<int:category>/', ProductListView.as_view(), name="product_by_category"),
+    path(
+            "year-on-year-sales/",
+            YearOnYearSalesComparisonView.as_view(),
+            name="year_on_year_sales",
+        ),
 
 ]

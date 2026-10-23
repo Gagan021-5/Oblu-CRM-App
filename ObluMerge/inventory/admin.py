@@ -3,7 +3,6 @@ from django.contrib import admin
 from .models import InventoryItem, Category, MonthlyStockData, DailyStockData, User, PurchaseOrderTrackingItem, PurchaseOrderTracking, PurchaseOrderStage, PurchaseOrderStageLog
 
 # Register your models here.
-admin.site.register(User, UserAdmin)
 
 admin.site.register(InventoryItem)
 
@@ -21,3 +20,5 @@ admin.site.register(PurchaseOrderStage)
 
 admin.site.register(PurchaseOrderStageLog)
 
+
+admin.site.register(User, UserAdmin)

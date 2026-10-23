@@ -261,6 +261,13 @@ export default function CallLogsScreen() {
           },
         ]}
       >
+        <TouchableOpacity
+          style={styles.backBtn}
+          onPress={() => (router.canGoBack() ? router.back() : router.replace("/(admin)/users"))}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="arrow-back" size={22} color={colors.textPrimary} />
+        </TouchableOpacity>
         <Text style={[styles.screenHeading, { color: colors.textPrimary }]}>
           Calls & Tracking
         </Text>
@@ -484,7 +491,7 @@ export default function CallLogsScreen() {
               onEndReachedThreshold={0.4}
               renderItem={({ item: group }) => (
                 <View style={styles.groupSection}>
-                  <Text style={[styles.groupHeader, { color: colors.textMuted }]}>
+                  <Text style={[styles.groupHeader, { color: colors.textSecondary }]}>
                     {group.title}
                   </Text>
 
@@ -501,6 +508,18 @@ export default function CallLogsScreen() {
                       : isIncoming
                       ? "arrow-down"
                       : "arrow-up";
+
+                    const avatarBg = isMissed
+                      ? isDark
+                        ? "rgba(239, 68, 68, 0.16)"
+                        : "rgba(239, 68, 68, 0.12)"
+                      : isIncoming
+                      ? isDark
+                        ? "rgba(53, 214, 160, 0.16)"
+                        : "rgba(0, 168, 121, 0.12)"
+                      : isDark
+                      ? "rgba(59, 130, 246, 0.16)"
+                      : "rgba(59, 130, 246, 0.12)";
 
                     return (
                       <TouchableOpacity
@@ -519,7 +538,7 @@ export default function CallLogsScreen() {
                         <View
                           style={[
                             styles.callAvatar,
-                            { backgroundColor: colors.secondarySurface },
+                            { backgroundColor: avatarBg },
                           ]}
                         >
                           <Ionicons name={iconName} size={16} color={iconColor} />
@@ -534,20 +553,27 @@ export default function CallLogsScreen() {
                             {log.username || log.phone_number}
                           </Text>
                           <Text
-                            style={[styles.callMeta, { color: colors.textMuted }]}
+                            style={[styles.callMeta, { color: colors.textSecondary }]}
                             numberOfLines={1}
                           >
-                            {log.phone_number} · {formatDuration(log.duration)}
+                            {log.phone_number}
                           </Text>
                         </View>
 
-                        {/* Time & Chevron */}
+                        {/* Duration & Time Column + Chevron */}
                         <View style={styles.callRight}>
-                          <Text
-                            style={[styles.callTimeText, { color: colors.textSecondary }]}
-                          >
-                            {formatTime(log.timestamp)}
-                          </Text>
+                          <View style={styles.callTimeCol}>
+                            <Text
+                              style={[styles.callDurationText, { color: colors.textSecondary }]}
+                            >
+                              {formatDuration(log.duration)}
+                            </Text>
+                            <Text
+                              style={[styles.callTimeText, { color: colors.textSecondary }]}
+                            >
+                              {formatTime(log.timestamp)}
+                            </Text>
+                          </View>
                           <Ionicons
                             name="chevron-forward"
                             size={16}
@@ -1347,6 +1373,12 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
     borderBottomWidth: 1,
   },
+  backBtn: {
+    width: 36,
+    height: 36,
+    justifyContent: "center",
+    alignItems: "center",
+  },
   screenHeading: {
     fontFamily: Typography.headingSemi,
     fontSize: FontSizes.screenTitle,
@@ -1424,10 +1456,10 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   groupHeader: {
-    fontFamily: Typography.semiBold,
-    fontSize: FontSizes.label,
+    fontFamily: Typography.bold,
+    fontSize: 12,
     textTransform: "uppercase",
-    letterSpacing: 0.5,
+    letterSpacing: 0.6,
     marginBottom: 8,
   },
   callRow: {
@@ -1438,6 +1470,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     marginBottom: 8,
     gap: 12,
+    ...Shadows.card,
   },
   callAvatar: {
     width: 38,
@@ -1451,21 +1484,30 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   callerName: {
-    fontFamily: Typography.semiBold,
-    fontSize: FontSizes.body,
+    fontFamily: Typography.bold,
+    fontSize: 16,
+    letterSpacing: -0.2,
   },
   callMeta: {
-    fontFamily: Typography.regular,
-    fontSize: FontSizes.label,
+    fontFamily: Typography.medium,
+    fontSize: 13,
   },
   callRight: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 8,
+  },
+  callTimeCol: {
+    alignItems: "flex-end",
+    gap: 2,
+  },
+  callDurationText: {
+    fontFamily: Typography.medium,
+    fontSize: 12,
   },
   callTimeText: {
     fontFamily: Typography.medium,
-    fontSize: FontSizes.label,
+    fontSize: 11,
   },
 
   // Recorded Call Modal Styles

@@ -46,8 +46,12 @@ const CustomerCardComponent: React.FC<CustomerCardProps> = ({ customer, onPress 
       style={[
         styles.card,
         {
-          backgroundColor: isDark ? "#0E1714" : "#FFFFFF",
-          borderColor: isDark ? "#294039" : "#D8E0DC",
+          backgroundColor: isDark ? "#12201B" : "#FFFFFF",
+          borderColor: isDark ? "rgba(53, 214, 160, 0.18)" : "rgba(13, 43, 32, 0.08)",
+          borderTopColor: isDark ? "rgba(53, 214, 160, 0.38)" : "rgba(255, 255, 255, 0.98)",
+          borderBottomColor: isDark ? "#080F0C" : "rgba(13, 43, 32, 0.14)",
+          shadowColor: isDark ? "#000000" : "#0D2B20",
+          shadowOpacity: isDark ? 0.46 : 0.09,
         },
       ]}
       onPress={onPress}
@@ -227,10 +231,14 @@ export const CustomerCard = React.memo(CustomerCardComponent);
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: 18,
-    borderWidth: 1,
+    borderRadius: 20,
+    borderWidth: 1.2,
     padding: 14,
     marginBottom: 10,
+    zIndex: 2,
+    shadowOffset: { width: 0, height: 6 },
+    shadowRadius: 14,
+    elevation: 6,
   },
   headerRow: {
     flexDirection: "row",

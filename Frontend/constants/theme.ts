@@ -24,8 +24,8 @@ export const LightTheme = {
   // Text
   textPrimary: "#101513",
   textSecondary: "#5E6964",
-  textMuted: "#87928D",
-  textLight: "#A0ACA6",
+  textMuted: "#636F69",
+  textLight: "#8B9590",
 
   // Mint & Accent
   strongGraphite: "#18312A",
@@ -298,28 +298,32 @@ export const Radius = {
 export const Shadows = {
   card: Platform.select({
     ios: {
-      shadowColor: "#000000",
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.12,
-      shadowRadius: 6,
+      shadowColor: "#0D2B20",
+      shadowOffset: { width: 0, height: 6 },
+      shadowOpacity: 0.08,
+      shadowRadius: 14,
     },
     android: {
-      elevation: 2,
+      elevation: 5,
     },
-    default: {},
+    default: {
+      boxShadow: "0 8px 24px -4px rgba(13, 43, 32, 0.08), 0 2px 6px -1px rgba(13, 43, 32, 0.04)",
+    },
   }),
 
   cardElevated: Platform.select({
     ios: {
-      shadowColor: "#000000",
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.18,
-      shadowRadius: 10,
+      shadowColor: "#0D2B20",
+      shadowOffset: { width: 0, height: 8 },
+      shadowOpacity: 0.12,
+      shadowRadius: 18,
     },
     android: {
-      elevation: 4,
+      elevation: 7,
     },
-    default: {},
+    default: {
+      boxShadow: "0 12px 30px -5px rgba(13, 43, 32, 0.10), 0 4px 10px -2px rgba(13, 43, 32, 0.05)",
+    },
   }),
 
   floatingDock: Platform.select({
