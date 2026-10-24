@@ -192,7 +192,7 @@ class MeProfileView(APIView):
                         "temporary": bool(assignment.ends_at),
                         "expires_at": assignment.ends_at.strftime("%Y-%m-%d %H:%M") if assignment.ends_at else None,
                     })
-
+        ## for admin and directors role access in mobile app 
         if user.is_superuser or user.is_staff or getattr(user, 'role', '') == 'admin' or user.username.lower() in ['nitin_aggarwal', 'akshay_narayan', 'infected']:
             user_role = "Admin"
         elif is_finance(user):
