@@ -10,6 +10,7 @@
     },
     "preview": {
       "distribution": "internal",
+      "channel": "preview",
       "env": {
         "EAS_SKIP_AUTO_FINGERPRINT": "1"
       },
@@ -17,9 +18,12 @@
         "buildType": "apk"
       }
     },
-
     "production": {
-      "autoIncrement": true
+      "autoIncrement": true,
+      "channel": "production",
+      "android": {
+        "buildType": "app-bundle"
+      }
     }
   },
   "submit": {

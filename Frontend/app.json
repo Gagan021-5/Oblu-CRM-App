@@ -27,13 +27,24 @@
       "package": "com.calltracer.app",
       "versionCode": 2
     },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/035c640b-f294-4ced-82b8-4f7513c87b4d"
+    },
     "web": {
       "output": "static",
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
       "./plugins/withNetworkSecurityConfig",
-      "expo-router",
+      [
+        "expo-router",
+        {
+          "asyncRoutes": true
+        }
+      ],
       "expo-secure-store",
       [
         "expo-splash-screen",
@@ -67,7 +78,17 @@
       ],
       "expo-image",
       "expo-status-bar",
-      "expo-web-browser"
+      "expo-web-browser",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "enableProguardInReleaseBuilds": true,
+            "enableShrinkResourcesInReleaseBuilds": true,
+            "extraProguardRules": "-dontwarn com.calltracer.app.**\n-dontwarn com.facebook.react.**"
+          }
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

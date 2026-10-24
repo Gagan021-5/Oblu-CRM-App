@@ -138,7 +138,7 @@ export default function LoginScreen() {
         <View style={styles.brandHeader}>
           <View style={styles.logoContainer}>
             <Image
-              source={require("@/assets/images/logo.png")}
+              source={require("@/assets/images/logo.webp")}
               style={styles.pandaLogo}
               resizeMode="contain"
             />
