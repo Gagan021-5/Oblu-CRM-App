@@ -76,7 +76,13 @@ jobs:
           script: |
             set -Eeuo pipefail
             cd /home/ubuntu/Oblu-CRM-App
-            git pull --ff-only origin main
+            if ! git diff --quiet || ! git diff --cached --quiet; then
+              echo "Refusing to deploy: tracked files in /home/ubuntu/Oblu-CRM-App have local changes."
+              git status --short
+              exit 1
+            fi
+            git fetch --no-tags origin main
+            git reset --hard FETCH_HEAD
 
             if ! dpkg-query -W -f='${db:Status-Status}\n' build-essential python3-dev libxml2-dev libxslt1-dev libpq-dev unixodbc 2>/dev/null | sort -u | grep -qx installed; then
               sudo apt-get update
