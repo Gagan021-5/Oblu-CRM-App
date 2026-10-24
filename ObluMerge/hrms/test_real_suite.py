@@ -112,7 +112,9 @@ class RealDatabaseCompOffTests(unittest.TestCase):
         self.bank.save()
 
         # Query through actual logic function
-        available_days = lv.get_monthly_available_days(self.employee, self.co_leave_type)
+        available_days = lv.get_monthly_available_days(
+            self.employee, self.co_leave_type, target_date=earned_date
+        )
         print(f"\n[REAL TEST 1] Created CompOffRecord in DB (ID: {comp_record.pk}). Available Days: {available_days}")
 
         self.assertEqual(available_days, Decimal('1.0'))
@@ -160,8 +162,8 @@ class RealDatabaseCompOffTests(unittest.TestCase):
         app, notice = lv.apply_leave(
             employee=self.employee,
             leave_type=self.co_leave_type,
-            start_date=date(2026, 10, 20),
-            end_date=date(2026, 10, 20),
+            start_date=date(2026, 9, 20),
+            end_date=date(2026, 9, 20),
             day_type='half',
             reason='Medical checkup',
         )
@@ -183,8 +185,7 @@ class RealDatabaseCompOffTests(unittest.TestCase):
         REAL TEST 4:
         Test real deduction logic in the CompOffRecord ledger.
         If employee has 1.0 day credit and takes 0.5 day:
-          - A new 0.5 day row is saved with status='availed'.
-          - The existing row is updated to 0.5 day with status='available'.
+          - The row tracks 0.5 day as used and keeps 0.5 day available.
         """
         # 1. Create real 1.0 day available record
         rec = m.CompOffRecord.objects.create(
@@ -199,8 +200,8 @@ class RealDatabaseCompOffTests(unittest.TestCase):
         app = m.LeaveApplication.objects.create(
             employee=self.employee,
             leave_type=self.co_leave_type,
-            start_date=date(2026, 10, 20),
-            end_date=date(2026, 10, 20),
+            start_date=date(2026, 9, 20),
+            end_date=date(2026, 9, 20),
             day_type='half',
             total_days=Decimal('0.5'),
             status=m.LeaveApplication.Status.PENDING_HR,
@@ -212,17 +213,18 @@ class RealDatabaseCompOffTests(unittest.TestCase):
         # 4. Check real database rows
         rec.refresh_from_db()
 
-        print(f"\n[REAL TEST 4] Original record credits remaining: {rec.credits_earned} (Status: {rec.status})")
+        print(f"\n[REAL TEST 4] Original record credits remaining: {rec.credits_remaining} (Status: {rec.status})")
 
-        self.assertEqual(rec.credits_earned, Decimal('0.5'), "Original record must keep 0.5 available credit.")
-        self.assertEqual(rec.status, m.CompOffRecord.Status.AVAILABLE)
+        self.assertEqual(rec.credits_used, Decimal('0.5'))
+        self.assertEqual(rec.credits_remaining, Decimal('0.5'))
+        self.assertEqual(rec.status, m.CompOffRecord.Status.PARTIAL)
 
         # 5. Subsequent leave consuming the remaining 0.5 credit
         app2 = m.LeaveApplication.objects.create(
             employee=self.employee,
             leave_type=self.co_leave_type,
-            start_date=date(2026, 10, 25),
-            end_date=date(2026, 10, 25),
+            start_date=date(2026, 9, 25),
+            end_date=date(2026, 9, 25),
             day_type='half',
             total_days=Decimal('0.5'),
             status=m.LeaveApplication.Status.PENDING_HR,

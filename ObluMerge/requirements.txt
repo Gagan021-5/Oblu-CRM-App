@@ -132,6 +132,7 @@ urllib3==2.4.0
 watchdog==6.0.0
 weasyprint==65.1
 webdriver-manager==4.0.2
+Werkzeug==3.1.9
 webencodings==0.5.1
 websocket-client==1.8.0
 wheel==0.45.1

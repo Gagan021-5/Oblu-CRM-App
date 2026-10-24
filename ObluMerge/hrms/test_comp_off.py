@@ -83,6 +83,9 @@ class CompOffAndLeaveFormTests(SimpleTestCase):
              patch('hrms.models.EmployeeLeaveBalanceLive.objects.filter') as mock_live:
 
             mock_recs.return_value.aggregate.return_value = {'total': Decimal('1.5')}
+            mock_recs.return_value.exclude.return_value.aggregate.return_value = {
+                'total': Decimal('1.5')
+            }
             
             mock_bank_obj = Mock()
             mock_bank_obj.comp_off = 1.5
@@ -119,6 +122,8 @@ class CompOffAndLeaveFormTests(SimpleTestCase):
         # Simulate an existing earned record with 1.0 credit available
         original_record = Mock()
         original_record.credits_earned = Decimal('1.0')
+        original_record.credits_used = Decimal('0.0')
+        original_record.credits_remaining = Decimal('1.0')
         original_record.status = m.CompOffRecord.Status.AVAILABLE
         original_record.attendance_record = None
         original_record.worked_date = date(2026, 9, 6)
@@ -135,21 +140,14 @@ class CompOffAndLeaveFormTests(SimpleTestCase):
             # Execute the logic
             co_logic.deduct_comp_off_credits(mock_application)
 
-            # 1. A new availed record of 0.5 day must be created
-            mock_create.assert_called_once()
-            created_kwargs = mock_create.call_args[1]
-            self.assertEqual(created_kwargs['credits_earned'], Decimal('0.5'))
-            self.assertEqual(created_kwargs['status'], m.CompOffRecord.Status.AVAILED)
-            self.assertEqual(created_kwargs['availed_on_date'], date(2026, 10, 20))
-
-            # 2. The original record must retain 0.5 day (1.0 - 0.5 = 0.5) and stay AVAILABLE
-            self.assertEqual(
-                original_record.credits_earned, Decimal('0.5'),
-                "Original record should retain remaining 0.5 credit."
-            )
-            original_record.save.assert_called_once_with(
-                update_fields=['credits_earned', 'updated_at']
-            )
+            # Credits are tracked on the original row via credits_used.
+            mock_create.assert_not_called()
+            self.assertEqual(original_record.credits_used, Decimal('0.5'))
+            self.assertEqual(original_record.status, m.CompOffRecord.Status.PARTIAL)
+            self.assertEqual(original_record.availed_on_date, date(2026, 10, 20))
+            original_record.save.assert_called_once_with(update_fields=[
+                'credits_used', 'status', 'availed_on_date', 'availed_leave_app', 'updated_at'
+            ])
 
     def test_04_full_comp_off_consumption(self):
         """
@@ -167,6 +165,8 @@ class CompOffAndLeaveFormTests(SimpleTestCase):
 
         original_record = Mock()
         original_record.credits_earned = Decimal('1.0')
+        original_record.credits_used = Decimal('0.0')
+        original_record.credits_remaining = Decimal('1.0')
         original_record.status = m.CompOffRecord.Status.AVAILABLE
 
         with patch('django.db.transaction.atomic'), \
@@ -178,7 +178,10 @@ class CompOffAndLeaveFormTests(SimpleTestCase):
 
             self.assertEqual(original_record.status, m.CompOffRecord.Status.AVAILED)
             self.assertEqual(original_record.availed_on_date, date(2026, 10, 22))
-            original_record.save.assert_called_once()
+            self.assertEqual(original_record.credits_used, Decimal('1.0'))
+            original_record.save.assert_called_once_with(update_fields=[
+                'credits_used', 'status', 'availed_on_date', 'availed_leave_app', 'updated_at'
+            ])
 
 
 if __name__ == '__main__':
