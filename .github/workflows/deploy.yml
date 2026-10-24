@@ -46,7 +46,7 @@ jobs:
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          if [ -f ObluMerge/requirements.txt ]; then pip install -r ObluMerge/requirements.txt; fi
+          if [ -f ObluMerge/requirements.txt ]; then python -m pip install --only-binary=scipy,scikit-learn -r ObluMerge/requirements.txt; fi
 
       - name: Run Test Cases
         env:
@@ -58,6 +58,8 @@ jobs:
         run: |
           cd ObluMerge
           python manage.py check
+          python manage.py makemigrations --check --dry-run
+          python manage.py migrate --noinput
           python manage.py test
 
   deploy:
