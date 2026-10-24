@@ -1,0 +1,25 @@
+# .easignore — Used by EAS CLI instead of .gitignore during builds
+# Ensures assets/images and assets/fonts are bundled into the APK while staying private from GitHub!
+
+node_modules/
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+*.tsbuildinfo
+
+# Prebuilt native folders
+android/
+ios/
+
+# Metro & caches
+.metro-health-check*
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# Secrets
+.env
+.env*.local
+*.pem
+*.key
