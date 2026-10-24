@@ -62,11 +62,39 @@ jobs:
           python manage.py migrate --noinput
           python manage.py test
 
+      - name: Download OpenCV wheel for EC2
+        run: |
+          mkdir -p wheelhouse
+          python -m pip download --only-binary=:all: --no-deps --dest wheelhouse opencv-contrib-python-headless==5.0.0.93
+
+      - name: Upload OpenCV wheel
+        uses: actions/upload-artifact@v4
+        with:
+          name: opencv-wheel
+          path: wheelhouse/opencv_contrib_python_headless-*.whl
+          if-no-files-found: error
+
   deploy:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: test
     runs-on: ubuntu-latest
     steps:
+      - name: Download OpenCV wheel artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: opencv-wheel
+          path: wheelhouse
+
+      - name: Copy OpenCV wheel to AWS
+        uses: appleboy/scp-action@v1
+        with:
+          host: 13.126.98.201
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          source: "wheelhouse/opencv_contrib_python_headless-*.whl"
+          target: "/tmp/oblu-opencv-wheelhouse"
+          strip_components: 1
+
       - name: Deploy to AWS EC2
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -92,6 +120,9 @@ jobs:
             source ObluMerge/venv/bin/activate
             cd ObluMerge
             python -m pip install --upgrade pip
+            opencv_wheel="$(find /tmp/oblu-opencv-wheelhouse -maxdepth 1 -type f -name 'opencv_contrib_python_headless-*.whl' -print -quit)"
+            test -n "$opencv_wheel"
+            python -m pip install --no-index --no-deps "$opencv_wheel"
             python -m pip install --retries 20 --resume-retries 20 --timeout 120 --only-binary=scipy,scikit-learn,pydantic-core,pyodbc,python-bidi -r requirements.txt
             python -m pip check
             python manage.py check --database default
