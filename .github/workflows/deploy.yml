@@ -34,14 +34,19 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.14'
           cache: pip
           cache-dependency-path: ObluMerge/requirements.txt
+
+      - name: Install system build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential python3-dev libxml2-dev libxslt1-dev libpq-dev unixodbc
 
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          if [ -f ObluMerge/requirements.txt ]; then pip install -r ObluMerge/requirements.txt; fi
+          if [ -f ObluMerge/requirements.txt ]; then python -m pip install --retries 20 --resume-retries 20 --timeout 120 --only-binary=scipy,scikit-learn,pydantic-core,pyodbc,python-bidi -r ObluMerge/requirements.txt; fi
 
       - name: Run Test Cases
         env:
@@ -53,6 +58,8 @@ jobs:
         run: |
           cd ObluMerge
           python manage.py check
+          python manage.py makemigrations --check --dry-run
+          python manage.py migrate --noinput
           python manage.py test
 
   deploy:
@@ -67,11 +74,29 @@ jobs:
           username: ubuntu
           key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
           script: |
+            set -Eeuo pipefail
             cd /home/ubuntu/Oblu-CRM-App
-            git pull origin main
+            if ! git diff --quiet || ! git diff --cached --quiet; then
+              echo "Refusing to deploy: tracked files in /home/ubuntu/Oblu-CRM-App have local changes."
+              git status --short
+              exit 1
+            fi
+            git fetch --no-tags origin main
+            git reset --hard FETCH_HEAD
+
+            if ! dpkg-query -W -f='${db:Status-Status}\n' build-essential python3-dev libxml2-dev libxslt1-dev libpq-dev unixodbc 2>/dev/null | sort -u | grep -qx installed; then
+              sudo apt-get update
+              sudo apt-get install -y build-essential python3-dev libxml2-dev libxslt1-dev libpq-dev unixodbc
+            fi
+
             source ObluMerge/venv/bin/activate
             cd ObluMerge
-            pip install -r requirements.txt
+            python -m pip install --upgrade pip
+            python -m pip install --retries 20 --resume-retries 20 --timeout 120 --only-binary=scipy,scikit-learn,pydantic-core,pyodbc,python-bidi -r requirements.txt
+            python -m pip check
+            python manage.py check --database default
             python manage.py migrate --noinput
             python manage.py collectstatic --noinput
             sudo systemctl restart gunicorn
+            sudo systemctl is-active --quiet gunicorn
+            curl --fail --silent --show-error http://127.0.0.1:8000/login/ >/dev/null
