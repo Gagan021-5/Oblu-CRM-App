@@ -132,4 +132,16 @@ jobs:
             python manage.py collectstatic --noinput
             sudo systemctl restart gunicorn
             sudo systemctl is-active --quiet gunicorn
-            curl --fail --silent --show-error http://127.0.0.1:8000/login/ >/dev/null
+            health_check_passed=0
+            for attempt in $(seq 1 30); do
+              if curl --fail --silent --max-time 5 http://127.0.0.1:8000/login/ >/dev/null; then
+                health_check_passed=1
+                break
+              fi
+              sleep 2
+            done
+            if [ "$health_check_passed" -ne 1 ]; then
+              sudo systemctl status gunicorn --no-pager -l || true
+              sudo journalctl -u gunicorn -n 120 --no-pager || true
+              exit 1
+            fi
