@@ -1,11 +1,3 @@
-# =============================================================================
-# Root .easignore — EAS Build Archive Configuration
-# =============================================================================
-# Used by EAS CLI when packaging the repository for EAS cloud builds.
-# Keeps private backend/biometrics out of cloud build archives, while ensuring
-# local app assets (Frontend/assets/images and Frontend/assets/fonts) ARE included.
-
-# Backend & Virtual Envs (not needed for mobile APK build)
 ObluMerge/
 venv/
 .venv/
@@ -21,7 +13,6 @@ employees/
 **/faces/
 deploy/
 
-# Node & Expo artifacts
 node_modules/
 .expo/
 dist/
@@ -29,7 +20,6 @@ web-build/
 expo-env.d.ts
 *.tsbuildinfo
 
-# Prebuilt native folders
 Frontend/android/
 Frontend/ios/
 callapp/android/
@@ -37,14 +27,12 @@ callapp/ios/
 android/
 ios/
 
-# Metro & caches
 .metro-health-check*
 npm-debug.*
 yarn-debug.*
 yarn-error.*
 .pnpm-debug.*
 
-# Secrets & Documentation
 .env
 .env*.local
 *.pem

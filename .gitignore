@@ -1,8 +1,3 @@
-# =============================================================================
-# Root .gitignore — Call Tracer App
-# =============================================================================
-
-# Environment Variables & Secrets (NEVER COMMIT SENSITIVE DATA)
 .env
 .env.*
 !.env.example
@@ -14,9 +9,6 @@
 *.p12
 *.mobileprovision
 
-# -----------------------------------------------------------------------------
-# Python / Django
-# -----------------------------------------------------------------------------
 __pycache__/
 *.py[cod]
 *$py.class
@@ -40,7 +32,6 @@ share/python-wheels/
 *.egg
 MANIFEST
 
-# Virtual Environments
 venv/
 .venv/
 env/
@@ -48,15 +39,11 @@ ENV/
 env.bak/
 venv.bak/
 
-# Django local database & static/media
 *.sqlite3
 db.sqlite3-journal
 media/
 staticfiles/
 
-# -----------------------------------------------------------------------------
-# JavaScript / React Native / Expo
-# -----------------------------------------------------------------------------
 node_modules/
 .expo/
 dist/
@@ -64,7 +51,6 @@ web-build/
 expo-env.d.ts
 *.tsbuildinfo
 
-# Prebuild native generated folders
 Frontend/android/
 Frontend/ios/
 callapp/android/
@@ -72,15 +58,11 @@ callapp/ios/
 .kotlin/
 *.orig.*
 
-# Package manager logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# -----------------------------------------------------------------------------
-# IDE & System Files
-# -----------------------------------------------------------------------------
 .DS_Store
 .DS_Store?
 ._*
@@ -98,10 +80,6 @@ Thumbs.db
 *.dump
 *.old_backup
 
-
-# -----------------------------------------------------------------------------
-# Employee Privacy & Biometrics (Face photos, attendance captures & embeddings)
-# -----------------------------------------------------------------------------
 attendance/
 employees/
 employee/
@@ -114,9 +92,6 @@ employee/
 media/
 **/media/
 
-# -----------------------------------------------------------------------------
-# Proprietary Assets & Intellectual Property (IPR & Privacy - Fonts & Images)
-# -----------------------------------------------------------------------------
 Frontend/assets/images/
 Frontend/assets/fonts/
 assets/images/
@@ -129,9 +104,6 @@ assets/fonts/
 *.woff
 *.woff2
 
-# -----------------------------------------------------------------------------
-# Internal Project Documentation & Architecture Guides (IPR & Privacy)
-# -----------------------------------------------------------------------------
 PROJECT_DOCUMENTATION.md
 PROJECT_DOCUMENTATION*
 /docs/
