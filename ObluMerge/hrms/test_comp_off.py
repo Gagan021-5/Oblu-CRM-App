@@ -80,12 +80,14 @@ class CompOffAndLeaveFormTests(SimpleTestCase):
         # Mock database queries to simulate an employee with 1.5 available comp-off credits
         with patch('hrms.models.CompOffRecord.objects.filter') as mock_recs, \
              patch('hrms.models.EmployeeLeaveBalance.objects.filter') as mock_bank, \
-             patch('hrms.models.EmployeeLeaveBalanceLive.objects.filter') as mock_live:
+             patch('hrms.models.EmployeeLeaveBalanceLive.objects.filter') as mock_live, \
+             patch('hrms.models.LeaveApplication.objects.filter') as mock_apps:
 
             mock_recs.return_value.aggregate.return_value = {'total': Decimal('1.5')}
             mock_recs.return_value.exclude.return_value.aggregate.return_value = {
                 'total': Decimal('1.5')
             }
+            mock_apps.return_value.aggregate.return_value = {'total': Decimal('0.0')}
             
             mock_bank_obj = Mock()
             mock_bank_obj.comp_off = 1.5

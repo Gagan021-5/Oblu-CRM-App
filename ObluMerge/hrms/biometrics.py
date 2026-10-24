@@ -19,6 +19,7 @@ import base64
 import io
 import json
 import logging
+import os
 import re
 import sys
 import threading
@@ -43,13 +44,17 @@ if hasattr(sys.stdout, 'reconfigure'):
     except Exception:
         pass
 
-try:
-    from deepface import DeepFace
-except Exception as exc:
+if os.environ.get('OBLU_DISABLE_BIOMETRICS', '').lower() in ('1', 'true', 'yes'):
     DeepFace = None
-    _deepface_import_error = str(exc)
+    _deepface_import_error = 'disabled by OBLU_DISABLE_BIOMETRICS'
 else:
-    _deepface_import_error = None
+    try:
+        from deepface import DeepFace
+    except Exception as exc:
+        DeepFace = None
+        _deepface_import_error = str(exc)
+    else:
+        _deepface_import_error = None
 
 logger = logging.getLogger(__name__)
 

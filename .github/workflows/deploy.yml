@@ -49,6 +49,7 @@ jobs:
           DEBUG: "False"
           DATABASE_URL: postgres://oblu_ci:oblu_ci_password@127.0.0.1:5432/oblu_ci
           DB_SSL_REQUIRE: "False"
+          OBLU_DISABLE_BIOMETRICS: "1"
         run: |
           cd ObluMerge
           python manage.py check
