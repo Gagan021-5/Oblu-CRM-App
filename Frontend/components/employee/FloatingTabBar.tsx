@@ -215,6 +215,8 @@ const FloatingTabBarComponent: React.FC<FloatingTabBarProps> = () => {
                 color={color}
               />
               <Text
+                numberOfLines={1}
+                adjustsFontSizeToFit
                 style={[
                   styles.tabLabel,
                   {

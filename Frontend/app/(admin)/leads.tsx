@@ -480,37 +480,39 @@ export default function LeadsScreen() {
                 </Text>
               </View>
             ) : (
-              leads.map((lead) => (
-                <TouchableOpacity
-                  key={lead.id}
-                  activeOpacity={0.7}
-                  onPress={() => {
-                    setSelectedLead(lead);
-                    setLeadPickerVisible(false);
-                  }}
-                  style={[
-                    styles.leadPickItem,
-                    {
-                      backgroundColor:
-                        selectedLead?.id === lead.id
-                          ? colors.mintTintedSurface
-                          : "transparent",
-                    },
-                  ]}
-                >
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.leadPickName, { color: colors.textPrimary }]}>
-                      {lead.companyName || lead.name}
+              <ScrollView showsVerticalScrollIndicator={false}>
+                {leads.map((lead) => (
+                  <TouchableOpacity
+                    key={lead.id}
+                    activeOpacity={0.7}
+                    onPress={() => {
+                      setSelectedLead(lead);
+                      setLeadPickerVisible(false);
+                    }}
+                    style={[
+                      styles.leadPickItem,
+                      {
+                        backgroundColor:
+                          selectedLead?.id === lead.id
+                            ? colors.mintTintedSurface
+                            : "transparent",
+                      },
+                    ]}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.leadPickName, { color: colors.textPrimary }]}>
+                        {lead.companyName || lead.name}
+                      </Text>
+                      <Text style={[styles.leadPickSub, { color: colors.textSecondary }]}>
+                        {lead.contactPerson || "Contact"} • Stage: {lead.stage}
+                      </Text>
+                    </View>
+                    <Text style={[styles.leadPickScore, { color: colors.primary }]}>
+                      {lead.intentScore || 85}
                     </Text>
-                    <Text style={[styles.leadPickSub, { color: colors.textSecondary }]}>
-                      {lead.contactPerson || "Contact"} • Stage: {lead.stage}
-                    </Text>
-                  </View>
-                  <Text style={[styles.leadPickScore, { color: colors.primary }]}>
-                    {lead.intentScore || 85}
-                  </Text>
-                </TouchableOpacity>
-              ))
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
             )}
           </View>
         </TouchableOpacity>

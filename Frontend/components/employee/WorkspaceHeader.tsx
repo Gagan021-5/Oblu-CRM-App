@@ -110,6 +110,8 @@ const WorkspaceHeaderComponent: React.FC<WorkspaceHeaderProps> = ({
                 styles.dateText,
                 { color: isDark ? "#8FA09A" : "#5E6964" },
               ]}
+              numberOfLines={1}
+              ellipsizeMode="tail"
             >
               {formattedDate}
             </Text>
@@ -241,11 +243,13 @@ const styles = StyleSheet.create({
     flexDirection: "column",
     justifyContent: "center",
     flex: 1,
+    marginRight: 8,
   },
   brandDateRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
+    flex: 1,
   },
   brandLogoContainer: {
     width: 36,
@@ -264,6 +268,7 @@ const styles = StyleSheet.create({
   dateText: {
     fontSize: FontSizes.bodySmall,
     fontFamily: Typography.semiBold,
+    flexShrink: 1,
   },
   rightActions: {
     flexDirection: "row",

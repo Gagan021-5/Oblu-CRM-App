@@ -36,7 +36,7 @@ export const WeeklyActivityChart: React.FC = () => {
       ]}
     >
       <View style={styles.header}>
-        <View>
+        <View style={{ flex: 1, marginRight: 8 }}>
           <Text
             style={[
               styles.title,

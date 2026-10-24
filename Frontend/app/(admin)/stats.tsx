@@ -10,7 +10,7 @@ import {
   ScrollView,
   StyleSheet,
   ActivityIndicator,
-  Dimensions,
+  useWindowDimensions,
   Alert,
   TouchableOpacity,
   RefreshControl,
@@ -22,8 +22,6 @@ import { Ionicons } from "@expo/vector-icons";
 import AppLineChart from "@/components/charts/AppLineChart";
 import { useTheme } from "@/contexts/ThemeContext";
 import { Typography, FontSizes, Spacing, Radius, Shadows } from "@/constants/theme";
-
-const screenWidth = Dimensions.get("window").width;
 
 interface StatsData {
   user_id: number;
@@ -42,6 +40,7 @@ interface TeamMember {
 
 export default function StatsScreen() {
   const insets = useSafeAreaInsets();
+  const { width: windowWidth } = useWindowDimensions();
   const { colors, isDark } = useTheme();
   const params = useLocalSearchParams<{ user_id?: string; username?: string }>();
   const [selectedUserId, setSelectedUserId] = useState<string>(params.user_id || "all");
@@ -362,7 +361,7 @@ export default function StatsScreen() {
                   },
                 ],
               }}
-              width={screenWidth - 64}
+              width={Math.max(windowWidth - 64, 260)}
               height={180}
               chartConfig={chartConfig}
               bezier

@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   RefreshControl,
+  ScrollView,
 } from "react-native";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -152,7 +153,11 @@ export default function ProformaScreen() {
               />
             </View>
 
-            <View style={styles.chipsRow}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.chipsRow}
+            >
               <FilterChip
                 label="All Quotations"
                 count={counts.total}
@@ -177,7 +182,7 @@ export default function ProformaScreen() {
                 isActive={activeFilter === "billed"}
                 onPress={() => setActiveFilter("billed")}
               />
-            </View>
+            </ScrollView>
           </View>
         }
         renderItem={({ item }) => {

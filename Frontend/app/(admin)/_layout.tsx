@@ -92,6 +92,8 @@ function FloatingBottomDock({ state, descriptors, navigation }: any) {
                 color={isFocused ? activeColor : inactiveColor}
               />
               <Text
+                numberOfLines={1}
+                adjustsFontSizeToFit
                 style={[
                   styles.dockLabel,
                   {
@@ -134,20 +136,20 @@ export default function AdminLayout() {
 const styles = StyleSheet.create({
   dockWrapper: {
     position: "absolute",
-    left: 20,
-    right: 20,
+    left: 0,
+    right: 0,
     alignItems: "center",
     zIndex: 100,
   },
   dockContainer: {
-    width: "100%",
-    maxWidth: 420,
+    width: "92%",
+    maxWidth: 390,
     height: 64,
     borderRadius: Radius.dock,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 16,
+    paddingHorizontal: 12,
     borderWidth: 1,
     ...Shadows.floatingDock,
   },

@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   RefreshControl,
+  ScrollView,
 } from "react-native";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -160,7 +161,11 @@ export default function InventoryScreen() {
             </View>
 
             {/* Filter Chips */}
-            <View style={styles.chipsRow}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.chipsRow}
+            >
               <FilterChip
                 label="All SKUs"
                 count={counts.total}
@@ -185,7 +190,7 @@ export default function InventoryScreen() {
                 isActive={activeFilter === "critical"}
                 onPress={() => setActiveFilter("critical")}
               />
-            </View>
+            </ScrollView>
           </View>
         }
         renderItem={({ item }) => {

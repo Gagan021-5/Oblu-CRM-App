@@ -22,7 +22,7 @@ import {
   Alert,
   Modal,
   ScrollView,
-  Dimensions,
+  useWindowDimensions,
 } from "react-native";
 import { useLocalSearchParams, router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -31,8 +31,6 @@ import { Ionicons } from "@expo/vector-icons";
 import AppLineChart from "@/components/charts/AppLineChart";
 import { useTheme } from "@/contexts/ThemeContext";
 import { Typography, FontSizes, Spacing, Radius, Shadows } from "@/constants/theme";
-
-const screenWidth = Dimensions.get("window").width;
 
 interface CallLogItem {
   id: number;
@@ -50,6 +48,7 @@ type AnalysisTab = "Analysis" | "Transcript" | "Moments" | "Details";
 
 export default function CallLogsScreen() {
   const insets = useSafeAreaInsets();
+  const { width: windowWidth } = useWindowDimensions();
   const { isDark, colors } = useTheme();
   const params = useLocalSearchParams<{ user_id?: string; username?: string }>();
 
@@ -775,7 +774,7 @@ export default function CallLogsScreen() {
                       },
                     ],
                   }}
-                  width={screenWidth - 56}
+                  width={Math.max(windowWidth - 56, 260)}
                   height={180}
                   chartConfig={chartConfig}
                   bezier
