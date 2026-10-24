@@ -148,3 +148,4 @@ opencv-contrib-python-headless>=4.10.0
 deepface>=0.0.90
 onnxruntime>=1.20.0
 retina-face>=0.0.17
+num2words==0.4.2
