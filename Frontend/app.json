@@ -24,7 +24,8 @@
         "android.permission.WAKE_LOCK",
         "android.permission.POST_NOTIFICATIONS"
       ],
-      "package": "com.calltracer.app"
+      "package": "com.calltracer.app",
+      "versionCode": 2
     },
     "web": {
       "output": "static",
