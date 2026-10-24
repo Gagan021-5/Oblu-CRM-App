@@ -44,8 +44,12 @@ yarn-debug.*
 yarn-error.*
 .pnpm-debug.*
 
-# Secrets
+# Secrets & Documentation
 .env
 .env*.local
 *.pem
 *.key
+PROJECT_DOCUMENTATION.md
+PROJECT_DOCUMENTATION*
+documentation/
+/docs/

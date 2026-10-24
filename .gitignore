@@ -129,3 +129,13 @@ assets/fonts/
 *.woff
 *.woff2
 
+# -----------------------------------------------------------------------------
+# Internal Project Documentation & Architecture Guides (IPR & Privacy)
+# -----------------------------------------------------------------------------
+PROJECT_DOCUMENTATION.md
+PROJECT_DOCUMENTATION*
+/docs/
+/documentation/
+documentation/
+*.doc
+*.docx
