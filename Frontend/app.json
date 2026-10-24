@@ -25,7 +25,7 @@
         "android.permission.POST_NOTIFICATIONS"
       ],
       "package": "com.calltracer.app",
-      "versionCode": 2
+      "versionCode": 3
     },
     "runtimeVersion": {
       "policy": "appVersion"
