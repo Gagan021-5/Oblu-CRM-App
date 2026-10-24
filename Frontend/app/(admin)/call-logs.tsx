@@ -28,7 +28,7 @@ import { useLocalSearchParams, router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import api from "@/services/api";
 import { Ionicons } from "@expo/vector-icons";
-const LazyLineChart = React.lazy(() => import("@/components/charts/AppLineChart"));
+import AppLineChart from "@/components/charts/AppLineChart";
 import { useTheme } from "@/contexts/ThemeContext";
 import { Typography, FontSizes, Spacing, Radius, Shadows } from "@/constants/theme";
 
@@ -763,33 +763,25 @@ export default function CallLogsScreen() {
                     </Text>
                   </View>
                 </View>
-                <React.Suspense
-                  fallback={
-                    <View style={{ height: 180, justifyContent: "center", alignItems: "center" }}>
-                      <ActivityIndicator size="small" color={colors.primary} />
-                    </View>
-                  }
-                >
-                  <LazyLineChart
-                    data={{
-                      labels: trendData.labels,
-                      datasets: [
-                        {
-                          data:
-                            trendData.data.length > 0 && trendData.data.some((v) => v > 0)
-                              ? trendData.data
-                              : [0, 0, 0, 0, 0, 0, 0],
-                        },
-                      ],
-                    }}
-                    width={screenWidth - 56}
-                    height={180}
-                    chartConfig={chartConfig}
-                    bezier
-                    style={{ borderRadius: 12, marginVertical: 8 }}
-                    fromZero
-                  />
-                </React.Suspense>
+                <AppLineChart
+                  data={{
+                    labels: trendData.labels,
+                    datasets: [
+                      {
+                        data:
+                          trendData.data.length > 0 && trendData.data.some((v) => v > 0)
+                            ? trendData.data
+                            : [0, 0, 0, 0, 0, 0, 0],
+                      },
+                    ],
+                  }}
+                  width={screenWidth - 56}
+                  height={180}
+                  chartConfig={chartConfig}
+                  bezier
+                  style={{ borderRadius: 12, marginVertical: 8 }}
+                  fromZero
+                />
               </View>
 
               {/* Distribution By Type (Incoming, Outgoing, Missed) */}
