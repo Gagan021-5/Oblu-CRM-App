@@ -5,10 +5,29 @@ on:
     branches: [ "main" ]
     paths:
       - 'ObluMerge/**'
+      - '.github/workflows/deploy.yml'
+  pull_request:
+    paths:
+      - 'ObluMerge/**'
+      - '.github/workflows/deploy.yml'
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: oblu_ci
+          POSTGRES_USER: oblu_ci
+          POSTGRES_PASSWORD: oblu_ci_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U oblu_ci -d oblu_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
 
@@ -16,6 +35,8 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+          cache: pip
+          cache-dependency-path: ObluMerge/requirements.txt
 
       - name: Install Dependencies
         run: |
@@ -25,13 +46,16 @@ jobs:
       - name: Run Test Cases
         env:
           SECRET_KEY: ci-test-secret-key-oblu
-          DEBUG: "True"
-          DATABASE_URL: sqlite:///test_db.sqlite3
+          DEBUG: "False"
+          DATABASE_URL: postgres://oblu_ci:oblu_ci_password@127.0.0.1:5432/oblu_ci
+          DB_SSL_REQUIRE: "False"
         run: |
           cd ObluMerge
+          python manage.py check
           python manage.py test
 
   deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: test
     runs-on: ubuntu-latest
     steps:

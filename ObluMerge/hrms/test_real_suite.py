@@ -41,10 +41,17 @@ class RealDatabaseCompOffTests(unittest.TestCase):
         self.atomic = transaction.atomic()
         self.atomic.__enter__()
 
-        # Find or create a real test company and department
-        self.company = m.Company.objects.first()
-        self.department = m.Department.objects.first()
-        self.designation = m.Designation.objects.first()
+        # Create isolated organization records for this test transaction.
+        self.company = m.Company.objects.create(name='CI Comp Off Test Company')
+        self.department = m.Department.objects.create(
+            company=self.company,
+            name='CI Comp Off Test Department',
+        )
+        self.designation = m.Designation.objects.create(
+            company=self.company,
+            department=self.department,
+            title='CI Comp Off Test Designation',
+        )
 
         # Get or create the real 'CO' leave type
         self.co_leave_type, _ = m.LeaveType.objects.get_or_create(

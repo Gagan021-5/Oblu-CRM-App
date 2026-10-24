@@ -25,7 +25,7 @@ class HiringResumeAndStageTests(TestCase):
 
 
        self.stage_one = RecruitmentStage.objects.create(name='Applied')
-       self.stage_two = RecruitmentStage.objects.create(name='Screening')
+       self.stage_two = RecruitmentStage.objects.create(name='Shortlisted')
        self.stage_three = RecruitmentStage.objects.create(name='Interview')
 
 

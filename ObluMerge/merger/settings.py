@@ -7,6 +7,7 @@ from pathlib import Path
 import os
 from datetime import timedelta
 import dj_database_url
+from django.core.exceptions import ImproperlyConfigured
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -119,24 +120,23 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'merger.wsgi.application'
 
-# Database Configuration with dynamic PaaS & local fallback
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-    }
-}
+# PostgreSQL is required in every environment. Configure DATABASE_URL in the
+# local .env file, the CI workflow, and the production service environment.
+db_url = os.environ.get('DATABASE_URL', '').strip()
+if not db_url:
+    raise ImproperlyConfigured('DATABASE_URL is required; configure a PostgreSQL connection URL.')
+if not db_url.startswith(('postgres://', 'postgresql://')):
+    raise ImproperlyConfigured('DATABASE_URL must use PostgreSQL (postgres:// or postgresql://).')
 
-db_url = os.environ.get('DATABASE_URL')
-if db_url:
-    is_sqlite = db_url.startswith('sqlite')
-    is_local = is_sqlite or any(h in db_url for h in ['127.0.0.1', 'localhost'])
-    ssl_require = (not is_local) and (os.environ.get('DB_SSL_REQUIRE', 'False').lower() in ['true', '1'])
-    DATABASES['default'] = dj_database_url.config(
+is_local_db = any(host in db_url for host in ('127.0.0.1', 'localhost'))
+ssl_require = os.environ.get('DB_SSL_REQUIRE', str(not is_local_db)).lower() in ('true', '1', 'yes')
+DATABASES = {
+    'default': dj_database_url.config(
         default=db_url,
-        conn_max_age=0 if is_sqlite else 600,
-        ssl_require=ssl_require
+        conn_max_age=0 if is_local_db else 600,
+        ssl_require=ssl_require,
     )
+}
 
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
