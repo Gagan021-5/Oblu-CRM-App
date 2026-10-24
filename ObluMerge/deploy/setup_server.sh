@@ -9,7 +9,7 @@ set -e
 
 echo "==> 1. Updating packages and installing prerequisites..."
 sudo apt update && sudo apt upgrade -y
-sudo apt install -y python3-pip python3-venv python3-dev build-essential libpq-dev libxml2-dev libxslt1-dev postgresql postgresql-contrib nginx git curl libgl1-mesa-glx libglib2.0-0
+sudo apt install -y python3-pip python3-venv python3-dev build-essential libpq-dev libxml2-dev libxslt1-dev unixodbc postgresql postgresql-contrib nginx git curl libgl1-mesa-glx libglib2.0-0
 
 echo "==> 2. Setting up project directory..."
 sudo mkdir -p /var/www/Oblu-CRM-App
