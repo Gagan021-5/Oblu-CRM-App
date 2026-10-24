@@ -91,6 +91,8 @@ employee/
 **/media/employees/
 media/
 **/media/
+!Frontend/components/employee/**
+!Frontend/app/(employee)/**
 
 Frontend/assets/images/
 Frontend/assets/fonts/

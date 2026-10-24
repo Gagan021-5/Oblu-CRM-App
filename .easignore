@@ -12,6 +12,8 @@ employees/
 **/employees/
 **/faces/
 deploy/
+!Frontend/components/employee/**
+!Frontend/app/(employee)/**
 
 node_modules/
 .expo/
