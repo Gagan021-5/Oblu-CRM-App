@@ -119,6 +119,8 @@ jobs:
 
             source ObluMerge/venv/bin/activate
             cd ObluMerge
+            mkdir -p /home/ubuntu/.cache/oblu-pip-tmp
+            export TMPDIR=/home/ubuntu/.cache/oblu-pip-tmp
             python -m pip install --upgrade pip
             opencv_wheel="$(find /tmp/oblu-opencv-wheelhouse -maxdepth 1 -type f -name 'opencv_contrib_python_headless-*.whl' -print -quit)"
             test -n "$opencv_wheel"
