@@ -1,0 +1,22 @@
+[Unit]
+Description=ObluMerge Django Gunicorn Service
+After=network.target postgresql.service
+
+[Service]
+User=ubuntu
+Group=www-data
+WorkingDirectory=/var/www/Oblu-CRM-App/ObluMerge
+EnvironmentFile=/var/www/Oblu-CRM-App/ObluMerge/.env
+ExecStart=/var/www/Oblu-CRM-App/ObluMerge/venv/bin/gunicorn \
+          --workers 3 \
+          --bind 127.0.0.1:8000 \
+          --timeout 120 \
+          --access-logfile /var/log/oblumerge_access.log \
+          --error-logfile /var/log/oblumerge_error.log \
+          merger.wsgi:application
+
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

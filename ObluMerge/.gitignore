@@ -207,3 +207,17 @@ db.sqlite3
 *.sqlite3.backup
 crm_data.json
 local-backups/
+# -----------------------------------------------------------------------------
+# Employee Privacy & Biometrics (Face photos, attendance captures & embeddings)
+# -----------------------------------------------------------------------------
+attendance/
+employees/
+employee/
+**/attendance/
+**/employees/
+**/employee/
+**/faces/
+**/media/attendance/
+**/media/employees/
+media/
+**/media/

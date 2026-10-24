@@ -147,7 +147,7 @@ export default function LoginScreen() {
             Oblu
           </Text>
           <Text style={[styles.brandSubtitle, { color: colors.textMuted }]}>
-            High-Performance Calling & Pipeline
+            Future is Innovation
           </Text>
         </View>
 
@@ -500,20 +500,26 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.xxl,
   },
   logoContainer: {
-    width: 76,
-    height: 76,
-    borderRadius: Radius.lg,
+    width: 80,
+    height: 80,
+    borderRadius: 40,
     overflow: "hidden",
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.12)",
+    marginBottom: 14,
+    borderWidth: 1.5,
+    borderColor: "rgba(255, 255, 255, 0.16)",
     backgroundColor: "#000000",
     justifyContent: "center",
     alignItems: "center",
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 8,
+    elevation: 4,
   },
   pandaLogo: {
-    width: 68,
-    height: 68,
+    width: 76,
+    height: 76,
+    borderRadius: 38,
   },
   brandTitle: {
     fontFamily: Typography.heading,

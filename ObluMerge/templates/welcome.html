@@ -14,7 +14,7 @@
 
     body {
       font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      background: linear-gradient(135deg, #0e0e0e, #838383); {#changed the color#}
+      background: linear-gradient(135deg, #0e0e0e, #838383);
       color: #ffffff;
       min-height: 100vh;
       display: flex;
@@ -42,10 +42,11 @@
     }
 
     nav a:hover {
-      color: #bdbdbd; {# changed the color  #}
+      color: #bdbdbd;
     }
+
     .nav-links button {
-      background: #fff; {# changed the color #}
+      background: #fff;
       border: none;
       padding: 8px 16px;
       border-radius: 20px;
@@ -57,16 +58,15 @@
       box-shadow: 0 2px 8px rgba(0,0,0,0.2);
       text-decoration: none;
     }
+
     .nav-links button:hover {
       transform: scale(1.05);
       box-shadow: 0 4px 12px rgba(0,0,0,0.3);
     }
 
-
-
     nav .brand {
       font-size: 1.5rem;
-      background: white; {# changed the color from linear gradient to white #}
+      background: white;
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
     }
@@ -80,67 +80,74 @@
 
     .container {
       text-align: center;
-      padding: 60px 20px;
-      background: white; {# from rgba(255, 255, 255, 0.05) to white #}
-      border-radius: 16px;
+      padding: 50px 30px;
+      background: white;
+      border-radius: 20px;
       box-shadow: 0 0 30px rgba(0, 0, 0, 0.4);
       backdrop-filter: blur(10px);
-      animation: fadeIn 1s ease-in-out;
-      max-width: 600px;
-      width: 90%;
+      animation: fadeIn 0.8s ease-in-out;
+      max-width: 760px;
+      width: 92%;
       margin: 40px auto;
     }
 
     h1 {
       font-size: 2.5rem;
-      margin-bottom: 20px;
-      background: #222; {# Changed the color from linear gradient to black #}
+      margin-bottom: 12px;
+      background: #222;
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
+      font-weight: 800;
     }
 
     p {
       font-size: 1.1rem;
-      margin-bottom: 30px;
-      color: #222; {# from #ccc to #222 #}
+      margin-bottom: 32px;
+      color: #555;
     }
 
     .btn-group {
       display: flex;
-      gap: 20px;
+      gap: 14px;
       justify-content: center;
       flex-wrap: wrap;
+      max-width: 700px;
+      margin: 0 auto;
     }
 
     .btn {
-      background: #222; {# changed the color from linear gradient to black #}
-      border: none;
-      padding: 14px 28px;
+      background: #1e1e1e;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      padding: 13px 26px;
       border-radius: 50px;
-      font-size: 1rem;
-      font-weight: bold;
-      color: #fff; {#  color changed from black to white #}
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: #fff;
       cursor: pointer;
-      transition: all 0.3s ease;
-      box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: 0 4px 14px rgba(0,0,0,0.22);
+      text-decoration: none;
     }
 
     .btn:hover {
-      transform: scale(1.05);
-      box-shadow: 0 6px 20px rgba(0,0,0,0.3);
+      transform: translateY(-2px) scale(1.03);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.32);
+      background: #111;
+      border-color: rgba(53, 214, 160, 0.4);
     }
 
     footer {
       text-align: center;
       font-size: 0.9rem;
       color: #888;
-      margin: 20px 0;
+      margin: 20px 0 auto 0;
+      padding-bottom: 20px;
     }
 
     @keyframes fadeIn {
       from {
         opacity: 0;
-        transform: translateY(30px);
+        transform: translateY(20px);
       }
       to {
         opacity: 1;
@@ -162,12 +169,17 @@
       }
 
       .container {
-        margin-top: 30px;
-        padding: 30px 15px;
+        margin-top: 20px;
+        padding: 30px 16px;
       }
 
       h1 {
-        font-size: 2rem;
+        font-size: 1.9rem;
+      }
+
+      .btn {
+        width: 100%;
+        padding: 14px 20px;
       }
     }
   </style>
@@ -176,16 +188,16 @@
 
   <nav>
     <div class="brand">
-      <a href="">Oblu Tools</a>
+      <a href="/">Oblu Tools</a>
     </div>
     <div class="nav-links">
       {% if user.is_authenticated %}
         <a href="#">Hi, {{ user.username }}</a>
-        <form action="{% url 'logout' %}" method="POST">
-                            {% csrf_token %}
-                            <button type="submit" class="nav-link">
-                                Logout
-                            </button>
+        <form action="{% url 'logout' %}" method="POST" style="display:inline;">
+          {% csrf_token %}
+          <button type="submit" class="nav-link">
+            Logout
+          </button>
         </form>
       {% else %}
         <a href="{% url 'login' %}">Login</a>
@@ -197,41 +209,45 @@
     <h1>Welcome to Oblu Tools</h1>
     <p>Your internal suite of productivity tools.</p>
     <div class="btn-group">
-      {% if request.user.is_accountant %}
-        <button class="btn" onclick="redirectTo('inventory')">Inventory Management</button>
-        <button class="btn" onclick="redirectTo('customer_data')">Customer Management System</button>
-        <button class="btn" onclick="location.href='/meta/dashboard/'">Meta Dashboard</button>
-      {% endif %}
-      <button class="btn" onclick="location.href='/proforma/'">Proforma Invoice Maker</button>
-      <button class="btn" onclick="location.href='/incentives/asm/paid-only/'">Incentive Calculator</button>
-      <button class="btn" onclick="redirectTo('quotations')">Quotation Maker</button>
-      <button class="btn" onclick="location.href='/customers/payment-followups/'">View Pending Payments</button>
-      {% if request.user.is_accountant %}
-        <button class="btn" onclick="location.href='/customers/salesperson-customers/'">Salesperson-Customers</button>
-        <button class="btn" onclick="location.href='/customers/sales-report/'">Sales-Report</button>
+      {% if user.username|lower == 'warehouse' %}
+        <button class="btn" onclick="location.href='{% url 'warehouse_dispatch_dashboard' %}'">Warehouse Dashboard</button>
       {% else %}
-        <button class="btn" onclick="location.href='/customers/salesperson-customers/'">Customers Status</button>
-        <button class="btn" onclick="location.href='/customers/monthly-sales-report/'">My Sales-Report</button>
+        <!-- 1. Customer & Sales Dashboard -->
+        <button class="btn" onclick="location.href='/customers/'">Customer and Sales Dashboard</button>
+
+        <!-- 2. Inventory Management -->
+        <button class="btn" onclick="location.href='/inventory/'">Inventory Management</button>
+
+        <!-- 3. Proforma Invoice & Quotations -->
+        <button class="btn" onclick="location.href='/proforma/'">Proforma Invoice & Quotation Maker</button>
+
+        <!-- 4. Dispatch Operations -->
+        <button class="btn" onclick="location.href='/proforma/dispatch/accounts/'">Dispatch Operations</button>
+
+        <!-- 5. HRMS & Workforce Attendance -->
+        <button class="btn" onclick="location.href='/hrms/'">HRMS & Attendance</button>
+
+        <!-- 6. Sales Incentives & Commissions -->
+        <button class="btn" onclick="location.href='/incentives/'">Sales Incentives</button>
+
+        <!-- 7. Quotations Maker -->
+        <button class="btn" onclick="location.href='/quotations/'">Quotations Maker</button>
+
+        <!-- 8. Meta Dashboard -->
+        <button class="btn" onclick="location.href='/meta/dashboard/'">Meta Dashboard</button>
+
+        <!-- 9. Tally Vouchers -->
+        <button class="btn" onclick="location.href='/vouchers/'">Tally Vouchers</button>
+
+        <!-- 10. System Documentation -->
+        <button class="btn" onclick="location.href='/docs/'">System Documentation</button>
       {% endif %}
     </div>
   </div>
 
   <footer>
-    © 2025 Oblu | Internal Use Only
+    © 2026 Oblu | Internal Use Only
   </footer>
-
-  <script>
-    function redirectTo(tool) {
-      if (tool === 'inventory') {
-        window.location.href = "/inventory/";
-      } else if (tool === 'quotations') {
-        window.location.href = "/quotations/";
-      }
-      else if (tool === 'customer_data') {
-        window.location.href = "/customers/";
-        }
-    }
-  </script>
 
 </body>
 </html>

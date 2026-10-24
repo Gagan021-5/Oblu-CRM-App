@@ -37,8 +37,13 @@ yarn-error.*
 # typescript
 *.tsbuildinfo
 
-app-example
-
 # generated native folders
 /ios
 /android
+
+# Proprietary Brand Assets & Fonts (IPR & Privacy)
+assets/images/
+assets/fonts/
+*.otf
+*.ttf
+

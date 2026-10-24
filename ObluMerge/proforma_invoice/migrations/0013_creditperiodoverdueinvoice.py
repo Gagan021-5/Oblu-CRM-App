@@ -8,7 +8,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ('proforma_invoice', '0012_remove_creditperiodoverduebypassrequest_overdue_snapshot'),
-        ('tally_voucher', '0003_voucheremipaymentallocation'),
+        ('tally_voucher', '0001_initial'),
     ]
 
     operations = [

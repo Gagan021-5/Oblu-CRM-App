@@ -144,3 +144,7 @@ django-cors-headers>=4.3.0
 djangorestframework>=3.15.0
 djangorestframework-simplejwt>=5.3.0
 gunicorn>=21.2.0
+opencv-contrib-python-headless>=4.10.0
+deepface>=0.0.90
+onnxruntime>=1.20.0
+retina-face>=0.0.17

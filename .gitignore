@@ -98,3 +98,34 @@ Thumbs.db
 *.dump
 *.old_backup
 
+
+# -----------------------------------------------------------------------------
+# Employee Privacy & Biometrics (Face photos, attendance captures & embeddings)
+# -----------------------------------------------------------------------------
+attendance/
+employees/
+employee/
+**/attendance/
+**/employees/
+**/employee/
+**/faces/
+**/media/attendance/
+**/media/employees/
+media/
+**/media/
+
+# -----------------------------------------------------------------------------
+# Proprietary Assets & Intellectual Property (IPR & Privacy - Fonts & Images)
+# -----------------------------------------------------------------------------
+Frontend/assets/images/
+Frontend/assets/fonts/
+assets/images/
+assets/fonts/
+**/assets/images/
+**/assets/fonts/
+**/static/images/
+*.otf
+*.ttf
+*.woff
+*.woff2
+

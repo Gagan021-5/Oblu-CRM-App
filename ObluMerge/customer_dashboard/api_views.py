@@ -317,3 +317,61 @@ class DashboardStatsView(APIView):
                 "syncHealth": "100% Live",
             }
         )
+
+
+class CustomerChartsView(APIView):
+    """
+    GET /api/customers/charts/
+    Returns distribution data for charts in the mobile app.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from django.db.models import Count
+        salesperson = get_salesperson(request)
+        cust_qs = Customer.objects.all()
+        if salesperson:
+            cust_qs = cust_qs.filter(salesperson=salesperson)
+
+        sp_counts = (
+            cust_qs.values("salesperson__name")
+            .annotate(count=Count("id"))
+            .order_by("-count")[:10]
+        )
+        salesperson_dist = [
+            {"name": s["salesperson__name"] or "Unassigned", "customers": s["count"]}
+            for s in sp_counts
+        ]
+
+        state_counts = (
+            cust_qs.values("state")
+            .annotate(count=Count("id"))
+            .order_by("-count")[:10]
+        )
+        state_dist = [
+            {"state": s["state"] or "Other", "count": s["count"]}
+            for s in state_counts
+        ]
+
+        vouchers_total = CustomerVoucherStatus.objects.count()
+        vouchers_overdue = CustomerVoucherStatus.objects.filter(is_credit_period_crossed=True).count()
+        vouchers_pending = CustomerVoucherStatus.objects.filter(payment_status="Pending").count()
+        vouchers_paid = CustomerVoucherStatus.objects.filter(payment_status="Paid").count()
+
+        total_balance = cust_qs.aggregate(
+            total=Sum("credit_profile__outstanding_balance")
+        )["total"] or 0
+
+        return Response({
+            "salespersonDistribution": salesperson_dist,
+            "stateDistribution": state_dist,
+            "vouchers": {
+                "total": vouchers_total,
+                "overdue": vouchers_overdue,
+                "pending": vouchers_pending,
+                "paid": vouchers_paid,
+            },
+            "totalOutstanding": float(abs(total_balance)),
+            "totalOutstandingFormatted": f"₹{int(abs(total_balance)):,}",
+        })
+

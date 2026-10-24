@@ -158,6 +158,10 @@ STATICFILES_DIRS = [
 ]
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
+# Media files
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+
 # Storage configuration with local fallback
 if os.getenv("AWS_ACCESS_KEY_ID") and os.getenv("AWS_SECRET_ACCESS_KEY"):
     AWS_STORAGE_BUCKET_NAME = "oblu-dispatch"
@@ -180,8 +184,8 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 AUTH_USER_MODEL = 'inventory.User'
 
 LOGIN_REDIRECT_URL = "/"
-LOGIN_URL = "/login"
-LOGOUT_REDIRECT_URL = '/'
+LOGIN_URL = "/login/"
+LOGOUT_REDIRECT_URL = '/login/'
 
 CRISPY_ALLOWED_TEMPLATE_PACKS = "bootstrap5"
 CRISPY_TEMPLATE_PACK = "bootstrap5"

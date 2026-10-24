@@ -10,7 +10,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ('inventory', '0008_inventoryitem_expected_delivery_days_and_more'),
-        ('tally_voucher', '0003_voucheremipaymentallocation'),
+        ('tally_voucher', '0001_initial'),
     ]
 
     operations = [
