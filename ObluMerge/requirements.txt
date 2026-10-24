@@ -103,7 +103,6 @@ rsa==4.9.1
 scikit-learn==1.9.1
 scipy==1.18.1
 seaborn==0.13.2
-selenium==4.33.0
 setuptools==80.9.0
 six==1.17.0
 smmap==5.0.2
@@ -131,7 +130,6 @@ uritools==5.0.0
 urllib3==2.4.0
 watchdog==6.0.0
 weasyprint==65.1
-webdriver-manager==4.0.2
 Werkzeug==3.1.9
 webencodings==0.5.1
 websocket-client==1.8.0
