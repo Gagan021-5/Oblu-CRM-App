@@ -105,6 +105,12 @@ TEMPLATES = [
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
         'DIRS': [
             BASE_DIR / 'templates',
+            # These apps use a capitalized Templates directory. Linux is
+            # case-sensitive, so APP_DIRS cannot discover them automatically.
+            BASE_DIR / 'customer_dashboard' / 'Templates',
+            BASE_DIR / 'incentive_calculator' / 'Templates',
+            BASE_DIR / 'inventory' / 'Templates',
+            BASE_DIR / 'proforma_invoice' / 'Templates',
         ],
         'APP_DIRS': True,
         'OPTIONS': {

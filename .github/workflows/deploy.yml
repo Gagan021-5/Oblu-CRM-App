@@ -130,6 +130,10 @@ jobs:
             python manage.py check --database default
             python manage.py migrate --noinput
             python manage.py collectstatic --noinput
+            sudo install -m 0644 deploy/nginx.conf /etc/nginx/sites-available/oblumerge
+            sudo ln -sfn /etc/nginx/sites-available/oblumerge /etc/nginx/sites-enabled/oblumerge
+            sudo nginx -t
+            sudo systemctl reload nginx
             sudo systemctl restart gunicorn
             sudo systemctl is-active --quiet gunicorn
             health_check_passed=0
