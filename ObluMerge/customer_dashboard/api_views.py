@@ -347,7 +347,7 @@ class CustomerChartsView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        from django.db.models import Count
+        from django.db.models import Count, Q
         cust_qs = get_visible_customer_queryset(request.user)
 
         sp_counts = (
@@ -373,8 +373,10 @@ class CustomerChartsView(APIView):
         voucher_qs = CustomerVoucherStatus.objects.filter(customer__in=cust_qs)
         vouchers_total = voucher_qs.count()
         vouchers_overdue = voucher_qs.filter(is_credit_period_crossed=True).count()
-        vouchers_pending = voucher_qs.filter(payment_status="Pending").count()
-        vouchers_paid = voucher_qs.filter(payment_status="Paid").count()
+        vouchers_pending = voucher_qs.filter(
+            Q(is_unpaid=True) | Q(is_partially_paid=True)
+        ).count()
+        vouchers_paid = voucher_qs.filter(is_fully_paid=True).count()
 
         total_balance = cust_qs.aggregate(
             total=Sum("credit_profile__outstanding_balance")
