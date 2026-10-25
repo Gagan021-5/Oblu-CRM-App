@@ -25,6 +25,13 @@ import { StatusPill } from "@/components/ui/StatusPill";
 import { Customer } from "@/data/mockCustomers";
 import { fetchCustomersFromApi } from "@/services/customerService";
 import { CustomerNavDrawer } from "@/components/CustomerNavDrawer";
+import { CustomerBalanceFilter, CustomerFilterSheet, CustomerPaymentFilter, CustomerSortOption } from "@/components/ui/CustomerFilterSheet";
+
+function getOutstandingAmount(value: string): number {
+  const normalized = (value || "").replace(/[^0-9.-]/g, "");
+  const amount = Number(normalized);
+  return Number.isFinite(amount) ? amount : 0;
+}
 
 export default function CustomersScreen() {
   const insets = useSafeAreaInsets();
@@ -34,6 +41,10 @@ export default function CustomersScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [drawerVisible, setDrawerVisible] = useState(false);
+  const [filterVisible, setFilterVisible] = useState(false);
+  const [paymentFilter, setPaymentFilter] = useState<CustomerPaymentFilter>("all");
+  const [balanceFilter, setBalanceFilter] = useState<CustomerBalanceFilter>("all");
+  const [sortOption, setSortOption] = useState<CustomerSortOption>("default");
 
   const loadData = useCallback(async (isPull = false) => {
     if (!isPull) setLoading(true);
@@ -58,16 +69,42 @@ export default function CustomersScreen() {
   };
 
   const filteredCustomers = useMemo(() => {
-    if (!search.trim()) return customers;
     const q = search.toLowerCase().trim();
-    return customers.filter(
+    let list = customers.filter(
       (c) =>
+        !q ||
         (c.name || "").toLowerCase().includes(q) ||
         (c.contactPerson || "").toLowerCase().includes(q) ||
         (c.city || "").toLowerCase().includes(q) ||
         (c.phone || "").includes(q)
     );
-  }, [customers, search]);
+
+    if (paymentFilter !== "all") {
+      list = list.filter((customer) => customer.paymentStatus === paymentFilter);
+    }
+    if (balanceFilter === "outstanding") {
+      list = list.filter((customer) => getOutstandingAmount(customer.outstandingPayment) > 0);
+    }
+
+    if (sortOption === "name_asc") {
+      list.sort((a, b) => a.name.localeCompare(b.name));
+    } else if (sortOption === "name_desc") {
+      list.sort((a, b) => b.name.localeCompare(a.name));
+    } else if (sortOption === "outstanding_high") {
+      list.sort((a, b) => getOutstandingAmount(b.outstandingPayment) - getOutstandingAmount(a.outstandingPayment));
+    } else if (sortOption === "outstanding_low") {
+      list.sort((a, b) => getOutstandingAmount(a.outstandingPayment) - getOutstandingAmount(b.outstandingPayment));
+    }
+    return list;
+  }, [customers, search, paymentFilter, balanceFilter, sortOption]);
+
+  const filtersActive = paymentFilter !== "all" || balanceFilter !== "all" || sortOption !== "default";
+
+  const resetDirectoryFilters = () => {
+    setPaymentFilter("all");
+    setBalanceFilter("all");
+    setSortOption("default");
+  };
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -291,29 +328,18 @@ export default function CustomersScreen() {
         ]}
       >
         <TouchableOpacity
-          style={styles.backBtn}
-          onPress={() => (router.canGoBack() ? router.back() : router.replace("/(admin)/users"))}
+          style={styles.menuBtn}
+          onPress={() => setDrawerVisible(true)}
+          accessibilityRole="button"
+          accessibilityLabel="Open customer navigation"
           activeOpacity={0.7}
         >
-          <Ionicons name="arrow-back" size={22} color={colors.textPrimary} />
+          <Ionicons name="menu" size={21} color={colors.textPrimary} />
         </TouchableOpacity>
-        <Text style={[styles.screenHeading, { color: colors.textPrimary }]}>
+        <Text style={[styles.screenHeading, { color: colors.textPrimary }]} numberOfLines={1}>
           Customer Directory
         </Text>
-        <View style={styles.headerRight}>
-          <TouchableOpacity
-            onPress={() => setDrawerVisible(true)}
-            accessibilityLabel="Open customer navigation"
-            style={styles.menuBtn}
-          >
-            <Ionicons name="menu" size={21} color={colors.textPrimary} />
-          </TouchableOpacity>
-          <View style={styles.countBadge}>
-            <Text style={[styles.countText, { color: colors.primary }]}>
-              {filteredCustomers.length}
-            </Text>
-          </View>
-        </View>
+        <View style={styles.headerSpacer} />
       </View>
 
       {/* Search */}
@@ -337,6 +363,18 @@ export default function CustomersScreen() {
               <Ionicons name="close-circle" size={18} color={colors.textMuted} />
             </TouchableOpacity>
           )}
+          <TouchableOpacity
+            onPress={() => setFilterVisible(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Filter and sort customers"
+            style={styles.filterButton}
+          >
+            <Ionicons
+              name="options-outline"
+              size={21}
+              color={filtersActive ? colors.primary : colors.textMuted}
+            />
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -351,7 +389,7 @@ export default function CustomersScreen() {
         <View style={styles.loadingWrap}>
           <Ionicons name="people-outline" size={48} color={colors.textMuted} />
           <Text style={[styles.loadingText, { color: colors.textMuted }]}>
-            {search ? "No customers match your search" : "No customers found"}
+          {search || filtersActive ? "No customers match these search and filter options" : "No customers found"}
           </Text>
         </View>
       ) : (
@@ -374,6 +412,17 @@ export default function CustomersScreen() {
           }
         />
       )}
+      <CustomerFilterSheet
+        visible={filterVisible}
+        paymentFilter={paymentFilter}
+        balanceFilter={balanceFilter}
+        sortOption={sortOption}
+        onPaymentFilterChange={setPaymentFilter}
+        onBalanceFilterChange={setBalanceFilter}
+        onSortOptionChange={setSortOption}
+        onClose={() => setFilterVisible(false)}
+        onReset={resetDirectoryFilters}
+      />
       <CustomerNavDrawer visible={drawerVisible} onClose={() => setDrawerVisible(false)} isAdmin />
     </View>
   );
@@ -391,25 +440,12 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
     borderBottomWidth: 1,
   },
-  backBtn: {
-    width: 36,
-    height: 36,
-    justifyContent: "center",
-    alignItems: "center",
-  },
   screenHeading: {
+    flex: 1,
     fontFamily: Typography.headingSemi,
     fontSize: FontSizes.screenTitle,
     letterSpacing: -0.2,
-  },
-  countBadge: {
-    minWidth: 36,
-    alignItems: "center",
-  },
-  headerRight: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
+    textAlign: "center",
   },
   menuBtn: {
     width: 34,
@@ -417,9 +453,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  countText: {
-    fontFamily: Typography.bold,
-    fontSize: 14,
+  headerSpacer: {
+    width: 34,
+    height: 34,
   },
   searchWrap: {
     paddingHorizontal: Spacing.screenPadding,
@@ -438,6 +474,13 @@ const styles = StyleSheet.create({
     flex: 1,
     fontFamily: Typography.regular,
     fontSize: FontSizes.bodySmall,
+  },
+  filterButton: {
+    width: 32,
+    height: 34,
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 4,
   },
   clientCard: {
     borderRadius: 16,

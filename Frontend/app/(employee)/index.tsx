@@ -112,6 +112,26 @@ export default function EmployeeHomeScreen() {
       : "all";
   });
 
+  const openSubApp = (appId: string) => {
+    if (appId === "all") {
+      setSelectedCategory("all");
+      return;
+    }
+
+    const routes: Record<string, string> = {
+      customers: "/(employee)/customers",
+      calls: "/(user)/status",
+      leads: "/(employee)/leads",
+      hrms: "/(employee)/hrms",
+      inventory: "/(employee)/inventory",
+      proforma: "/(employee)/proforma",
+      incentives: "/(employee)/incentives",
+      security: "/(employee)/security",
+    };
+    const route = routes[appId];
+    if (route) router.push(route as any);
+  };
+
   const [allowedApps, setAllowedApps] = useState<AllowedApp[]>(() => {
     const uName = ((user as any)?.username || "").toLowerCase();
     const uRole = ((user as any)?.role || "").toLowerCase();
@@ -506,7 +526,7 @@ export default function EmployeeHomeScreen() {
               return (
                 <TouchableOpacity
                   style={styles.categoryItem}
-                  onPress={() => setSelectedCategory(item.id)}
+                  onPress={() => openSubApp(item.id)}
                   activeOpacity={0.75}
                 >
                   <View
@@ -773,7 +793,7 @@ export default function EmployeeHomeScreen() {
                       borderColor: isDark ? "#294039" : "#D8E0DC",
                     },
                   ]}
-                  onPress={() => setSelectedCategory("hrms")}
+                  onPress={() => openSubApp("hrms")}
                   activeOpacity={0.8}
                 >
                   <View style={styles.hrBentoHeader}>
@@ -801,7 +821,7 @@ export default function EmployeeHomeScreen() {
                       borderColor: isDark ? "#294039" : "#D8E0DC",
                     },
                   ]}
-                  onPress={() => setSelectedCategory("hrms")}
+                  onPress={() => openSubApp("hrms")}
                   activeOpacity={0.8}
                 >
                   <View style={styles.hrBentoHeader}>
@@ -829,7 +849,7 @@ export default function EmployeeHomeScreen() {
                       borderColor: isDark ? "#294039" : "#D8E0DC",
                     },
                   ]}
-                  onPress={() => setSelectedCategory("hrms")}
+                  onPress={() => openSubApp("hrms")}
                   activeOpacity={0.8}
                 >
                   <View style={styles.hrBentoHeader}>
@@ -865,7 +885,7 @@ export default function EmployeeHomeScreen() {
                       borderColor: isDark ? "#294039" : "#D8E0DC",
                     },
                   ]}
-                  onPress={() => setSelectedCategory("incentives")}
+                  onPress={() => openSubApp("incentives")}
                   activeOpacity={0.8}
                 >
                   <View style={styles.bentoModuleHeader}>
@@ -922,7 +942,7 @@ export default function EmployeeHomeScreen() {
                       borderColor: isDark ? "#294039" : "#D8E0DC",
                     },
                   ]}
-                  onPress={() => setSelectedCategory("inventory")}
+                  onPress={() => openSubApp("inventory")}
                   activeOpacity={0.8}
                 >
                   <View style={styles.bentoModuleHeader}>
@@ -979,7 +999,7 @@ export default function EmployeeHomeScreen() {
                       borderColor: isDark ? "#294039" : "#D8E0DC",
                     },
                   ]}
-                  onPress={() => setSelectedCategory("proforma")}
+                  onPress={() => openSubApp("proforma")}
                   activeOpacity={0.8}
                 >
                   <View style={styles.bentoModuleHeader}>

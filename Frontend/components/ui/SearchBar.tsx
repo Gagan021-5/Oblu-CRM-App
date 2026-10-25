@@ -9,6 +9,8 @@ interface SearchBarProps {
   onChangeText: (text: string) => void;
   placeholder?: string;
   onClear?: () => void;
+  onFilterPress?: () => void;
+  filterActive?: boolean;
 }
 
 export const SearchBar: React.FC<SearchBarProps> = ({
@@ -16,6 +18,8 @@ export const SearchBar: React.FC<SearchBarProps> = ({
   onChangeText,
   placeholder = "Search...",
   onClear,
+  onFilterPress,
+  filterActive = false,
 }) => {
   const { colors, isDark } = useTheme();
 
@@ -65,6 +69,21 @@ export const SearchBar: React.FC<SearchBarProps> = ({
           />
         </TouchableOpacity>
       )}
+      {onFilterPress && (
+        <TouchableOpacity
+          onPress={onFilterPress}
+          accessibilityRole="button"
+          accessibilityLabel="Filter and sort customers"
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          style={styles.filterButton}
+        >
+          <Ionicons
+            name="options-outline"
+            size={21}
+            color={filterActive ? colors.primary : isDark ? "#8FA09A" : "#5E6964"}
+          />
+        </TouchableOpacity>
+      )}
     </View>
   );
 };
@@ -80,6 +99,13 @@ const styles = StyleSheet.create({
   },
   searchIcon: {
     marginRight: 8,
+  },
+  filterButton: {
+    width: 30,
+    height: 34,
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 6,
   },
   input: {
     flex: 1,

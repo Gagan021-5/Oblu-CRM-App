@@ -23,6 +23,13 @@ import { WeeklyActivityChart } from "@/components/employee/WeeklyActivityChart";
 import { Customer } from "@/data/mockCustomers";
 import { fetchCustomersFromApi } from "@/services/customerService";
 import { CustomerNavDrawer } from "@/components/CustomerNavDrawer";
+import { CustomerBalanceFilter, CustomerFilterSheet, CustomerPaymentFilter, CustomerSortOption } from "@/components/ui/CustomerFilterSheet";
+
+function getOutstandingAmount(value: string): number {
+  const normalized = (value || "").replace(/[^0-9.-]/g, "");
+  const amount = Number(normalized);
+  return Number.isFinite(amount) ? amount : 0;
+}
 
 type FilterTab = "all" | "followup_due" | "payment_pending" | "recently_contacted";
 
@@ -81,6 +88,10 @@ export default function CustomerDashboardScreen() {
   }, [routeParams.filter]);
   const [showSearch, setShowSearch] = useState(false);
   const [drawerVisible, setDrawerVisible] = useState(false);
+  const [filterVisible, setFilterVisible] = useState(false);
+  const [paymentFilter, setPaymentFilter] = useState<CustomerPaymentFilter>("all");
+  const [balanceFilter, setBalanceFilter] = useState<CustomerBalanceFilter>("all");
+  const [sortOption, setSortOption] = useState<CustomerSortOption>("default");
 
   const loadData = useCallback(async (isPullToRefresh = false) => {
     if (!isPullToRefresh) setLoading(true);
@@ -149,8 +160,34 @@ export default function CustomerDashboardScreen() {
         break;
     }
 
+    if (paymentFilter !== "all") {
+      list = list.filter((customer) => customer.paymentStatus === paymentFilter);
+    }
+    if (balanceFilter === "outstanding") {
+      list = list.filter((customer) => getOutstandingAmount(customer.outstandingPayment) > 0);
+    }
+
+    if (sortOption === "name_asc") {
+      list.sort((a, b) => a.name.localeCompare(b.name));
+    } else if (sortOption === "name_desc") {
+      list.sort((a, b) => b.name.localeCompare(a.name));
+    } else if (sortOption === "outstanding_high") {
+      list.sort((a, b) => getOutstandingAmount(b.outstandingPayment) - getOutstandingAmount(a.outstandingPayment));
+    } else if (sortOption === "outstanding_low") {
+      list.sort((a, b) => getOutstandingAmount(a.outstandingPayment) - getOutstandingAmount(b.outstandingPayment));
+    }
+
     return list;
-  }, [customers, searchQuery, activeFilter]);
+  }, [customers, searchQuery, activeFilter, paymentFilter, balanceFilter, sortOption]);
+
+  const filtersActive = paymentFilter !== "all" || balanceFilter !== "all" || sortOption !== "default";
+
+  const resetDirectoryFilters = useCallback(() => {
+    setActiveFilter("all");
+    setPaymentFilter("all");
+    setBalanceFilter("all");
+    setSortOption("default");
+  }, []);
 
   // Counts for filter chips
   const counts = useMemo(() => {
@@ -183,11 +220,13 @@ export default function CustomerDashboardScreen() {
               borderColor: isDark ? "#294039" : "#D8E0DC",
             },
           ]}
-          onPress={() => (router.canGoBack() ? router.back() : router.replace(isBusinessManager || user?.role?.toLowerCase().includes("admin") ? "/(admin)/users" : "/(employee)"))}
+          onPress={() => setDrawerVisible(true)}
+          accessibilityRole="button"
+          accessibilityLabel="Open customer navigation"
           activeOpacity={0.7}
         >
           <Ionicons
-            name="arrow-back"
+            name="menu"
             size={18}
             color={isDark ? "#F1F7F4" : "#101513"}
           />
@@ -213,14 +252,6 @@ export default function CustomerDashboardScreen() {
         </View>
 
         <View style={styles.rightNav}>
-          <TouchableOpacity
-            style={[styles.iconBtn, { backgroundColor: isDark ? "#121F1B" : "#FFFFFF", borderColor: isDark ? "#294039" : "#D8E0DC" }]}
-            onPress={() => setDrawerVisible(true)}
-            accessibilityLabel="Open customer navigation"
-            activeOpacity={0.7}
-          >
-            <Ionicons name="menu-outline" size={20} color={isDark ? "#F1F7F4" : "#101513"} />
-          </TouchableOpacity>
           <TouchableOpacity
             style={[
               styles.iconBtn,
@@ -377,6 +408,8 @@ export default function CustomerDashboardScreen() {
             value={searchQuery}
             onChangeText={setSearchQuery}
             placeholder="Search by company, contact person, city..."
+            onFilterPress={() => setFilterVisible(true)}
+            filterActive={filtersActive}
           />
         </View>
       )}
@@ -446,18 +479,18 @@ export default function CustomerDashboardScreen() {
         icon="search-outline"
         title="No customers found"
         description={
-          searchQuery
-            ? `No customer matched "${searchQuery}". Try changing your search keywords or filter tab.`
+          searchQuery || filtersActive || activeFilter !== "all"
+            ? `No customer matched your search or filters. Try changing the search keywords or filter options.`
             : "No customers matching this filter criteria."
         }
         actionLabel="Reset Filters"
         onAction={() => {
           setSearchQuery("");
-          setActiveFilter("all");
+          resetDirectoryFilters();
         }}
       />
     ),
-    [searchQuery]
+    [searchQuery, filtersActive, activeFilter, resetDirectoryFilters]
   );
 
   return (
@@ -496,6 +529,17 @@ export default function CustomerDashboardScreen() {
           }
         />
       )}
+      <CustomerFilterSheet
+        visible={filterVisible}
+        paymentFilter={paymentFilter}
+        balanceFilter={balanceFilter}
+        sortOption={sortOption}
+        onPaymentFilterChange={setPaymentFilter}
+        onBalanceFilterChange={setBalanceFilter}
+        onSortOptionChange={setSortOption}
+        onClose={() => setFilterVisible(false)}
+        onReset={resetDirectoryFilters}
+      />
       <CustomerNavDrawer visible={drawerVisible} onClose={() => setDrawerVisible(false)} />
     </View>
   );

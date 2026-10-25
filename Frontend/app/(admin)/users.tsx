@@ -115,6 +115,26 @@ export default function UsersScreen() {
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
 
+  const openSubApp = (appId: string) => {
+    if (appId === "all") {
+      setSelectedCategory("all");
+      return;
+    }
+
+    const routes: Record<string, string> = {
+      hrms: "/(admin)/hrms",
+      customers: "/(admin)/customers",
+      calls: "/(admin)/call-logs",
+      leads: "/(admin)/leads",
+      inventory: "/(admin)/inventory",
+      proforma: "/(admin)/proforma",
+      incentives: "/(admin)/incentives",
+      security: "/(admin)/security",
+    };
+    const route = routes[appId];
+    if (route) router.push(route as any);
+  };
+
   const [users, setUsers] = useState<UserItem[]>([]);
   const [recentCalls, setRecentCalls] = useState<RecentCallItem[]>([]);
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
@@ -437,7 +457,7 @@ export default function UsersScreen() {
               return (
                 <TouchableOpacity
                   style={styles.categoryItem}
-                  onPress={() => setSelectedCategory(item.id)}
+                  onPress={() => openSubApp(item.id)}
                   activeOpacity={0.75}
                 >
                   <View
@@ -688,7 +708,7 @@ export default function UsersScreen() {
                         borderColor: colors.cardBorder,
                       },
                     ]}
-                    onPress={() => setSelectedCategory("hrms")}
+                    onPress={() => openSubApp("hrms")}
                     activeOpacity={0.8}
                   >
                     <View style={styles.bentoModuleHeader}>
