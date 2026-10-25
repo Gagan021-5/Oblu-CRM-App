@@ -4,21 +4,44 @@ import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "@/contexts/ThemeContext";
+import { useAuth } from "@/contexts/AuthContext";
 import { Typography } from "@/constants/theme";
 
 type Props = { visible: boolean; onClose: () => void; isAdmin?: boolean };
 
 export function CustomerNavDrawer({ visible, onClose, isAdmin = false }: Props) {
   const insets = useSafeAreaInsets(); const { colors, isDark } = useTheme();
+  const { user } = useAuth();
   const foreground = isDark ? "#F1F7F4" : "#101827"; const muted = isDark ? "#9AA9A3" : "#637083";
   const bg = isDark ? "#0E1714" : "#FFFFFF";
-  const entries = [
-    { title: "Dashboard", icon: "home-outline" as const, route: isAdmin ? "/(admin)/customer-dashboard" : "/(employee)/customers/dashboard" },
-    { title: "Customer Directory", icon: "people-outline" as const, route: isAdmin ? "/(admin)/customers" : "/(employee)/customers" },
-    { title: "Payment Follow-ups", icon: "cash-outline" as const, route: "/(employee)/customers?filter=payment_pending" },
-    { title: "Analytics", icon: "bar-chart-outline" as const, route: "/(employee)/customers/analytics" },
-    { title: "Detailed Map", icon: "map-outline" as const, route: "/(employee)/customers/map" },
-    { title: "My Incentives", icon: "wallet-outline" as const, route: isAdmin ? "/(admin)/incentives" : "/(employee)/incentives" },
+  const role = (user?.role || "").toLowerCase();
+  const adminAccess = isAdmin || role.includes("admin") || role.includes("accounts_operations");
+  const salesHeadAccess = adminAccess || role.includes("business") || role.includes("sales_head") || role.includes("sales head");
+  const managementAccess = adminAccess || role.includes("rsm") || role.includes("sales_head") || role.includes("sales head");
+  const tool = (slug: string) => `/(employee)/customers/tool/${slug}`;
+  const sections = [
+    { title: "WORKSPACE", entries: [
+      { title: "Dashboard", icon: "home-outline" as const, route: isAdmin ? "/(admin)/customer-dashboard" : "/(employee)/customers/dashboard" },
+      { title: "Customer Directory", icon: "people-outline" as const, route: isAdmin ? "/(admin)/customers" : "/(employee)/customers" },
+      { title: "Analytics", icon: "bar-chart-outline" as const, route: "/(employee)/customers/analytics" },
+      { title: "Detailed Map", icon: "map-outline" as const, route: "/(employee)/customers/map" },
+    ]},
+    { title: "CUSTOMERS & ACCOUNTS", entries: [
+      { title: "Team Customers", icon: "person-add-outline" as const, route: tool("team-customers") },
+      { title: "Payment Follow-ups", icon: "cash-outline" as const, route: tool("payment-followups") },
+      { title: "Monthly Sales Report", icon: "calendar-outline" as const, route: tool("monthly-sales") },
+    ]},
+    { title: "PERFORMANCE", entries: [
+      { title: "My Paid Incentives", icon: "wallet-outline" as const, route: tool("my-incentives") },
+      ...(managementAccess ? [{ title: "RSM Team Incentives", icon: "people-outline" as const, route: tool("rsm-incentives") }] : []),
+      ...(salesHeadAccess ? [{ title: "Sales Head Incentives", icon: "git-network-outline" as const, route: tool("sales-head-incentives") }] : []),
+    ]},
+    { title: "SALES INTELLIGENCE", entries: [
+      { title: "Cross-Selling Matrix", icon: "grid-outline" as const, route: tool("cross-selling") },
+    ]},
+    ...(adminAccess ? [{ title: "ADMINISTRATION", entries: [
+      { title: "Voucher Approvals", icon: "checkbox-outline" as const, route: tool("voucher-approvals") },
+    ]}] : []),
   ];
   const navigate = (route: string) => { onClose(); router.push(route as never); };
   return <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -26,11 +49,10 @@ export function CustomerNavDrawer({ visible, onClose, isAdmin = false }: Props) 
       <Pressable style={styles.scrim} onPress={onClose} />
       <View style={[styles.drawer, { backgroundColor: bg, paddingTop: Math.max(insets.top, 16) }]}>
         <View style={styles.brandRow}><View style={styles.logo}><Ionicons name="paw" size={21} color="#159A7C" /></View><View style={{ flex: 1 }}><Text style={[styles.brand, { color: foreground }]} numberOfLines={1}>Oblu Customer</Text><Text style={[styles.caption, { color: muted }]}>Customer workspace</Text></View><TouchableOpacity accessibilityLabel="Close menu" onPress={onClose} style={styles.close}><Ionicons name="close" size={23} color={muted} /></TouchableOpacity></View>
-        <Text style={[styles.section, { color: muted }]}>WORKSPACE</Text>
         <ScrollView showsVerticalScrollIndicator={false}>
-          {entries.map((item, index) => <TouchableOpacity key={item.title} onPress={() => navigate(item.route)} style={[styles.entry, index === 0 && styles.entrySelected]}>
-            <Ionicons name={item.icon} size={20} color={index === 0 ? "#159A7C" : muted} /><Text style={[styles.entryText, { color: index === 0 ? "#159A7C" : foreground }]}>{item.title}</Text><Ionicons name="chevron-forward" size={16} color={muted} />
-          </TouchableOpacity>)}
+          {sections.map((section) => <View key={section.title}><Text style={[styles.section, { color: muted }]}>{section.title}</Text>{section.entries.map((item) => <TouchableOpacity key={item.title} onPress={() => navigate(item.route)} style={styles.entry}>
+            <Ionicons name={item.icon} size={20} color={muted} /><Text style={[styles.entryText, { color: foreground }]}>{item.title}</Text><Ionicons name="chevron-forward" size={16} color={muted} />
+          </TouchableOpacity>)}</View>)}
         </ScrollView>
         <Text style={[styles.footer, { color: muted }]}>Your access follows your account permissions.</Text>
       </View>

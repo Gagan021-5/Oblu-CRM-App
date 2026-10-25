@@ -12,11 +12,13 @@ from .api_views import (
     CustomerPaymentTicketActionView,
     DashboardStatsView,
     CustomerChartsView,
+    CustomerWorkspaceToolsView,
 )
 
 urlpatterns = [
     path("", CustomerListView.as_view(), name="employee-customer-list"),
     path("charts/", CustomerChartsView.as_view(), name="employee-customer-charts"),
+    path("workspace/<str:tool>/", CustomerWorkspaceToolsView.as_view(), name="employee-customer-workspace-tool"),
     path("<int:pk>/", CustomerDetailView.as_view(), name="employee-customer-detail"),
     path("<int:pk>/remarks/", CustomerRemarkCreateView.as_view(), name="employee-customer-remarks"),
     path("<int:pk>/followups/", CustomerFollowUpListCreateView.as_view(), name="employee-customer-followups"),

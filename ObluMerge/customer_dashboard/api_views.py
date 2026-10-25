@@ -396,3 +396,128 @@ class CustomerChartsView(APIView):
             "totalOutstandingFormatted": f"₹{int(abs(total_balance)):,}",
         })
 
+
+class CustomerWorkspaceToolsView(APIView):
+    """Small mobile endpoints for the customer workspace tools.
+
+    Every customer-facing result is scoped to the authenticated user's existing
+    customer visibility. Administrative actions remain limited to staff/admin.
+    """
+    permission_classes = [IsAuthenticated]
+
+    @staticmethod
+    def _role_keys(user):
+        try:
+            return {assignment.role.role_key.lower() for assignment in user.employee_profile.role_assignments.filter(is_active=True)}
+        except Exception:
+            return set()
+
+    @classmethod
+    def _has_role(cls, user, *keys):
+        return bool(cls._role_keys(user).intersection(keys))
+
+    def get(self, request, tool):
+        from datetime import date
+        from calendar import monthrange
+        from django.db.models import Q
+
+        customers = get_visible_customer_queryset(request.user)
+        if tool == "team-customers":
+            qs = Customer.objects.filter(pk__in=customers.values("pk")).select_related("salesperson").order_by("name")
+            return Response(CustomerListSerializer(qs[:200], many=True).data)
+
+        if tool == "payment-followups":
+            qs = CustomerVoucherStatus.objects.filter(
+                Q(is_unpaid=True) | Q(is_partially_paid=True), customer__in=customers
+            ).select_related("customer", "voucher").order_by("customer__name", "voucher_date")
+            return Response([{
+                "id": row.id,
+                "customer": row.customer.name,
+                "customer_id": row.customer_id,
+                "invoice": row.voucher.voucher_number if row.voucher else "",
+                "date": row.voucher_date,
+                "amount": str(row.voucher_amount or 0),
+                "unpaid": str(row.unpaid_amount or 0),
+                "overdue": bool(row.is_credit_period_crossed),
+            } for row in qs[:300]])
+
+        if tool == "monthly-sales":
+            salesperson = SalesPerson.objects.filter(user=request.user).first()
+            if not salesperson and not (request.user.is_staff or request.user.is_superuser):
+                return Response({"rows": [], "total": "0", "month": date.today().strftime("%Y-%m")})
+            month = request.query_params.get("month", date.today().strftime("%Y-%m"))
+            try:
+                year, month_num = (int(x) for x in month.split("-", 1))
+                start = date(year, month_num, 1)
+                end = date(year, month_num, monthrange(year, month_num)[1])
+            except (ValueError, TypeError):
+                return Response({"error": "month must use YYYY-MM format"}, status=400)
+            status_qs = CustomerVoucherStatus.objects.filter(
+                sold_by=salesperson, voucher_type__iexact="TAX INVOICE", voucher_date__range=(start, end)
+            ).select_related("customer", "voucher")
+            rows = []
+            total = 0
+            for vs in status_qs:
+                amount = vs.voucher_amount or 0
+                total += amount
+                rows.append({"id": vs.id, "date": vs.voucher_date, "customer": vs.customer.name,
+                    "voucher": vs.voucher.voucher_number if vs.voucher else "", "amount": str(amount),
+                    "status": "paid" if vs.is_fully_paid else "pending"})
+            return Response({"rows": rows, "total": str(total), "month": start.strftime("%Y-%m")})
+
+        if tool == "cross-selling":
+            from .views import CROSS_SELLING_CATEGORIES, get_cross_selling_dataset
+            category_names = {item["id"]: item["name"] for item in CROSS_SELLING_CATEGORIES}
+            rows = []
+            for item in get_cross_selling_dataset()["customers"]:
+                customer = item.get("customer")
+                if customer and customers.filter(pk=customer.pk).exists():
+                    rows.append({"customer": customer.name, "customer_id": customer.pk,
+                        "salesperson": customer.salesperson.name if customer.salesperson else "Unassigned",
+                        "bought": item.get("bought_count", 0),
+                        "missing": [category_names.get(key, key) for key in item.get("missing_cat_ids", [])]})
+            return Response(rows)
+
+        if tool in {"my-incentives", "rsm-incentives", "sales-head-incentives"}:
+            from incentive_calculator.models import IncentivePaymentStatus
+            allowed = is_admin(request.user) or request.user.is_staff or request.user.is_superuser or self._has_role(request.user, "sales_head", "business")
+            salesperson = SalesPerson.objects.filter(user=request.user).first()
+            qs = IncentivePaymentStatus.objects.select_related("voucher_status__customer", "voucher_status__voucher", "voucher_status__sold_by")
+            if tool == "my-incentives":
+                if not salesperson:
+                    return Response([])
+                qs = qs.filter(voucher_status__sold_by=salesperson, is_paid_to_asm=True)
+            elif tool == "rsm-incentives":
+                from access_control.roles import get_subordinate_salesperson_ids
+                team_ids = get_subordinate_salesperson_ids(request.user)
+                if not team_ids or not self._has_role(request.user, "rsm", "sales_head", "admin") and not allowed:
+                    return Response({"error": "Team incentive access is not available for this account."}, status=403)
+                qs = qs.filter(voucher_status__sold_by_id__in=team_ids)
+            elif not allowed or tool == "sales-head-incentives" and not self._has_role(request.user, "sales_head", "business", "admin") and not (request.user.is_staff or request.user.is_superuser):
+                return Response({"error": "Administrator access required."}, status=403)
+            return Response([{"id": row.id, "employee": row.voucher_status.sold_by.name if row.voucher_status.sold_by else "",
+                "customer": row.voucher_status.customer.name, "voucher": row.voucher_status.voucher.voucher_number if row.voucher_status.voucher else "",
+                "amount": str(row.amount_frozen), "paid": row.is_paid_to_asm} for row in qs.order_by("-voucher_status__voucher_date")[:300]])
+
+        if tool == "voucher-approvals":
+            if not (request.user.is_staff or request.user.is_superuser or is_admin(request.user) or self._has_role(request.user, "accounts_operations")):
+                return Response({"error": "Administrator access required."}, status=403)
+            qs = CustomerVoucherStatus.objects.filter(claim_status="PENDING").select_related("customer", "voucher", "claim_requested_by")
+            return Response([{"id": row.id, "customer": row.customer.name,
+                "voucher": row.voucher.voucher_number if row.voucher else "",
+                "requested_by": row.claim_requested_by.name if row.claim_requested_by else "",
+                "date": row.voucher_date} for row in qs.order_by("-voucher_date")[:300]])
+
+        return Response({"error": "Unknown customer workspace tool."}, status=404)
+
+    def post(self, request, tool):
+        if tool != "voucher-approvals" or not (request.user.is_staff or request.user.is_superuser or is_admin(request.user) or self._has_role(request.user, "accounts_operations")):
+            return Response({"error": "Administrator access required."}, status=403)
+        row = get_object_or_404(CustomerVoucherStatus, pk=request.data.get("id"), claim_status="PENDING")
+        action = request.data.get("action")
+        if action not in {"approve", "reject"}:
+            return Response({"error": "action must be approve or reject"}, status=400)
+        row.claim_status = "APPROVED" if action == "approve" else "REJECTED"
+        row.save(update_fields=["claim_status", "updated_at"])
+        return Response({"success": True, "id": row.pk, "status": row.claim_status})
+
