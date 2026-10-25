@@ -1,39 +1,20 @@
-/**
- * API service — Axios instance with dynamic LAN host detection and JWT interceptors.
- * Automatically resolves the host machine's active IP via Expo Constants so physical
- * mobile devices on the Wi-Fi network connect seamlessly without manual IP changes.
- */
+/** API service for the shared AWS Django backend and JWT interceptors. */
 
 import axios, { AxiosError, InternalAxiosRequestConfig } from "axios";
 import * as SecureStore from "expo-secure-store";
 import { router } from "expo-router";
-import Constants from "expo-constants";
-import { Platform } from "react-native";
+
+const DEFAULT_API_BASE_URL = "http://13.126.98.201/api";
 
 function resolveApiBaseUrl(): string {
-  // 1. Web browser
-  if (Platform.OS === "web") {
-    return "http://localhost:8000/api";
-  }
-
-  // 2. Dynamic Expo host detection (automatically matches whatever LAN IP your laptop currently has)
-  const host =
-    Constants.expoConfig?.hostUri?.split(":")?.[0] ||
-    (Constants as any)?.manifest2?.extra?.expoGo?.debuggerHost?.split(":")?.[0] ||
-    (Constants as any)?.manifest?.debuggerHost?.split(":")?.[0];
-
-  if (host && host !== "localhost" && host !== "127.0.0.1") {
-    return `http://${host}:8000/api`;
-  }
-
-  // 3. Explicit env override if specified
+  // Use an explicit environment override when provided; Expo's Metro host is
+  // only the JavaScript bundler and is not necessarily where Django is running.
   const envUrl = process.env.EXPO_PUBLIC_API_URL;
   if (envUrl && envUrl.trim().length > 0) {
-    return envUrl.trim();
+    return envUrl.trim().replace(/\/+$/, "");
   }
 
-  // 4. Current Wi-Fi LAN IP fallback
-  return "http://192.168.1.36:8000/api";
+  return DEFAULT_API_BASE_URL;
 }
 
 const API_BASE_URL = resolveApiBaseUrl();

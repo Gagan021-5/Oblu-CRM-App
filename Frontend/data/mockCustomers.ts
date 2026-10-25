@@ -42,6 +42,10 @@ export interface Customer {
   phone: string;
   email: string;
   city: string;
+  state?: string;
+  district?: string;
+  latitude?: number | null;
+  longitude?: number | null;
   assignedSalesperson: string;
   customerSince: string;
   creditPeriod: string;

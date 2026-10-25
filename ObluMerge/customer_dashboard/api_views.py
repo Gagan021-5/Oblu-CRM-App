@@ -65,6 +65,31 @@ def get_salesperson(request):
     return None
 
 
+def get_visible_customer_queryset(user):
+    """Apply the same account visibility rules to dashboard summaries as the directory."""
+    qs = Customer.objects.all()
+    if (
+        user.is_superuser
+        or user.is_staff
+        or is_admin(user)
+        or is_finance(user)
+        or can(user, "customer.view_all")
+    ):
+        return qs
+
+    accessible_sp_ids = get_accessible_salesperson_ids(user)
+    accessible_uids = get_accessible_user_ids(user)
+    scope_q = Q()
+    if accessible_sp_ids:
+        scope_q |= Q(salesperson_id__in=accessible_sp_ids)
+    if accessible_uids:
+        scope_q |= Q(salesperson__user_id__in=accessible_uids)
+    salesperson = SalesPerson.objects.filter(user=user).first()
+    if salesperson:
+        scope_q |= Q(salesperson=salesperson)
+    return qs.filter(scope_q) if scope_q else qs.none()
+
+
 class StandardResultsSetPagination(PageNumberPagination):
     page_size = 50
     page_size_query_param = "page_size"
@@ -274,10 +299,7 @@ class DashboardStatsView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        salesperson = get_salesperson(request)
-        cust_qs = Customer.objects.all()
-        if salesperson:
-            cust_qs = cust_qs.filter(salesperson=salesperson)
+        cust_qs = get_visible_customer_queryset(request.user)
 
         total_customers = cust_qs.count()
 
@@ -286,18 +308,16 @@ class DashboardStatsView(APIView):
         followups_due = CustomerFollowUp.objects.filter(
             followup_date__lte=today, is_completed=False
         )
-        if salesperson:
-            followups_due = followups_due.filter(salesperson=salesperson)
+        followups_due = followups_due.filter(customer__in=cust_qs)
         followups_due_count = followups_due.count()
 
         # Overdue payment vouchers
         overdue_qs = CustomerVoucherStatus.objects.filter(is_credit_period_crossed=True)
-        if salesperson:
-            overdue_qs = overdue_qs.filter(customer__salesperson=salesperson)
+        overdue_qs = overdue_qs.filter(customer__in=cust_qs)
         overdue_count = overdue_qs.count()
 
         # Total outstanding
-        total_balance = Customer.objects.aggregate(
+        total_balance = cust_qs.aggregate(
             total=Sum("credit_profile__outstanding_balance")
         )["total"] or 0
 
@@ -328,10 +348,7 @@ class CustomerChartsView(APIView):
 
     def get(self, request):
         from django.db.models import Count
-        salesperson = get_salesperson(request)
-        cust_qs = Customer.objects.all()
-        if salesperson:
-            cust_qs = cust_qs.filter(salesperson=salesperson)
+        cust_qs = get_visible_customer_queryset(request.user)
 
         sp_counts = (
             cust_qs.values("salesperson__name")
@@ -353,16 +370,18 @@ class CustomerChartsView(APIView):
             for s in state_counts
         ]
 
-        vouchers_total = CustomerVoucherStatus.objects.count()
-        vouchers_overdue = CustomerVoucherStatus.objects.filter(is_credit_period_crossed=True).count()
-        vouchers_pending = CustomerVoucherStatus.objects.filter(payment_status="Pending").count()
-        vouchers_paid = CustomerVoucherStatus.objects.filter(payment_status="Paid").count()
+        voucher_qs = CustomerVoucherStatus.objects.filter(customer__in=cust_qs)
+        vouchers_total = voucher_qs.count()
+        vouchers_overdue = voucher_qs.filter(is_credit_period_crossed=True).count()
+        vouchers_pending = voucher_qs.filter(payment_status="Pending").count()
+        vouchers_paid = voucher_qs.filter(payment_status="Paid").count()
 
         total_balance = cust_qs.aggregate(
             total=Sum("credit_profile__outstanding_balance")
         )["total"] or 0
 
         return Response({
+            "totalCustomers": cust_qs.count(),
             "salespersonDistribution": salesperson_dist,
             "stateDistribution": state_dist,
             "vouchers": {

@@ -197,6 +197,8 @@ class CustomerListSerializer(serializers.ModelSerializer):
             "district",
             "address",
             "pincode",
+            "latitude",
+            "longitude",
             "assignedSalesperson",
             "customerSince",
             "creditPeriod",

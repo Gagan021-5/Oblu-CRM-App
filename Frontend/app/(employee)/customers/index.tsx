@@ -8,7 +8,7 @@ import {
   RefreshControl,
   Platform,
 } from "react-native";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "@/contexts/ThemeContext";
@@ -22,6 +22,7 @@ import { CustomerCard } from "@/components/employee/CustomerCard";
 import { WeeklyActivityChart } from "@/components/employee/WeeklyActivityChart";
 import { Customer } from "@/data/mockCustomers";
 import { fetchCustomersFromApi } from "@/services/customerService";
+import { CustomerNavDrawer } from "@/components/CustomerNavDrawer";
 
 type FilterTab = "all" | "followup_due" | "payment_pending" | "recently_contacted";
 
@@ -54,6 +55,7 @@ const CustomerListItem = React.memo(
 
 
 export default function CustomerDashboardScreen() {
+  const routeParams = useLocalSearchParams<{ filter?: string }>();
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useTheme();
   const { user } = useAuth();
@@ -68,8 +70,17 @@ export default function CustomerDashboardScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
-  const [activeFilter, setActiveFilter] = useState<FilterTab>("all");
+  const [activeFilter, setActiveFilter] = useState<FilterTab>(() => {
+    const value = routeParams.filter;
+    return value === "followup_due" || value === "payment_pending" || value === "recently_contacted" ? value : "all";
+  });
+
+  useEffect(() => {
+    const value = routeParams.filter;
+    setActiveFilter(value === "followup_due" || value === "payment_pending" || value === "recently_contacted" ? value : "all");
+  }, [routeParams.filter]);
   const [showSearch, setShowSearch] = useState(false);
+  const [drawerVisible, setDrawerVisible] = useState(false);
 
   const loadData = useCallback(async (isPullToRefresh = false) => {
     if (!isPullToRefresh) setLoading(true);
@@ -202,6 +213,14 @@ export default function CustomerDashboardScreen() {
         </View>
 
         <View style={styles.rightNav}>
+          <TouchableOpacity
+            style={[styles.iconBtn, { backgroundColor: isDark ? "#121F1B" : "#FFFFFF", borderColor: isDark ? "#294039" : "#D8E0DC" }]}
+            onPress={() => setDrawerVisible(true)}
+            accessibilityLabel="Open customer navigation"
+            activeOpacity={0.7}
+          >
+            <Ionicons name="menu-outline" size={20} color={isDark ? "#F1F7F4" : "#101513"} />
+          </TouchableOpacity>
           <TouchableOpacity
             style={[
               styles.iconBtn,
@@ -477,6 +496,7 @@ export default function CustomerDashboardScreen() {
           }
         />
       )}
+      <CustomerNavDrawer visible={drawerVisible} onClose={() => setDrawerVisible(false)} />
     </View>
   );
 }
