@@ -130,6 +130,11 @@ jobs:
             python manage.py check --database default
             python manage.py migrate --noinput
             python manage.py collectstatic --noinput
+            sudo install -d -o root -g www-data -m 0755 /var/www/oblumerge/staticfiles
+            sudo cp -a staticfiles/. /var/www/oblumerge/staticfiles/
+            sudo chown -R root:www-data /var/www/oblumerge/staticfiles
+            sudo find /var/www/oblumerge/staticfiles -type d -exec chmod 0755 {} +
+            sudo find /var/www/oblumerge/staticfiles -type f -exec chmod 0644 {} +
             sudo install -m 0644 deploy/nginx.conf /etc/nginx/sites-available/oblumerge
             sudo ln -sfn /etc/nginx/sites-available/oblumerge /etc/nginx/sites-enabled/oblumerge
             sudo nginx -t
