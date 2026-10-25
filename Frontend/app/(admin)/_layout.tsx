@@ -125,6 +125,7 @@ export default function AdminLayout() {
     >
       <Tabs.Screen name="users" options={{ title: "Home" }} />
       <Tabs.Screen name="customers" options={{ title: "Customers" }} />
+      <Tabs.Screen name="customer-dashboard" options={{ href: null }} />
       <Tabs.Screen name="call-logs" options={{ title: "Calls" }} />
       <Tabs.Screen name="more" options={{ title: "Profile" }} />
       <Tabs.Screen name="leads" options={{ href: null }} />

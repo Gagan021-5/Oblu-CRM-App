@@ -91,7 +91,7 @@ const FloatingTabBarComponent: React.FC<FloatingTabBarProps> = () => {
       isActive: isCustomers,
       onPress: () => {
         if (!isCustomers) {
-          router.replace("/(employee)/customers/dashboard" as any);
+          router.replace("/(employee)/customers" as any);
         }
       },
     },

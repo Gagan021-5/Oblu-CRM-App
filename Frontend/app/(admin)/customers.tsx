@@ -24,6 +24,7 @@ import { Typography, FontSizes, Spacing, Radius, Shadows } from "@/constants/the
 import { StatusPill } from "@/components/ui/StatusPill";
 import { Customer } from "@/data/mockCustomers";
 import { fetchCustomersFromApi } from "@/services/customerService";
+import { CustomerNavDrawer } from "@/components/CustomerNavDrawer";
 
 export default function CustomersScreen() {
   const insets = useSafeAreaInsets();
@@ -32,6 +33,7 @@ export default function CustomersScreen() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [drawerVisible, setDrawerVisible] = useState(false);
 
   const loadData = useCallback(async (isPull = false) => {
     if (!isPull) setLoading(true);
@@ -298,10 +300,19 @@ export default function CustomersScreen() {
         <Text style={[styles.screenHeading, { color: colors.textPrimary }]}>
           Customer Directory
         </Text>
-        <View style={styles.countBadge}>
-          <Text style={[styles.countText, { color: colors.primary }]}>
-            {filteredCustomers.length}
-          </Text>
+        <View style={styles.headerRight}>
+          <TouchableOpacity
+            onPress={() => setDrawerVisible(true)}
+            accessibilityLabel="Open customer navigation"
+            style={styles.menuBtn}
+          >
+            <Ionicons name="menu" size={21} color={colors.textPrimary} />
+          </TouchableOpacity>
+          <View style={styles.countBadge}>
+            <Text style={[styles.countText, { color: colors.primary }]}>
+              {filteredCustomers.length}
+            </Text>
+          </View>
         </View>
       </View>
 
@@ -363,6 +374,7 @@ export default function CustomersScreen() {
           }
         />
       )}
+      <CustomerNavDrawer visible={drawerVisible} onClose={() => setDrawerVisible(false)} isAdmin />
     </View>
   );
 }
@@ -392,6 +404,17 @@ const styles = StyleSheet.create({
   },
   countBadge: {
     minWidth: 36,
+    alignItems: "center",
+  },
+  headerRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  menuBtn: {
+    width: 34,
+    height: 34,
+    justifyContent: "center",
     alignItems: "center",
   },
   countText: {
