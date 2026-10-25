@@ -20,7 +20,7 @@ except ImportError:
 
 SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-134bi)=8+23$%a2n8dr@q6ff&$@8496is(d40ompqzrm#m3q*9')
 
-DEBUG = os.environ.get('DEBUG', 'True').lower() in ['true', '1', 'yes']
+DEBUG = os.environ.get('DEBUG', 'False').lower() in ['true', '1', 'yes']
 
 # Dynamic allowed hosts
 ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '*').split(',') if os.environ.get('ALLOWED_HOSTS') else ['*']

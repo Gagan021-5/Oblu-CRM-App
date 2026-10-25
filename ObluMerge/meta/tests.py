@@ -1,3 +1,4 @@
+import os
 import requests
 import pandas as pd
 import json
@@ -77,7 +78,7 @@ def get_meta_insights(access_token, ad_account_id, since_date, until_date,
 
 # 🧠 Example usage
 if __name__ == "__main__":
-    ACCESS_TOKEN = "EAAIwc9LtQ6IBP8XFbQKbt9rjblr5xdcivuYqrLNevAZBwmGAlfjwuSmycUsbYFf4SF0nnZBEczlKySKGTjYSACUx5lrtNZCpOo3zbZBnGM9SSC1IJq36hvOD9XRus265KYA4FZBk9srEX8XelEBtC5sgezZAiPTbtThvKK3i6xbgWk0WNncvekIXwC0DuB523ODuEscmsdf5zPRXSaUXbpr0IaeSLPSWcBOTTTKwBOZAQDtyBZBTeRgTOOpbux7jGF1jxDgORg5uBWAoJfVyZBQZDZD"
+    ACCESS_TOKEN = os.environ.get("META_ACCESS_TOKEN", "")
     AD_ACCOUNT_ID = "1103061437498849"
 
     df = get_meta_insights(
@@ -138,7 +139,7 @@ def get_meta_campaigns(access_token, ad_account_id):
 
 
 if __name__ == "__main__":
-    ACCESS_TOKEN = "EAAIwc9LtQ6IBP8XFbQKbt9rjblr5xdcivuYqrLNevAZBwmGAlfjwuSmycUsbYFf4SF0nnZBEczlKySKGTjYSACUx5lrtNZCpOo3zbZBnGM9SSC1IJq36hvOD9XRus265KYA4FZBk9srEX8XelEBtC5sgezZAiPTbtThvKK3i6xbgWk0WNncvekIXwC0DuB523ODuEscmsdf5zPRXSaUXbpr0IaeSLPSWcBOTTTKwBOZAQDtyBZBTeRgTOOpbux7jGF1jxDgORg5uBWAoJfVyZBQZDZD"
+    ACCESS_TOKEN = os.environ.get("META_ACCESS_TOKEN", "")
     AD_ACCOUNT_ID = "1103061437498849"
 
     # 🔹 Step 1: Fetch campaign list
