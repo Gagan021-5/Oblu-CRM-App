@@ -23,7 +23,7 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { Typography, FontSizes, Spacing, Radius, Shadows } from "@/constants/theme";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { Customer } from "@/data/customerTypes";
-import { fetchCustomersFromApi } from "@/services/customerService";
+import { fetchCustomerPageFromApi } from "@/services/customerService";
 import { CustomerNavDrawer } from "@/components/CustomerNavDrawer";
 import { CustomerBalanceFilter, CustomerFilterSheet, CustomerPaymentFilter, CustomerSortOption } from "@/components/ui/CustomerFilterSheet";
 
@@ -37,7 +37,11 @@ export default function CustomersScreen() {
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useTheme();
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [nextPage, setNextPage] = useState<number | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [loadError, setLoadError] = useState("");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [drawerVisible, setDrawerVisible] = useState(false);
@@ -46,18 +50,37 @@ export default function CustomersScreen() {
   const [balanceFilter, setBalanceFilter] = useState<CustomerBalanceFilter>("all");
   const [sortOption, setSortOption] = useState<CustomerSortOption>("default");
 
-  const loadData = useCallback(async (isPull = false) => {
-    if (!isPull) setLoading(true);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  const loadData = useCallback(async (isPull = false, page = 1, append = false) => {
+    if (page === 1 && !isPull) setLoading(true);
+    if (page > 1) setLoadingMore(true);
+    if (page === 1) setLoadError("");
     try {
-      const data = await fetchCustomersFromApi({ search });
-      setCustomers(data);
-    } catch {
-      // silently handled
+      const result = await fetchCustomerPageFromApi({
+        search: debouncedSearch,
+        payment_status: paymentFilter,
+        has_outstanding: balanceFilter === "outstanding",
+        ordering: sortOption,
+        page,
+        page_size: 100,
+      });
+      setCustomers((previous) => append ? [...previous, ...result.customers] : result.customers);
+      setNextPage(result.nextPage);
+    } catch (error: any) {
+      if (!append) setCustomers([]);
+      if (page === 1) setLoadError(error?.response?.status === 403
+        ? "This account does not have permission to view the customer directory."
+        : "Could not load customer records from the server. Check the connection and retry.");
     } finally {
-      setLoading(false);
+      if (page === 1) setLoading(false);
+      if (page > 1) setLoadingMore(false);
       setRefreshing(false);
     }
-  }, [search]);
+  }, [debouncedSearch, paymentFilter, balanceFilter, sortOption]);
 
   useEffect(() => {
     loadData();
@@ -65,8 +88,14 @@ export default function CustomersScreen() {
 
   const onRefresh = () => {
     setRefreshing(true);
-    loadData(true);
+    void loadData(true);
   };
+
+  const loadNextPage = useCallback(() => {
+    if (nextPage && !loadingMore && !loading && !loadError) {
+      void loadData(false, nextPage, true);
+    }
+  }, [nextPage, loadingMore, loading, loadError, loadData]);
 
   const filteredCustomers = useMemo(() => {
     const q = search.toLowerCase().trim();
@@ -387,16 +416,20 @@ export default function CustomersScreen() {
         </View>
       ) : filteredCustomers.length === 0 ? (
         <View style={styles.loadingWrap}>
-          <Ionicons name="people-outline" size={48} color={colors.textMuted} />
+          <Ionicons name={loadError ? "cloud-offline-outline" : "people-outline"} size={48} color={colors.textMuted} />
           <Text style={[styles.loadingText, { color: colors.textMuted }]}>
-          {search || filtersActive ? "No customers match these search and filter options" : "No customers found"}
+          {loadError || (search || filtersActive ? "No customers match these search and filter options" : "No customers found")}
           </Text>
+          {loadError ? <TouchableOpacity onPress={() => { void loadData(); }} style={styles.retryButton}><Text style={styles.retryText}>Retry</Text></TouchableOpacity> : null}
         </View>
       ) : (
         <FlatList
           data={filteredCustomers}
           keyExtractor={(item) => String(item.id)}
           renderItem={renderCustomerCard}
+          onEndReached={loadNextPage}
+          onEndReachedThreshold={0.5}
+          ListFooterComponent={loadingMore ? <ActivityIndicator style={{ padding: 16 }} color={colors.primary} /> : null}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{
             paddingHorizontal: Spacing.screenPadding,
@@ -601,5 +634,17 @@ const styles = StyleSheet.create({
   loadingText: {
     fontFamily: Typography.regular,
     fontSize: 14,
+  },
+  retryButton: {
+    marginTop: 8,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: Radius.pill,
+    backgroundColor: "#00A879",
+  },
+  retryText: {
+    color: "#FFFFFF",
+    fontFamily: Typography.semiBold,
+    fontSize: FontSizes.bodySmall,
   },
 });

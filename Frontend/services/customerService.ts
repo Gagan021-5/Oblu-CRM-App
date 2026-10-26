@@ -87,6 +87,36 @@ export async function fetchCustomersFromApi(params?: {
   return rawList.map(normalizeCustomer);
 }
 
+export async function fetchCustomerPageFromApi(params?: {
+  search?: string;
+  filter?: string;
+  payment_status?: string;
+  has_outstanding?: boolean;
+  ordering?: string;
+  page?: number;
+  page_size?: number;
+}): Promise<{ customers: Customer[]; nextPage: number | null; count: number }> {
+  const res = await api.get<CustomerListResponse | any[]>("/customers/", {
+    params: {
+      search: params?.search || undefined,
+      filter: params?.filter && params.filter !== "all" ? params.filter : undefined,
+      payment_status: params?.payment_status && params.payment_status !== "all" ? params.payment_status : undefined,
+      has_outstanding: params?.has_outstanding ? "true" : undefined,
+      ordering: params?.ordering && params.ordering !== "default" ? params.ordering : undefined,
+      page: params?.page || 1,
+      page_size: params?.page_size || 100,
+    },
+  });
+  if (Array.isArray(res.data)) {
+    return { customers: res.data.map(normalizeCustomer), nextPage: null, count: res.data.length };
+  }
+  const results = Array.isArray(res.data?.results) ? res.data.results : [];
+  const nextPage = res.data?.next
+    ? Number(new URL(res.data.next).searchParams.get("page") || (params?.page || 1) + 1)
+    : null;
+  return { customers: results.map(normalizeCustomer), nextPage, count: Number(res.data?.count) || 0 };
+}
+
 export async function fetchCustomerByIdFromApi(id: string): Promise<Customer> {
   const numericId = id.replace(/[^0-9]/g, "") || id;
   const res = await api.get<any>(`/customers/${numericId}/`);

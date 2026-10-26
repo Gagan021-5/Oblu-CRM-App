@@ -55,41 +55,10 @@ export const DEFAULT_ALLOWED_APPS: AllowedApp[] = [
 ];
 
 export async function fetchUserPermissionsApi(): Promise<UserPermissionProfile> {
-  const normalizeUserData = (data: UserPermissionProfile): UserPermissionProfile => {
-    const uName = (data.user?.username || "").toLowerCase();
-    const uRole = (data.user?.role || "").toLowerCase();
-    if (
-      uName.includes("vanshika") ||
-      uName.includes("anshika") ||
-      uRole.includes("hr") ||
-      uRole.includes("human resource")
-    ) {
-      return {
-        ...data,
-        user: {
-          ...data.user,
-          role: "HR Operations and People Lead",
-        },
-        allowed_apps: [
-          { id: "hrms", label: "HR Operations", icon: "briefcase" },
-        ],
-        permissions: [
-          "hrms.view",
-          "hrms.admin",
-          "employee.manage",
-          "leave.manage",
-          "attendance.manage",
-          "policy.view",
-        ],
-      };
-    }
-    return data;
-  };
-
   try {
     const res = await api.get<UserPermissionProfile>("/access-control/my-permissions/");
     if (res.data && res.data.user && Array.isArray(res.data.allowed_apps)) {
-      return normalizeUserData(res.data);
+      return res.data;
     }
   } catch {
     // Try secondary endpoint
@@ -98,7 +67,7 @@ export async function fetchUserPermissionsApi(): Promise<UserPermissionProfile> 
   try {
     const res = await api.get<UserPermissionProfile>("/auth/me/");
     if (res.data && res.data.user && Array.isArray(res.data.allowed_apps)) {
-      return normalizeUserData(res.data);
+      return res.data;
     }
   } catch {
     // Fallback handled below

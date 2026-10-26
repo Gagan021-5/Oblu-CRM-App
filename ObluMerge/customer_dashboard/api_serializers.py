@@ -286,6 +286,15 @@ class CustomerListSerializer(serializers.ModelSerializer):
             return 0.0
 
     def get_paymentStatus(self, obj):
+        if hasattr(obj, "api_has_overdue"):
+            if obj.api_has_overdue:
+                return "overdue"
+            return "pending" if self.get_outstandingPaymentNum(obj) > 0 else "paid"
+        prefetched = getattr(obj, "api_voucher_statuses", None)
+        if prefetched is not None:
+            if any(item.is_credit_period_crossed for item in prefetched):
+                return "overdue"
+            return "pending" if self.get_outstandingPaymentNum(obj) > 0 else "paid"
         try:
             has_overdue = obj.voucher_statuses.filter(is_credit_period_crossed=True).exists()
             if has_overdue:
@@ -301,6 +310,12 @@ class CustomerListSerializer(serializers.ModelSerializer):
         bal = self.get_outstandingPaymentNum(obj)
         if bal > 500000:
             return "VIP"
+        if hasattr(obj, "api_has_recent_voucher"):
+            return "Active" if obj.api_has_recent_voucher else "Inactive"
+        prefetched = getattr(obj, "api_voucher_statuses", None)
+        if prefetched is not None:
+            cutoff = timezone.now().date() - timezone.timedelta(days=90)
+            return "Active" if any(item.voucher_date and item.voucher_date >= cutoff for item in prefetched) else "Inactive"
         try:
             cutoff = timezone.now().date() - timezone.timedelta(days=90)
             has_recent = obj.voucher_statuses.filter(voucher_date__gte=cutoff).exists()
@@ -311,9 +326,16 @@ class CustomerListSerializer(serializers.ModelSerializer):
     def get_portfolioStatus(self, obj):
         # The website's unit table marks a ledger active when it has a tax
         # invoice in the last 90 days; keep that separate from the VIP label.
-        recent = getattr(obj, "recent_tax_invoice_statuses", None)
-        if recent is not None:
-            return "Active" if recent else "Inactive"
+        if hasattr(obj, "api_has_recent_tax_invoice"):
+            return "Active" if obj.api_has_recent_tax_invoice else "Inactive"
+        statuses = getattr(obj, "api_voucher_statuses", None)
+        if statuses is not None:
+            cutoff = timezone.now().date() - timezone.timedelta(days=90)
+            return "Active" if any(
+                item.voucher_type and item.voucher_type.lower() == "tax invoice"
+                and item.voucher_date and item.voucher_date >= cutoff
+                for item in statuses
+            ) else "Inactive"
         cutoff = timezone.now().date() - timezone.timedelta(days=90)
         has_recent = obj.voucher_statuses.filter(
             voucher_type__iexact="TAX INVOICE", voucher_date__gte=cutoff
@@ -321,7 +343,23 @@ class CustomerListSerializer(serializers.ModelSerializer):
         return "Active" if has_recent else "Inactive"
 
     def get_lastContactTime(self, obj):
-        remark = obj.remarks.order_by("-created_at").first()
+        if hasattr(obj, "api_last_remark_at"):
+            created_at = obj.api_last_remark_at
+            if not created_at:
+                return ""
+            delta = timezone.now() - created_at
+            if delta.days == 0:
+                return "Today"
+            if delta.days == 1:
+                return "Yesterday"
+            if delta.days < 7:
+                return f"{delta.days}d ago"
+            return created_at.strftime("%d %b")
+        prefetched = getattr(obj, "api_recent_remarks", None)
+        if prefetched is not None:
+            remark = prefetched[0] if prefetched else None
+        else:
+            remark = obj.remarks.order_by("-created_at").first()
         if remark and remark.created_at:
             delta = timezone.now() - remark.created_at
             if delta.days == 0:
@@ -335,6 +373,12 @@ class CustomerListSerializer(serializers.ModelSerializer):
 
     def get_nextFollowUp(self, obj):
         today = timezone.now().date()
+        if hasattr(obj, "api_next_followup_date"):
+            return obj.api_next_followup_date.strftime("%d %b") if obj.api_next_followup_date else ""
+        prefetched = getattr(obj, "api_followups", None)
+        if prefetched is not None:
+            fu = next((item for item in prefetched if not item.is_completed and item.followup_date and item.followup_date >= today), None)
+            return fu.followup_date.strftime("%d %b") if fu else ""
         fu = obj.followups.filter(is_completed=False, followup_date__gte=today).order_by("followup_date").first()
         if fu and fu.followup_date:
             return fu.followup_date.strftime("%d %b")
@@ -342,6 +386,11 @@ class CustomerListSerializer(serializers.ModelSerializer):
 
     def get_followups_due(self, obj):
         today = timezone.now().date()
+        if hasattr(obj, "api_followups_due"):
+            return obj.api_followups_due
+        prefetched = getattr(obj, "api_followups", None)
+        if prefetched is not None:
+            return sum(1 for item in prefetched if not item.is_completed and item.followup_date and item.followup_date <= today)
         return obj.followups.filter(
             followup_date__lte=today,
             is_completed=False,

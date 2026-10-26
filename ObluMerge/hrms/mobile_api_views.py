@@ -162,6 +162,33 @@ class HRMSEmployeeListAPIView(APIView):
         return Response(data)
 
 
+class HRMSSelfProfileAPIView(APIView):
+    """Return only the authenticated account's linked HR employee record."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        employee = getattr(request.user, "employee_profile", None)
+        if not employee:
+            return Response({"employee": None})
+
+        employee = Employee.objects.select_related(
+            "department", "designation", "company"
+        ).get(pk=employee.pk)
+        return Response({
+            "employee": {
+                "id": employee.pk,
+                "employee_code": employee.employee_code,
+                "name": employee.full_name,
+                "department": employee.department.name if employee.department else "",
+                "designation": employee.designation.title if employee.designation else "",
+                "email": employee.email or "",
+                "company": employee.company.name if employee.company else "",
+                "status": employee.status,
+                "date_of_joining": employee.date_of_joining.isoformat() if employee.date_of_joining else None,
+            }
+        })
+
+
 class HRMSLeaveActionAPIView(APIView):
     """
     POST /api/hrms/leaves/<int:pk>/action/

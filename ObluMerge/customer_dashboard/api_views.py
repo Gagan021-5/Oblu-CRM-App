@@ -4,8 +4,8 @@ Provides real-time access to Customers, Remarks, Follow-ups, and Tally Voucher s
 """
 
 from django.utils import timezone
-from django.db.models import Count, OuterRef, Prefetch, Q, Subquery, Sum
-from django.db.models.functions import Lower, TruncDate
+from django.db.models import Count, DateField, DateTimeField, Exists, IntegerField, OuterRef, Prefetch, Q, Subquery, Sum, Value
+from django.db.models.functions import Coalesce, Lower, TruncDate
 from rest_framework import generics, status
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
@@ -111,6 +111,35 @@ def _annotate_portfolio_metrics(queryset):
     )
 
 
+def _annotate_customer_list_activity(queryset):
+    """Compute list-card activity fields in SQL instead of querying per row."""
+    today = timezone.now().date()
+    cutoff = today - timezone.timedelta(days=90)
+    due_followups = CustomerFollowUp.objects.filter(
+        customer_id=OuterRef("pk"), followup_date__lte=today, is_completed=False
+    ).values("customer_id").annotate(total=Count("id")).values("total")[:1]
+    next_followup = CustomerFollowUp.objects.filter(
+        customer_id=OuterRef("pk"), followup_date__gte=today, is_completed=False
+    ).order_by("followup_date").values("followup_date")[:1]
+    last_remark = CustomerRemark.objects.filter(
+        customer_id=OuterRef("pk")
+    ).order_by("-created_at").values("created_at")[:1]
+    return queryset.annotate(
+        api_followups_due=Coalesce(Subquery(due_followups, output_field=IntegerField()), Value(0)),
+        api_next_followup_date=Subquery(next_followup, output_field=DateField()),
+        api_last_remark_at=Subquery(last_remark, output_field=DateTimeField()),
+        api_has_overdue=Exists(CustomerVoucherStatus.objects.filter(
+            customer_id=OuterRef("pk"), is_credit_period_crossed=True
+        )),
+        api_has_recent_voucher=Exists(CustomerVoucherStatus.objects.filter(
+            customer_id=OuterRef("pk"), voucher_date__gte=cutoff
+        )),
+        api_has_recent_tax_invoice=Exists(CustomerVoucherStatus.objects.filter(
+            customer_id=OuterRef("pk"), voucher_type__iexact="TAX INVOICE", voucher_date__gte=cutoff
+        )),
+    )
+
+
 class StandardResultsSetPagination(PageNumberPagination):
     page_size = 50
     page_size_query_param = "page_size"
@@ -128,16 +157,13 @@ class CustomerListView(generics.ListAPIView):
 
     def get_queryset(self):
         user = self.request.user
-        if not _has_customer_permission(user, "customer.view", "customer.view_all"):
+        if not _has_customer_permission(user, "customer.view", "customer.view_all", "payment.view"):
             raise PermissionDenied("Customer Directory access is not enabled for this account.")
-        cutoff = timezone.now().date() - timezone.timedelta(days=90)
-        recent_tax_statuses = CustomerVoucherStatus.objects.filter(
-            voucher_type__iexact="TAX INVOICE", voucher_date__gte=cutoff
-        ).only("id", "customer_id", "voucher_date", "voucher_type")
-        qs = _annotate_portfolio_metrics(_customer_scope(user, "customer.view", "customer.view_all")).select_related("salesperson", "unit_membership__unit").prefetch_related(
-            "credit_profile", "voucher_statuses", "remarks", "followups",
-            Prefetch("voucher_statuses", queryset=recent_tax_statuses, to_attr="recent_tax_invoice_statuses"),
-        )
+        qs = _annotate_customer_list_activity(
+            _annotate_portfolio_metrics(
+                _customer_scope(user, "customer.view", "customer.view_all", "payment.view")
+            )
+        ).select_related("salesperson", "unit_membership__unit", "credit_profile")
 
         # Search
         search = self.request.query_params.get("search", "").strip()
@@ -165,7 +191,28 @@ class CustomerListView(generics.ListAPIView):
         elif active_filter == "recently_contacted":
             qs = qs.filter(remarks__isnull=False).distinct()
 
-        return qs.order_by("name")
+        payment_status = self.request.query_params.get("payment_status", "all").strip().lower()
+        has_overdue = Q(voucher_statuses__is_credit_period_crossed=True)
+        has_balance = Q(credit_profile__outstanding_balance__gt=0)
+        if payment_status == "overdue":
+            qs = qs.filter(has_overdue).distinct()
+        elif payment_status == "pending":
+            qs = qs.filter(has_balance).exclude(has_overdue).distinct()
+        elif payment_status == "paid":
+            qs = qs.exclude(has_overdue).filter(Q(credit_profile__outstanding_balance__lte=0) | Q(credit_profile__isnull=True)).distinct()
+        elif payment_status == "no_payment":
+            qs = qs.filter(voucher_statuses__isnull=True).distinct()
+
+        if self.request.query_params.get("has_outstanding", "").lower() == "true":
+            qs = qs.filter(has_balance)
+
+        ordering = {
+            "name_asc": "name",
+            "name_desc": "-name",
+            "outstanding_high": "-credit_profile__outstanding_balance",
+            "outstanding_low": "credit_profile__outstanding_balance",
+        }.get(self.request.query_params.get("ordering", "default"), "name")
+        return qs.order_by(ordering, "pk")
 
 
 class CustomerDetailView(generics.RetrieveAPIView):

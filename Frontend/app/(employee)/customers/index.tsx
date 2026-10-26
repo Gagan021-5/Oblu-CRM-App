@@ -7,6 +7,7 @@ import {
   StyleSheet,
   RefreshControl,
   Platform,
+  ActivityIndicator,
 } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -19,7 +20,7 @@ import { SkeletonCard } from "@/components/ui/SkeletonCard";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { CustomerCard } from "@/components/employee/CustomerCard";
 import { Customer } from "@/data/customerTypes";
-import { DashboardStats, fetchCustomersFromApi, fetchDashboardStatsApi } from "@/services/customerService";
+import { DashboardStats, fetchCustomerPageFromApi, fetchDashboardStatsApi } from "@/services/customerService";
 import { CustomerNavDrawer } from "@/components/CustomerNavDrawer";
 import { CustomerBalanceFilter, CustomerFilterSheet, CustomerPaymentFilter, CustomerSortOption } from "@/components/ui/CustomerFilterSheet";
 
@@ -75,8 +76,12 @@ export default function CustomerDashboardScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [nextPage, setNextPage] = useState<number | null>(null);
+  const [totalCustomerCount, setTotalCustomerCount] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [activeFilter, setActiveFilter] = useState<FilterTab>(() => {
     const value = routeParams.filter;
     return value === "followup_due" || value === "payment_pending" || value === "recently_contacted" ? value : "all";
@@ -86,6 +91,10 @@ export default function CustomerDashboardScreen() {
     const value = routeParams.filter;
     setActiveFilter(value === "followup_due" || value === "payment_pending" || value === "recently_contacted" ? value : "all");
   }, [routeParams.filter]);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(searchQuery.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
   const [drawerVisible, setDrawerVisible] = useState(false);
   const [filterVisible, setFilterVisible] = useState(false);
   const [paymentFilter, setPaymentFilter] = useState<CustomerPaymentFilter>("all");
@@ -103,23 +112,34 @@ export default function CustomerDashboardScreen() {
 
   useEffect(() => { void loadDashboardStats(); }, [loadDashboardStats]);
 
-  const loadData = useCallback(async (isPullToRefresh = false) => {
-    if (!isPullToRefresh) setLoading(true);
-    setLoadError("");
+  const loadData = useCallback(async (isPullToRefresh = false, page = 1, append = false) => {
+    if (page === 1 && !isPullToRefresh) setLoading(true);
+    if (page > 1) setLoadingMore(true);
+    if (page === 1) setLoadError("");
     try {
-      const data = await fetchCustomersFromApi({
-        search: searchQuery,
+      const result = await fetchCustomerPageFromApi({
+        search: debouncedSearch,
         filter: activeFilter,
+        payment_status: paymentFilter,
+        has_outstanding: balanceFilter === "outstanding",
+        ordering: sortOption,
+        page,
+        page_size: 100,
       });
-      setCustomers(data);
-    } catch {
-      setCustomers([]);
-      setLoadError("Could not load customer records from the server. Check your connection and access, then retry.");
+      setCustomers((previous) => append ? [...previous, ...result.customers] : result.customers);
+      setNextPage(result.nextPage);
+      setTotalCustomerCount(result.count);
+    } catch (error: any) {
+      if (!append) setCustomers([]);
+      if (page === 1) setLoadError(error?.response?.status === 403
+        ? "Your account does not have permission to view these customers."
+        : "Could not load customer records from the server. Check your connection and access, then retry.");
     } finally {
-      setLoading(false);
+      if (page === 1) setLoading(false);
+      if (page > 1) setLoadingMore(false);
       setRefreshing(false);
     }
-  }, [searchQuery, activeFilter]);
+  }, [debouncedSearch, activeFilter, paymentFilter, balanceFilter, sortOption]);
 
   useEffect(() => {
     loadData();
@@ -127,9 +147,15 @@ export default function CustomerDashboardScreen() {
 
   const onRefresh = () => {
     setRefreshing(true);
-    loadData(true);
+    void loadData(true);
     void loadDashboardStats();
   };
+
+  const loadNextPage = useCallback(() => {
+    if (nextPage && !loadingMore && !loading && !loadError) {
+      void loadData(false, nextPage, true);
+    }
+  }, [nextPage, loadingMore, loading, loadError, loadData]);
 
   // Filter and search logic
   const filteredCustomers = useMemo(() => {
@@ -237,7 +263,7 @@ export default function CustomerDashboardScreen() {
               { color: isDark ? "#8FA09A" : "#5E6964" },
             ]}
           >
-            {customers.length} {isBusinessManager || user?.hierarchy_scope?.can_view_all_salespersons ? "enterprise relationships" : "assigned accounts"}
+            {(dashboardStats?.totalCustomers ?? totalCustomerCount)} {isBusinessManager || user?.hierarchy_scope?.can_view_all_salespersons ? "enterprise relationships" : "assigned accounts"}
           </Text>
         </View>
 
@@ -384,8 +410,7 @@ export default function CustomerDashboardScreen() {
             { color: isDark ? "#8FA09A" : "#5E6964" },
           ]}
         >
-          Showing {filteredCustomers.length} customer
-          {filteredCustomers.length === 1 ? "" : "s"}
+          Showing {filteredCustomers.length} of {totalCustomerCount} customer{totalCustomerCount === 1 ? "" : "s"}
         </Text>
       </View>
     </View>
@@ -399,6 +424,7 @@ export default function CustomerDashboardScreen() {
     customers.length,
     filteredCustomers.length,
     dashboardStats,
+    totalCustomerCount,
   ]);
 
   const handleCustomerPress = useCallback((id: string | number) => {
@@ -447,6 +473,9 @@ export default function CustomerDashboardScreen() {
           data={filteredCustomers}
           keyExtractor={keyExtractor}
           renderItem={renderItem}
+          onEndReached={loadNextPage}
+          onEndReachedThreshold={0.5}
+          ListFooterComponent={loadingMore ? <ActivityIndicator style={{ padding: 16 }} color={isDark ? "#35D6A0" : "#00A879"} /> : null}
           ListHeaderComponent={listHeaderComponent}
           ListEmptyComponent={emptyComponent}
           contentContainerStyle={[

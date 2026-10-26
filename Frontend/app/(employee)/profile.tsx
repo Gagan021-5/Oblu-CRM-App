@@ -14,7 +14,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import { Typography, FontSizes, Shadows } from "@/constants/theme";
-import api from "@/services/api";
+import { fetchHRMSSelfProfileApi, HRMSSelfProfile } from "@/services/hrmsService";
 import {
   fetchUserPermissionsApi,
   UserPermissionProfile,
@@ -25,9 +25,9 @@ export default function EmployeeProfileScreen() {
   const { user, logout } = useAuth();
   const { colors, isDark, mode, setMode } = useTheme();
 
-  const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState<UserPermissionProfile | null>(null);
-  const [dbEmployee, setDbEmployee] = useState<any>(null);
+  const [dbEmployee, setDbEmployee] = useState<HRMSSelfProfile["employee"]>(null);
+  const [employeeProfileStatus, setEmployeeProfileStatus] = useState<"loading" | "loaded" | "error">("loading");
   const [loggingOut, setLoggingOut] = useState(false);
 
   // Fetch real authenticated profile and employee record from backend DB
@@ -39,29 +39,21 @@ export default function EmployeeProfileScreen() {
         if (mounted && permProfile) {
           setProfile(permProfile);
         }
+      } catch (err) {
+        console.warn("[Profile] Error loading permissions:", err);
+      }
 
-        const uname = permProfile?.user?.username || (user as any)?.username || "";
-        if (uname) {
-          try {
-            const empRes = await api.get(`/hrms/employees/?search=${uname}`);
-            if (mounted && empRes?.data && Array.isArray(empRes.data) && empRes.data.length > 0) {
-              const match =
-                empRes.data.find(
-                  (e: any) =>
-                    (e.email && e.email.toLowerCase() === (permProfile?.email || (user as any)?.email || "").toLowerCase()) ||
-                    (e.name && e.name.toLowerCase() === (permProfile?.user?.name || "").toLowerCase())
-                ) || empRes.data[0];
-              setDbEmployee(match);
-            }
-          } catch {
-            // Employee lookup fallback
-          }
+      try {
+        const employeeProfile = await fetchHRMSSelfProfileApi();
+        if (mounted) {
+          setDbEmployee(employeeProfile.employee);
+          setEmployeeProfileStatus("loaded");
         }
       } catch (err) {
-        console.warn("[Profile] Error loading user profile:", err);
-      } finally {
-        if (mounted) setLoading(false);
+        console.warn("[Profile] Error loading linked employee record:", err);
+        if (mounted) setEmployeeProfileStatus("error");
       }
+
     }
     loadData();
     return () => {
@@ -69,23 +61,22 @@ export default function EmployeeProfileScreen() {
     };
   }, [user]);
 
-  const activeUser = profile?.user || user;
+  const activeUser = profile?.user?.id ? profile.user : user;
   const username = activeUser?.username || "";
-  const usernameLower = username.toLowerCase();
-
-  // Role title strictly from backend
+  // Prefer active database-assigned RBAC roles, then Django's resolved role.
   const roleTitle = useMemo(() => {
-    if (usernameLower.includes("vibhuti")) return "Business Manager";
-    return activeUser?.role || "Employee";
-  }, [usernameLower, activeUser]);
+    const assignedRoles = profile?.roles?.map((role) => role.name).filter(Boolean) || [];
+    return assignedRoles.length ? assignedRoles.join(", ") : activeUser?.role || "—";
+  }, [profile?.roles, activeUser?.role]);
 
   // Real Name & Initials (strictly authentic name without fake last names)
   const displayName = useMemo(() => {
+    if (dbEmployee?.name) return dbEmployee.name;
     if (profile?.user?.name) return profile.user.name;
     if ((user as any)?.name) return (user as any).name;
-    if (!username) return "Employee";
+    if (!username) return "—";
     return username.charAt(0).toUpperCase() + username.slice(1);
-  }, [profile, user, username]);
+  }, [dbEmployee?.name, profile, user, username]);
 
   const avatarInitials = useMemo(() => {
     const parts = displayName.split(" ").filter(Boolean);
@@ -98,19 +89,13 @@ export default function EmployeeProfileScreen() {
   // Purely dynamic department and employee code from database record
   const empDetails = useMemo(() => {
     return {
-      code: dbEmployee?.employee_code || "EMP-OFFICE",
-      dept:
-        dbEmployee?.department ||
-        (roleTitle.includes("HR")
-          ? "Human Resources"
-          : roleTitle.includes("Finance")
-          ? "Finance & Accounts"
-          : "Commercial Sales"),
-      desig: dbEmployee?.designation || roleTitle,
-      email: dbEmployee?.email || profile?.email || (user as any)?.email || (username ? `${username}@oblu.in` : ""),
-      entity: "Oblu Healthcare Pvt Ltd",
+      code: dbEmployee?.employee_code || "—",
+      dept: dbEmployee?.department || "—",
+      desig: dbEmployee?.designation || "—",
+      email: dbEmployee?.email || profile?.email || (user as any)?.email || "—",
+      entity: dbEmployee?.company || "—",
     };
-  }, [dbEmployee, roleTitle, profile, user, username]);
+  }, [dbEmployee, profile, user]);
 
   const handleSignOut = () => {
     Alert.alert(
@@ -303,7 +288,7 @@ export default function EmployeeProfileScreen() {
                     { color: isDark ? "#35D6A0" : "#00A879" },
                   ]}
                 >
-                  @{username} • Verified Office Account
+                  {username ? `@${username}` : "Signed-in account"}
                 </Text>
               </View>
             </View>
@@ -320,7 +305,14 @@ export default function EmployeeProfileScreen() {
           >
             Employment Details
           </Text>
+          {employeeProfileStatus === "loading" ? <ActivityIndicator size="small" color={isDark ? "#35D6A0" : "#00A879"} /> : null}
         </View>
+
+        {employeeProfileStatus === "loaded" && !dbEmployee ? (
+          <Text style={[styles.profileNotice, { color: isDark ? "#8FA09A" : "#5E6964" }]}>No HR employee record is linked to this login.</Text>
+        ) : employeeProfileStatus === "error" ? (
+          <Text style={[styles.profileNotice, { color: isDark ? "#8FA09A" : "#5E6964" }]}>Employee details could not be loaded. Check your connection and try again.</Text>
+        ) : null}
 
         <View
           style={[
@@ -588,6 +580,12 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 14,
     fontFamily: Typography.semiBold,
+  },
+  profileNotice: {
+    fontFamily: Typography.regular,
+    fontSize: FontSizes.caption,
+    marginTop: -4,
+    marginBottom: 10,
   },
   cardContainer: {
     borderRadius: 14,

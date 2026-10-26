@@ -71,6 +71,25 @@ export interface EmployeeDirectoryItem {
   date_of_joining: string;
 }
 
+export interface HRMSSelfProfile {
+  employee: null | {
+    id: number;
+    employee_code: string;
+    name: string;
+    department: string;
+    designation: string;
+    email: string;
+    company: string;
+    status: string;
+    date_of_joining: string | null;
+  };
+}
+
+export async function fetchHRMSSelfProfileApi(): Promise<HRMSSelfProfile> {
+  const response = await api.get<HRMSSelfProfile>("/hrms/profile/");
+  return response.data;
+}
+
 export async function fetchHRMSDashboardApi(): Promise<HRMSDashboardData> {
   try {
     const res = await api.get<HRMSDashboardData>("/hrms/dashboard/");
