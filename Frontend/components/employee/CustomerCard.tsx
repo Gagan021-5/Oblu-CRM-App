@@ -24,7 +24,7 @@ const CustomerCardComponent: React.FC<CustomerCardProps> = ({ customer, onPress 
   };
 
   // Safe name & avatar initials
-  const customerName = customer.name || (customer as any).companyName || "Customer";
+  const customerName = customer.name || (customer as any).companyName || "";
   const initials = customerName
     .split(" ")
     .filter(Boolean)
@@ -33,13 +33,13 @@ const CustomerCardComponent: React.FC<CustomerCardProps> = ({ customer, onPress 
     .join("")
     .toUpperCase() || "CU";
 
-  const contactText = customer.contactPerson || customerName;
-  const locationText = customer.city || (customer as any).district || (customer as any).state || "Office";
+  const contactText = customer.contactPerson || "";
+  const locationText = customer.city || (customer as any).district || (customer as any).state || "";
   const paymentStatus = customer.paymentStatus || "pending";
   const pillLabel = String(paymentStatus).replace("_", " ");
   const lastContact = customer.lastContactTime || "No recent contact";
   const nextFollowUp = customer.nextFollowUp || "None scheduled";
-  const salespersonName = customer.assignedSalesperson || "Assigned Rep";
+  const salespersonName = customer.assignedSalesperson || "Unassigned";
 
   return (
     <TouchableOpacity
@@ -96,7 +96,7 @@ const CustomerCardComponent: React.FC<CustomerCardProps> = ({ customer, onPress 
                 ]}
                 numberOfLines={1}
               >
-                {contactText} • {locationText}
+                {[contactText, locationText].filter(Boolean).join(" • ")}
               </Text>
             </View>
           </View>

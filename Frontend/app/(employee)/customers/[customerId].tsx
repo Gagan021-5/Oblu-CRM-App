@@ -12,6 +12,8 @@ import { useLocalSearchParams, router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "@/contexts/ThemeContext";
+import { useAuth } from "@/contexts/AuthContext";
+import { hasPermission, hasRole } from "@/services/permissionService";
 import { Typography, FontSizes, Shadows, Radius } from "@/constants/theme";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { TimelineItem } from "@/components/employee/TimelineItem";
@@ -34,17 +36,29 @@ export default function CustomerDetailScreen() {
   const { customerId } = useLocalSearchParams<{ customerId: string }>();
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useTheme();
+  const { user, permissionProfile } = useAuth();
   const { notifyPaymentTicket } = useNotifications();
+  const roleText = `${user?.role || ""} ${permissionProfile?.user.role || ""}`.toLowerCase();
+  const canViewPayments = hasPermission(permissionProfile, "payment.view") || hasRole(permissionProfile, "admin") || hasRole(permissionProfile, "accountant") || roleText.includes("superuser") || roleText.includes("accountant");
 
   const [customer, setCustomer] = useState<Customer | null>(null);
+  const [customerLoadError, setCustomerLoadError] = useState("");
+  const [customerLoading, setCustomerLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<SegmentTab>("overview");
   const [remarkModalVisible, setRemarkModalVisible] = useState(false);
   const [followUpModalVisible, setFollowUpModalVisible] = useState(false);
 
   const fetchCustomer = useCallback(async () => {
     if (!customerId) return;
-    const data = await fetchCustomerByIdFromApi(customerId);
-    if (data) setCustomer(data);
+    setCustomerLoadError("");
+    try {
+      const data = await fetchCustomerByIdFromApi(customerId);
+      setCustomer(data);
+    } catch {
+      setCustomerLoadError("Customer details could not be loaded from the server.");
+    } finally {
+      setCustomerLoading(false);
+    }
   }, [customerId]);
 
   const handleRaiseTicket = async (
@@ -55,19 +69,18 @@ export default function CustomerDetailScreen() {
   ) => {
     if (!customer) return;
     try {
-      await handlePaymentTicketApi(customer.id, paymentId, "raise");
+      const result = await handlePaymentTicketApi(customer.id, paymentId, "raise");
       await notifyPaymentTicket({
         customerName: customer.name,
         customerId: customer.id,
         invoiceNumber: invoiceNum,
         amount: amount,
         expectedDate: expDate || "Crossed",
-        recipientEmail: "finance@oblutools.com, " + (customer.email || ""),
       });
       await fetchCustomer();
       Alert.alert(
         "Payment Ticket Raised",
-        `Ticket for Invoice #${invoiceNum} (${amount}) has been RAISED.\n\nAutomated notification dispatched to accounts team and ${customer.assignedSalesperson}.`
+        `Ticket for Invoice #${invoiceNum} (${amount}) has been saved.${result.email_sent ? " Email notification sent." : " The ticket was saved, but the email notification could not be sent."}`
       );
     } catch {
       Alert.alert("Error", "Could not raise payment ticket.");
@@ -88,14 +101,26 @@ export default function CustomerDetailScreen() {
   const handleSendReminderEmail = async (paymentId: string, invoiceNum: string) => {
     if (!customer) return;
     try {
-      await handlePaymentTicketApi(customer.id, paymentId, "email" as any);
+      const result = await handlePaymentTicketApi(customer.id, paymentId, "email");
+      if (!result.email_sent) throw new Error("Reminder email was not sent.");
       await fetchCustomer();
       Alert.alert(
-        "Automated Reminder Dispatched",
-        `Payment reminder for Invoice #${invoiceNum} has been logged and dispatched to:\n${customer.email || "finance@oblutools.com"}\n\nTimestamp: ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+        "Payment Reminder Sent",
+        `A payment reminder for Invoice #${invoiceNum} was sent to ${customer.email}.`
       );
     } catch {
       Alert.alert("Error", "Could not send payment reminder email.");
+    }
+  };
+
+  const saveExpectedDate = async (paymentId: string, date: string) => {
+    if (!customer) return;
+    try {
+      await updatePaymentExpectedDateApi(customer.id, paymentId, date);
+      await fetchCustomer();
+      Alert.alert("Success", "Expected date saved to the database.");
+    } catch {
+      Alert.alert("Error", "The expected date could not be saved.");
     }
   };
 
@@ -107,30 +132,15 @@ export default function CustomerDetailScreen() {
       [
         {
           text: "In 3 Days",
-          onPress: async () => {
-            const d = new Date(Date.now() + 3 * 86400000).toISOString().split("T")[0];
-            await updatePaymentExpectedDateApi(customer.id, paymentId, d);
-            await fetchCustomer();
-            Alert.alert("Success", "Expected date updated in live database.");
-          },
+          onPress: () => { const d = new Date(Date.now() + 3 * 86400000).toISOString().split("T")[0]; void saveExpectedDate(paymentId, d); },
         },
         {
           text: "In 1 Week",
-          onPress: async () => {
-            const d = new Date(Date.now() + 7 * 86400000).toISOString().split("T")[0];
-            await updatePaymentExpectedDateApi(customer.id, paymentId, d);
-            await fetchCustomer();
-            Alert.alert("Success", "Expected date updated in live database.");
-          },
+          onPress: () => { const d = new Date(Date.now() + 7 * 86400000).toISOString().split("T")[0]; void saveExpectedDate(paymentId, d); },
         },
         {
           text: "In 2 Weeks",
-          onPress: async () => {
-            const d = new Date(Date.now() + 14 * 86400000).toISOString().split("T")[0];
-            await updatePaymentExpectedDateApi(customer.id, paymentId, d);
-            await fetchCustomer();
-            Alert.alert("Success", "Expected date updated in live database.");
-          },
+          onPress: () => { const d = new Date(Date.now() + 14 * 86400000).toISOString().split("T")[0]; void saveExpectedDate(paymentId, d); },
         },
         { text: "Cancel", style: "cancel" },
       ]
@@ -159,40 +169,38 @@ export default function CustomerDetailScreen() {
 
   const handleAddRemark = async (text: string) => {
     if (!customer) return;
-    const newRem = await addCustomerRemarkApi(customer.id, text);
-    setCustomer((prev) =>
-      prev
-        ? {
-            ...prev,
-            remarks: [newRem, ...prev.remarks],
-            lastContactTime: `Today, ${newRem.time}`,
-          }
-        : null
-    );
+    try {
+      const newRem = await addCustomerRemarkApi(customer.id, text);
+      setCustomer((prev) => prev ? {
+        ...prev,
+        remarks: [newRem, ...prev.remarks],
+        lastContactTime: `Today, ${newRem.time}`,
+      } : null);
+    } catch {
+      Alert.alert("Could not save remark", "The server did not save this remark. Please retry.");
+    }
   };
 
   const handleScheduleFollowUp = async (data: any) => {
     if (!customer) return;
-    const newFol = await scheduleCustomerFollowUpApi(customer.id, data);
-    setCustomer((prev) =>
-      prev
-        ? {
-            ...prev,
-            followUps: [newFol, ...prev.followUps],
-            nextFollowUp: `${newFol.date}, ${newFol.time}`,
-          }
-        : null
-    );
-
-    // Schedule 1-day before outer mobile & in-app notification
-    await scheduleFollowUpNotifications({
-      customerName: customer.name,
-      customerId: customer.id,
-      followUpDate: data.date,
-      followUpTime: data.time,
-      purpose: data.purpose,
-      notes: data.notes,
-    });
+    try {
+      const newFol = await scheduleCustomerFollowUpApi(customer.id, data);
+      setCustomer((prev) => prev ? {
+        ...prev,
+        followUps: [newFol, ...prev.followUps],
+        nextFollowUp: `${newFol.date}, ${newFol.time}`,
+      } : null);
+      await scheduleFollowUpNotifications({
+        customerName: customer.name,
+        customerId: customer.id,
+        followUpDate: data.date,
+        followUpTime: data.time,
+        purpose: data.purpose,
+        notes: data.notes,
+      });
+    } catch {
+      Alert.alert("Could not schedule follow-up", "The server did not save this follow-up. Please retry.");
+    }
   };
 
   if (!customer) {
@@ -208,9 +216,10 @@ export default function CustomerDetailScreen() {
           },
         ]}
       >
-        <Text style={{ color: isDark ? "#8FA09A" : "#5E6964" }}>
-          Loading customer record...
-        </Text>
+        {customerLoading ? <Text style={{ color: isDark ? "#8FA09A" : "#5E6964" }}>Loading customer record...</Text> : <>
+          <Text style={{ color: isDark ? "#F1F7F4" : "#101513", textAlign: "center", marginBottom: 12 }}>{customerLoadError || "Customer record is not available to your account."}</Text>
+          <TouchableOpacity onPress={() => { setCustomerLoading(true); void fetchCustomer(); }} style={{ padding: 12, borderRadius: 10, backgroundColor: "#0E9E83" }}><Text style={{ color: "#FFFFFF", fontFamily: Typography.semiBold }}>Retry</Text></TouchableOpacity>
+        </>}
       </View>
     );
   }
@@ -312,14 +321,7 @@ export default function CustomerDetailScreen() {
                 />
               </View>
 
-              <Text
-                style={[
-                  styles.contactPerson,
-                  { color: isDark ? "#8FA09A" : "#5E6964" },
-                ]}
-              >
-                {customer.contactPerson}
-              </Text>
+              {customer.contactPerson ? <Text style={[styles.contactPerson, { color: isDark ? "#8FA09A" : "#5E6964" }]}>{customer.contactPerson}</Text> : null}
 
               <View style={styles.contactDetails}>
                 <Text
@@ -471,7 +473,7 @@ export default function CustomerDetailScreen() {
               { key: "overview", label: "Overview" },
               { key: "remarks", label: `Remarks (${customer.remarks.length})` },
               { key: "followups", label: `Follow-ups (${customer.followUps.length})` },
-              { key: "payments", label: `Payments (${customer.payments.length})` },
+              ...(canViewPayments ? [{ key: "payments" as const, label: `Payments (${customer.payments.length})` }] : []),
             ] as const
           ).map((tab) => {
             const isSelected = activeTab === tab.key;
@@ -953,7 +955,7 @@ export default function CustomerDetailScreen() {
                           </Text>
                           {p.ticketRaisedAt && (
                             <Text style={[styles.ticketRaisedSub, { color: isDark ? "#8FA09A" : "#5E6964" }]}>
-                              Auto-escalated ticket logged at {p.ticketRaisedAt}
+                              Ticket raised at {p.ticketRaisedAt}
                             </Text>
                           )}
                         </View>
@@ -1009,7 +1011,7 @@ export default function CustomerDetailScreen() {
                           >
                             <Ionicons name="mail" size={13} color={isDark ? "#35D6A0" : "#00A879"} />
                             <Text style={[styles.actionBtnSecondaryText, { color: isDark ? "#35D6A0" : "#00A879" }]}>
-                              Resend Gmail Alert
+                              Send Payment Reminder
                             </Text>
                           </TouchableOpacity>
 
@@ -1044,7 +1046,7 @@ export default function CustomerDetailScreen() {
                           }
                         >
                           <Ionicons name="alert-circle" size={14} color="#FFF" />
-                          <Text style={styles.actionBtnDangerText}>Raise Ticket & Send Gmail</Text>
+                          <Text style={styles.actionBtnDangerText}>Raise Payment Ticket</Text>
                         </TouchableOpacity>
                       ) : null}
                     </View>

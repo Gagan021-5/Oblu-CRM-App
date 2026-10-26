@@ -24,10 +24,15 @@ export default function CustomerAnalyticsScreen() {
   const load = useCallback(async () => {
     if (!canOpen) return;
     setError("");
-    const result = await fetchCustomerChartsApi();
-    setData(result);
-    if (!result) setError("Analytics could not be loaded. Check your connection and sign-in, then refresh.");
-    setLoading(false); setRefreshing(false);
+    try {
+      const result = await fetchCustomerChartsApi();
+      setData(result);
+    } catch {
+      setData(null);
+      setError("Analytics could not be loaded. Check your connection and permissions, then refresh.");
+    } finally {
+      setLoading(false); setRefreshing(false);
+    }
   }, [canOpen]);
   useEffect(() => {
     if (!canOpen) { router.replace("/(employee)/customers/dashboard"); return; }

@@ -161,97 +161,24 @@ function parseFollowUpDateTime(dateStr: string, timeStr: string): Date {
 export async function getStoredNotifications(): Promise<FollowUpNotificationItem[]> {
   try {
     const raw = await AsyncStorage.getItem(STORAGE_KEY);
-    if (!raw) {
-      // Seed with initial realistic customer follow-up alerts and raised payment ticket
-      const initial: FollowUpNotificationItem[] = [
-        {
-          id: "notif-ticket-001",
-          title: "🚨 Ticket Raised: Orion Systems Pvt Ltd",
-          body: "Expected payment date (07 Sep) crossed for Invoice #INV-2026-894 (₹1,45,000). Automated Gmail alert sent to finance & salesperson.",
-          customerName: "Orion Systems Pvt Ltd",
-          customerId: "cust-001",
-          invoiceNumber: "INV-2026-894",
-          amount: "₹1,45,000",
-          expectedDate: "07 Sep 2026",
-          ticketStatus: "RAISED",
-          createdAt: new Date(Date.now() - 1800000).toISOString(),
-          read: false,
-          type: "payment_ticket_raised",
-        },
-        {
-          id: "notif-followup-001",
-          title: "⏰ Follow-up Tomorrow: Orion Systems Pvt Ltd",
-          body: "Contract Renewal & Pricing Discussion scheduled for tomorrow at 10:30 AM.",
-          customerName: "Orion Systems Pvt Ltd",
-          customerId: "cust-001",
-          followUpDate: "Tomorrow",
-          followUpTime: "10:30 AM",
-          purpose: "Contract Renewal & Pricing",
-          notes: "Prepare revised quotation with 10% volume rebate for Q3.",
-          createdAt: new Date(Date.now() - 3600000).toISOString(),
-          read: false,
-          type: "1_day_reminder",
-        },
-        {
-          id: "notif-followup-002",
-          title: "⏰ Follow-up Tomorrow: Apex Global Technologies",
-          body: "Product Demo & Architecture Review scheduled for tomorrow at 02:00 PM.",
-          customerName: "Apex Global Technologies",
-          customerId: "cust-002",
-          followUpDate: "Tomorrow",
-          followUpTime: "02:00 PM",
-          purpose: "Product Demo & Architecture",
-          notes: "Present cloud migration features and multi-tenant security specifications.",
-          createdAt: new Date(Date.now() - 7200000).toISOString(),
-          read: false,
-          type: "1_day_reminder",
-        },
-      ];
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(initial));
-      return initial;
-    }
-
+    if (!raw) return [];
     const parsed: FollowUpNotificationItem[] = JSON.parse(raw);
-
-    // Auto-clean any legacy items that have 'test' in id/title/body
-    let cleaned = parsed.filter(
-      (item) =>
-        !item.id.toLowerCase().includes("test") &&
-        !item.title.toLowerCase().includes("test") &&
-        !item.body.toLowerCase().includes("test") &&
-        !item.body.toLowerCase().includes("employee1.0")
+    const demoIds = new Set(["notif-ticket-001", "notif-followup-001", "notif-followup-002"]);
+    const cleaned = parsed.filter((item) =>
+      !demoIds.has(item.id) &&
+      !item.id.toLowerCase().includes("test") &&
+      !item.title.toLowerCase().includes("test") &&
+      !item.body.toLowerCase().includes("test") &&
+      !item.body.toLowerCase().includes("employee1.0")
     );
-
-    // Ensure at least one active payment ticket notification exists for demonstration
-    if (!cleaned.some((item) => item.type === "payment_ticket_raised")) {
-      cleaned = [
-        {
-          id: "notif-ticket-001",
-          title: "🚨 Ticket Raised: Orion Systems Pvt Ltd",
-          body: "Expected payment date (07 Sep) crossed for Invoice #INV-2026-894 (₹1,45,000). Automated Gmail alert sent to finance & salesperson.",
-          customerName: "Orion Systems Pvt Ltd",
-          customerId: "cust-001",
-          invoiceNumber: "INV-2026-894",
-          amount: "₹1,45,000",
-          expectedDate: "07 Sep 2026",
-          ticketStatus: "RAISED",
-          createdAt: new Date(Date.now() - 1800000).toISOString(),
-          read: false,
-          type: "payment_ticket_raised",
-        },
-        ...cleaned,
-      ];
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(cleaned));
-    } else if (cleaned.length !== parsed.length) {
+    if (cleaned.length !== parsed.length) {
       await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(cleaned));
     }
-
     return cleaned;
   } catch {
     return [];
   }
 }
-
 /**
  * Save notification item to local storage
  */
@@ -462,18 +389,15 @@ export async function notifyPaymentTicketRaised(params: {
   invoiceNumber: string;
   amount: string;
   expectedDate: string;
-  recipientEmail?: string;
 }): Promise<void> {
-  const { customerName, customerId, invoiceNumber, amount, expectedDate, recipientEmail } = params;
+  const { customerName, customerId, invoiceNumber, amount, expectedDate } = params;
 
   await initializeNotifications();
 
   const ticketItem: FollowUpNotificationItem = {
     id: `notif-ticket-${Date.now()}`,
     title: `🚨 Ticket Raised: ${customerName}`,
-    body: `Payment expected date (${expectedDate}) crossed for Invoice #${invoiceNumber} (${amount}). Automated Gmail notice sent${
-      recipientEmail ? ` to ${recipientEmail}` : ""
-    }.`,
+    body: `Payment expected date (${expectedDate}) crossed for Invoice #${invoiceNumber} (${amount}). A payment ticket was raised.`,
     customerName,
     customerId,
     invoiceNumber,
@@ -491,7 +415,7 @@ export async function notifyPaymentTicketRaised(params: {
       await Notifications.scheduleNotificationAsync({
         content: {
           title: `🚨 Payment Ticket Raised: ${customerName}`,
-          body: `Expected date crossed for Invoice #${invoiceNumber} (${amount}). Automated Gmail notice dispatched.`,
+          body: `Expected date crossed for Invoice #${invoiceNumber} (${amount}). Payment ticket raised.`,
           data: { customerId, customerName, invoiceNumber, amount },
           sound: "default",
           color: "#FF4D4F",

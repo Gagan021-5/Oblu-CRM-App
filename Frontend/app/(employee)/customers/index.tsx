@@ -75,6 +75,7 @@ export default function CustomerDashboardScreen() {
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState("");
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState<FilterTab>(() => {
@@ -95,6 +96,7 @@ export default function CustomerDashboardScreen() {
 
   const loadData = useCallback(async (isPullToRefresh = false) => {
     if (!isPullToRefresh) setLoading(true);
+    setLoadError("");
     try {
       const data = await fetchCustomersFromApi({
         search: searchQuery,
@@ -102,7 +104,8 @@ export default function CustomerDashboardScreen() {
       });
       setCustomers(data);
     } catch {
-      // Ignored
+      setCustomers([]);
+      setLoadError("Could not load customer records from the server. Check your connection and access, then retry.");
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -476,21 +479,20 @@ export default function CustomerDashboardScreen() {
   const emptyComponent = useMemo(
     () => (
       <EmptyState
-        icon="search-outline"
-        title="No customers found"
-        description={
-          searchQuery || filtersActive || activeFilter !== "all"
-            ? `No customer matched your search or filters. Try changing the search keywords or filter options.`
-            : "No customers matching this filter criteria."
-        }
-        actionLabel="Reset Filters"
+        icon={loadError ? "cloud-offline-outline" : "search-outline"}
+        title={loadError ? "Customer data unavailable" : "No customers found"}
+        description={loadError || (searchQuery || filtersActive || activeFilter !== "all"
+          ? "No customer matched your search or filters. Try changing the search keywords or filter options."
+          : "No customers matching this filter criteria.")}
+        actionLabel={loadError ? "Retry" : "Reset Filters"}
         onAction={() => {
+          if (loadError) { void loadData(); return; }
           setSearchQuery("");
           resetDirectoryFilters();
         }}
       />
     ),
-    [searchQuery, filtersActive, activeFilter, resetDirectoryFilters]
+    [searchQuery, filtersActive, activeFilter, resetDirectoryFilters, loadError, loadData]
   );
 
   return (

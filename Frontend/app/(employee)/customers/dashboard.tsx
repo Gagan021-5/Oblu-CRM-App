@@ -15,12 +15,12 @@ const links: QuickLink[] = [
   { title: "Customer Directory", description: "Search accounts and open customer records", icon: "people-outline", route: "/(employee)/customers", color: "#20B99A", permission: "customer.view_all" },
   { title: "Team Customers", description: "Review customers in your permitted team scope", icon: "person-add-outline", route: "/(employee)/customers/tool/team-customers", color: "#159A7C", permission: "customer.view" },
   { title: "Payment Follow-ups", description: "Review customers with pending or overdue payments", icon: "cash-outline", route: "/(employee)/customers/tool/payment-followups", color: "#F59E0B", permission: "payment.view" },
-  { title: "Monthly Sales Report", description: "Review monthly sales performance", icon: "calendar-outline", route: "/(employee)/customers/tool/monthly-sales", color: "#0EA5E9", permissions: ["customer.view", "payment.view"] },
+  { title: "Monthly Sales Report", description: "Review monthly sales performance", icon: "calendar-outline", route: "/(employee)/customers/tool/monthly-sales", color: "#0EA5E9", permissions: ["customer.view", "customer.view_all", "payment.view"] },
   { title: "Analytics", description: "Customer, salesperson and state summaries", icon: "bar-chart-outline", route: "/(employee)/customers/analytics", color: "#6366F1", permission: "customer.view_all" },
   { title: "Detailed Map", description: "Browse customer locations by city and state", icon: "map-outline", route: "/(employee)/customers/map", color: "#0EA5E9", permission: "customer.view_all" },
   { title: "My Incentives", description: "View your incentive workspace", icon: "wallet-outline", route: "/(employee)/incentives", color: "#A855F7" },
-  { title: "RSM Team Incentives", description: "Review team incentive performance", icon: "people-outline", route: "/(employee)/customers/tool/rsm-incentives", color: "#6366F1", roles: ["rsm", "sales_head"] },
-  { title: "Sales Head Incentives", description: "Review sales head incentive performance", icon: "git-network-outline", route: "/(employee)/customers/tool/sales-head-incentives", color: "#6366F1", roles: ["sales_head", "business"] },
+  { title: "RSM Team Incentives", description: "Review team incentive performance", icon: "people-outline", route: "/(employee)/customers/tool/rsm-incentives", color: "#6366F1", roles: ["rsm", "sales_head", "admin", "accountant"] },
+  { title: "Sales Head Incentives", description: "Review sales head incentive performance", icon: "git-network-outline", route: "/(employee)/customers/tool/sales-head-incentives", color: "#6366F1", roles: ["sales_head", "business", "admin"] },
   { title: "Cross-Selling Matrix", description: "Identify customer product gap opportunities", icon: "grid-outline", route: "/(employee)/customers/tool/cross-selling", color: "#159A7C", permission: "customer.view" },
   { title: "Voucher Approvals", description: "Review pending voucher claims", icon: "checkbox-outline", route: "/(employee)/customers/tool/voucher-approvals", color: "#F59E0B", roles: ["admin", "accounts_operations"] },
 ];
@@ -38,7 +38,7 @@ export default function CustomerWorkspaceScreen({ isAdmin = false }: { isAdmin?:
   const isBhavya = username === "bhavya_bhardwaj" || username === "bhavya";
   const roleText = `${user?.role || ""} ${permissionProfile?.user.role || ""}`.toLowerCase();
   const isRsm = hasRole(permissionProfile, "rsm") || roleText.includes("rsm") || roleText.includes("regional sales manager");
-  const userIsSuperuser = roleText.includes("superuser");
+  const userIsSuperuser = roleText.includes("superuser") || hasRole(permissionProfile, "admin") || roleText.includes("admin");
   const userHasRole = (role: string) => hasRole(permissionProfile, role) ||
     (role === "rsm" && (roleText.includes("rsm") || roleText.includes("regional sales manager"))) ||
     (role === "sales_head" && (roleText.includes("sales head") || roleText.includes("sales_head"))) ||

@@ -17,8 +17,14 @@ export default function CustomerMapScreen() {
   const role = `${user?.role || ""} ${permissionProfile?.user.role || ""}`.toLowerCase();
   const isRsm = hasRole(permissionProfile, "rsm") || role.includes("rsm") || role.includes("regional sales manager");
   const canOpen = hasPermission(permissionProfile, "customer.view_all") && !isRsm && username !== "bhavya_bhardwaj" && username !== "bhavya";
-  const [customers, setCustomers] = useState<Customer[]>([]); const [loading, setLoading] = useState(true); const [refreshing, setRefreshing] = useState(false);
-  const load = useCallback(async () => { if (!canOpen) return; setCustomers(await fetchCustomersFromApi({ page_size: 200 })); setLoading(false); setRefreshing(false); }, [canOpen]);
+  const [customers, setCustomers] = useState<Customer[]>([]); const [loading, setLoading] = useState(true); const [refreshing, setRefreshing] = useState(false); const [error, setError] = useState("");
+  const load = useCallback(async () => {
+    if (!canOpen) return;
+    setError("");
+    try { setCustomers(await fetchCustomersFromApi({ page_size: 200 })); }
+    catch { setCustomers([]); setError("Customer locations could not be loaded from the server."); }
+    finally { setLoading(false); setRefreshing(false); }
+  }, [canOpen]);
   useEffect(() => { if (!canOpen) { router.replace("/(employee)/customers/dashboard"); return; } void load(); }, [canOpen, load]);
   const foreground = isDark ? "#F1F7F4" : "#101827"; const muted = isDark ? "#9AA9A3" : "#637083"; const card = { backgroundColor: isDark ? "#111B18" : "#FFFFFF", borderColor: isDark ? "#263A32" : "#E4EAF0" };
   const located = customers.filter((c) => Number.isFinite(c.latitude) && Number.isFinite(c.longitude));
@@ -26,6 +32,7 @@ export default function CustomerMapScreen() {
   if (!canOpen) return null;
   return <ScrollView style={{ flex: 1, backgroundColor: colors.background }} contentContainerStyle={[styles.content, { paddingTop: Math.max(insets.top, 12) + 8, paddingBottom: 110 }]} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); void load(); }} />}>
     <View style={styles.top}><TouchableOpacity onPress={() => router.back()} style={[styles.back, card]}><Ionicons name="arrow-back" size={20} color={foreground} /></TouchableOpacity><View><Text style={styles.eyebrow}>CUSTOMERS</Text><Text style={[styles.title, { color: foreground }]}>Detailed Map</Text></View></View>
+    {error ? <TouchableOpacity onPress={() => { setLoading(true); void load(); }} style={[styles.banner, { backgroundColor: isDark ? "#33251A" : "#FFF4E5" }]}><Text style={{ color: foreground, fontFamily: Typography.regular }}>{error} Tap to retry.</Text></TouchableOpacity> : null}
     <View style={[styles.banner, { backgroundColor: "#0E9E83" }]}><Ionicons name="map" size={22} color="white"/><View style={{ flex: 1 }}><Text style={styles.bannerTitle}>{located.length} customers with coordinates</Text><Text style={styles.bannerSub}>Tap a customer to open the location in your map app.</Text></View></View>
     {loading ? <ActivityIndicator color="#20B99A" /> : customers.map((customer) => <TouchableOpacity key={customer.id} onPress={() => openMap(customer)} disabled={customer.latitude == null || customer.longitude == null} style={[styles.row, card]}><View style={styles.pin}><Ionicons name="location" size={18} color="#159A7C" /></View><View style={{ flex: 1 }}><Text numberOfLines={1} style={[styles.name, { color: foreground }]}>{customer.name}</Text><Text style={[styles.location, { color: muted }]}>{[customer.city, (customer as any).state].filter(Boolean).join(", ") || "Location not available"}</Text></View><Ionicons name={customer.latitude != null && customer.longitude != null ? "navigate" : "location-outline"} size={18} color={customer.latitude != null && customer.longitude != null ? "#159A7C" : muted}/></TouchableOpacity>)}
     {!loading && customers.length === 0 ? <Text style={{ color: muted, fontFamily: Typography.regular }}>No customer records are available for your account.</Text> : null}

@@ -6,6 +6,7 @@ Bridges real PostgreSQL / Tally voucher data seamlessly to the React Native CRM.
 from rest_framework import serializers
 from decimal import Decimal
 from django.utils import timezone
+from access_control.services import can
 from .models import Customer, CustomerRemark, CustomerFollowUp, CustomerCreditProfile, CustomerVoucherStatus, PaymentDiscussionThread
 
 
@@ -84,7 +85,9 @@ class CustomerFollowUpSerializer(serializers.ModelSerializer):
         return obj.followup_date.strftime("%d %b %Y")
 
     def get_time(self, obj):
-        return "10:30 AM"
+        note = obj.note or ""
+        marker = "| Time:"
+        return note.split(marker, 1)[1].strip() if marker in note else ""
 
     def get_purpose(self, obj):
         return obj.note or "Follow-up"
@@ -104,6 +107,7 @@ class CustomerPaymentSerializer(serializers.ModelSerializer):
     ticketRaisedAt = serializers.SerializerMethodField()
     emailSent = serializers.SerializerMethodField()
     emailRecipient = serializers.SerializerMethodField()
+    expectedDate = serializers.SerializerMethodField()
 
     class Meta:
         model = CustomerVoucherStatus
@@ -118,6 +122,7 @@ class CustomerPaymentSerializer(serializers.ModelSerializer):
             "ticketRaisedAt",
             "emailSent",
             "emailRecipient",
+            "expectedDate",
         ]
 
     def get_invoiceNumber(self, obj):
@@ -150,20 +155,26 @@ class CustomerPaymentSerializer(serializers.ModelSerializer):
     def get_ticketRaisedAt(self, obj):
         try:
             thread = obj.payment_thread
-            if thread.ticket_raised_at:
-                return thread.ticket_raised_at.strftime("%d %b %Y, %I:%M %p")
+            if thread.raised_at:
+                return thread.raised_at.strftime("%d %b %Y, %I:%M %p")
         except Exception:
             pass
         return ""
 
     def get_emailSent(self, obj):
-        try:
-            return obj.payment_thread.ticket_status in ["RAISED", "SOLVED"]
-        except Exception:
-            return False
+        # Email delivery is returned by the action API; it is not persisted in
+        # the current payment-thread schema, so ticket state must not imply email.
+        return False
 
     def get_emailRecipient(self, obj):
-        return f"{obj.customer.email or 'customer@company.com'}, finance@oblutools.com"
+        return obj.customer.email or ""
+
+    def get_expectedDate(self, obj):
+        try:
+            expected = obj.payment_thread.expected_date_history.first()
+            return expected.expected_date.strftime("%d %b %Y") if expected else ""
+        except Exception:
+            return ""
 
 
 class CustomerListSerializer(serializers.ModelSerializer):
@@ -214,8 +225,9 @@ class CustomerListSerializer(serializers.ModelSerializer):
         ]
 
     def get_contactPerson(self, obj):
-        words = (obj.name or "").split()
-        return f"{words[0]} (Contact)" if words else "Contact Person"
+        # The Customer model has no contact-person column; don't fabricate one
+        # from the company name.
+        return ""
 
     def get_city(self, obj):
         return obj.district or obj.state or "Office"
@@ -224,13 +236,13 @@ class CustomerListSerializer(serializers.ModelSerializer):
         return obj.salesperson.name if obj.salesperson else "Unassigned"
 
     def get_customerSince(self, obj):
-        return obj.created_at.strftime("%b %Y") if obj.created_at else "Jan 2024"
+        return obj.created_at.strftime("%b %Y") if obj.created_at else ""
 
     def get_creditPeriod(self, obj):
         try:
             return f"{obj.credit_profile.credit_period_days} Days"
         except Exception:
-            return "15 Days"
+            return ""
 
     def get_outstandingPayment(self, obj):
         num = self.get_outstandingPaymentNum(obj)
@@ -282,7 +294,7 @@ class CustomerListSerializer(serializers.ModelSerializer):
         today = timezone.now().date()
         fu = obj.followups.filter(is_completed=False, followup_date__gte=today).order_by("followup_date").first()
         if fu and fu.followup_date:
-            return f"{fu.followup_date.strftime('%d %b')}, 10:30 AM"
+            return fu.followup_date.strftime("%d %b")
         return ""
 
     def get_followups_due(self, obj):
@@ -315,5 +327,12 @@ class CustomerDetailSerializer(CustomerListSerializer):
         return CustomerFollowUpSerializer(recent, many=True).data
 
     def get_payments(self, obj):
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if not user or not (
+            user.is_superuser or user.is_staff or getattr(user, "is_accountant", False)
+            or user.groups.filter(name="Admin").exists() or can(user, "payment.view")
+        ):
+            return []
         vouchers = obj.voucher_statuses.select_related("voucher").order_by("-voucher_date")[:30]
         return CustomerPaymentSerializer(vouchers, many=True).data
