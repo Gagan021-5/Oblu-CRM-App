@@ -8,9 +8,13 @@ import { FontSizes, Radius, Typography } from "@/constants/theme";
 export type CustomerPaymentFilter = "all" | "paid" | "pending" | "overdue" | "no_payment";
 export type CustomerBalanceFilter = "all" | "outstanding";
 export type CustomerSortOption = "default" | "name_asc" | "name_desc" | "outstanding_high" | "outstanding_low";
+export type CustomerActivityFilter = "all" | "followup_due" | "payment_pending" | "recently_contacted";
+
 
 interface CustomerFilterSheetProps {
   visible: boolean;
+  activityFilter?: CustomerActivityFilter;
+  onActivityFilterChange?: (value: CustomerActivityFilter) => void;
   paymentFilter: CustomerPaymentFilter;
   balanceFilter: CustomerBalanceFilter;
   sortOption: CustomerSortOption;
@@ -39,6 +43,8 @@ const SORT_OPTIONS: { value: CustomerSortOption; label: string; icon: keyof type
 
 export function CustomerFilterSheet({
   visible,
+  activityFilter = "all",
+  onActivityFilterChange,
   paymentFilter,
   balanceFilter,
   sortOption,
@@ -98,6 +104,16 @@ export function CustomerFilterSheet({
           </View>
 
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.optionsContent}>
+            {onActivityFilterChange ? <>
+              <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>CUSTOMER LIST</Text>
+              <View style={styles.optionsGroup}>
+                {renderChoice(activityFilter === "all", "All customers", () => onActivityFilterChange("all"))}
+                {renderChoice(activityFilter === "followup_due", "Follow-up due", () => onActivityFilterChange("followup_due"))}
+                {renderChoice(activityFilter === "payment_pending", "Payment pending", () => onActivityFilterChange("payment_pending"))}
+                {renderChoice(activityFilter === "recently_contacted", "Recently contacted", () => onActivityFilterChange("recently_contacted"))}
+              </View>
+            </> : null}
+
             <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>PAYMENT STATUS</Text>
             <View style={styles.optionsGroup}>
               {PAYMENT_OPTIONS.map((option) =>

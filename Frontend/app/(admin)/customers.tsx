@@ -22,7 +22,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/contexts/ThemeContext";
 import { Typography, FontSizes, Spacing, Radius, Shadows } from "@/constants/theme";
 import { StatusPill } from "@/components/ui/StatusPill";
-import { Customer } from "@/data/mockCustomers";
+import { Customer } from "@/data/customerTypes";
 import { fetchCustomersFromApi } from "@/services/customerService";
 import { CustomerNavDrawer } from "@/components/CustomerNavDrawer";
 import { CustomerBalanceFilter, CustomerFilterSheet, CustomerPaymentFilter, CustomerSortOption } from "@/components/ui/CustomerFilterSheet";

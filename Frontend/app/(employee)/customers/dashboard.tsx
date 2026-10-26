@@ -12,7 +12,7 @@ import { hasPermission, hasRole } from "@/services/permissionService";
 
 type QuickLink = { title: string; description: string; icon: React.ComponentProps<typeof Ionicons>["name"]; route: string; color: string; permission?: string; permissions?: string[]; roles?: string[] };
 const links: QuickLink[] = [
-  { title: "Customer Directory", description: "Search accounts and open customer records", icon: "people-outline", route: "/(employee)/customers", color: "#20B99A", permission: "customer.view_all" },
+  { title: "Customer Directory", description: "Search accounts and open customer records", icon: "people-outline", route: "/(employee)/customers", color: "#20B99A", permissions: ["customer.view", "customer.view_all"] },
   { title: "Team Customers", description: "Review customers in your permitted team scope", icon: "person-add-outline", route: "/(employee)/customers/tool/team-customers", color: "#159A7C", permission: "customer.view" },
   { title: "Payment Follow-ups", description: "Review customers with pending or overdue payments", icon: "cash-outline", route: "/(employee)/customers/tool/payment-followups", color: "#F59E0B", permission: "payment.view" },
   { title: "Monthly Sales Report", description: "Review monthly sales performance", icon: "calendar-outline", route: "/(employee)/customers/tool/monthly-sales", color: "#0EA5E9", permissions: ["customer.view", "customer.view_all", "payment.view"] },
@@ -75,9 +75,9 @@ export default function CustomerWorkspaceScreen({ isAdmin = false }: { isAdmin?:
     return true;
   });
   const metricItems = [
-    ...(can("customer.view_all") ? [{ title: "Customers", value: stats?.totalCustomers ?? 0, icon: "people" as const, tint: "#DDF8F0", route: isAdmin ? "/(admin)/customers" : "/(employee)/customers" }] : []),
-    ...(can("customer.view") ? [{ title: "Follow-ups due", value: stats?.followUpsDueCount ?? 0, icon: "calendar" as const, tint: "#FFF2D8", route: "/(employee)/customers?filter=followup_due" }] : []),
-    ...(can("payment.view") ? [{ title: "Overdue payments", value: stats?.overduePaymentsCount ?? 0, icon: "alert-circle" as const, tint: "#FFE5E8", route: "/(employee)/customers?filter=payment_pending" }] : []),
+    ...(can("customer.view_all") ? [{ title: "Customers", value: stats?.totalCustomers, icon: "people" as const, tint: "#DDF8F0", route: isAdmin ? "/(admin)/customers" : "/(employee)/customers" }] : []),
+    ...(can("customer.view") ? [{ title: "Follow-ups due", value: stats?.followUpsDueCount, icon: "calendar" as const, tint: "#FFF2D8", route: "/(employee)/customers?filter=followup_due" }] : []),
+    ...(can("payment.view") ? [{ title: "Overdue payments", value: stats?.overduePaymentsCount, icon: "alert-circle" as const, tint: "#FFE5E8", route: "/(employee)/customers?filter=payment_pending" }] : []),
   ];
 
   return <><ScrollView style={{ flex: 1, backgroundColor: isDark ? colors.background : "#F5F8FA" }} contentContainerStyle={[styles.content, { paddingTop: Math.max(insets.top, 12) + 8, paddingBottom: 110 }]} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); void load(); }} />}>
@@ -94,11 +94,11 @@ export default function CustomerWorkspaceScreen({ isAdmin = false }: { isAdmin?:
     <View style={styles.metricRow}>
       {metricItems.map((item) => <TouchableOpacity key={item.title} onPress={() => open(item.route)} style={[styles.metric, { backgroundColor: cardBg, borderColor: isDark ? "#263A32" : "#E4EAF0" }]}>
         <View style={[styles.metricIcon, { backgroundColor: item.tint }]}><Ionicons name={item.icon} size={18} color={item.title === "Overdue payments" ? "#E34B59" : item.title === "Follow-ups due" ? "#D18A00" : "#149B80"} /></View>
-        <Text style={[styles.metricValue, { color: text }]}>{loading ? "—" : item.value.toLocaleString()}</Text><Text style={[styles.metricLabel, { color: muted }]}>{item.title}</Text>
+        <Text style={[styles.metricValue, { color: text }]}>{(item.value ?? 0).toLocaleString()}</Text><Text style={[styles.metricLabel, { color: muted }]}>{item.title}</Text>
       </TouchableOpacity>)}
     </View>
     <View style={[styles.balanceCard, { backgroundColor: "#0E9E83" }]}>
-      <View style={{ flex: 1 }}><Text style={styles.balanceLabel}>TOTAL OUTSTANDING</Text><Text style={styles.balanceValue}>{loading ? "—" : stats?.totalOutstandingFormatted || "₹0"}</Text><Text style={styles.balanceHint}>Live account data</Text></View>
+      <View style={{ flex: 1 }}><Text style={styles.balanceLabel}>TOTAL OUTSTANDING</Text><Text style={styles.balanceValue}>{stats?.totalOutstandingFormatted ?? "₹0"}</Text><Text style={styles.balanceHint}>Total customer balances</Text></View>
       <Ionicons name="trending-up" size={30} color="#D9FFF5" />
     </View>
 

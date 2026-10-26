@@ -4,7 +4,8 @@ Provides real-time access to Customers, Remarks, Follow-ups, and Tally Voucher s
 """
 
 from django.utils import timezone
-from django.db.models import Q, Sum
+from django.db.models import Count, OuterRef, Prefetch, Q, Subquery, Sum
+from django.db.models.functions import Lower, TruncDate
 from rest_framework import generics, status
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
@@ -21,6 +22,7 @@ from access_control.services import can, scope_queryset
 from .models import (
     SalesPerson,
     Customer,
+    CustomerUnit,
     CustomerRemark,
     CustomerFollowUp,
     CustomerVoucherStatus,
@@ -85,6 +87,30 @@ def _get_customer_for_user(user, customer_id, *permission_keys):
     )
 
 
+def _annotate_portfolio_metrics(queryset):
+    """Attach the voucher metrics used by the website customer portfolio."""
+    from tally_voucher.models import Voucher, VoucherRow
+
+    party_total = VoucherRow.objects.filter(
+        voucher_id=OuterRef("pk"), ledger__iexact=OuterRef("party_name")
+    ).values("voucher_id").annotate(total=Sum("amount")).values("total")[:1]
+    customer_vouchers = Voucher.objects.annotate(party_clean=Lower("party_name")).filter(
+        party_clean=Lower(OuterRef("name")), voucher_type__iexact="TAX INVOICE"
+    )
+    order_count = customer_vouchers.order_by().values("party_clean").annotate(
+        total=Count("pk")
+    ).values("total")[:1]
+    order_value = customer_vouchers.order_by().annotate(
+        party_total=Subquery(party_total)
+    ).values("party_clean").annotate(total=Sum("party_total")).values("total")[:1]
+    last_order = customer_vouchers.order_by("-date").values("date")[:1]
+    return queryset.annotate(
+        portfolio_total_orders=Subquery(order_count),
+        portfolio_total_order_value=Subquery(order_value),
+        portfolio_last_order_date=Subquery(last_order),
+    )
+
+
 class StandardResultsSetPagination(PageNumberPagination):
     page_size = 50
     page_size_query_param = "page_size"
@@ -102,10 +128,15 @@ class CustomerListView(generics.ListAPIView):
 
     def get_queryset(self):
         user = self.request.user
-        if not _has_customer_permission(user, "customer.view_all"):
+        if not _has_customer_permission(user, "customer.view", "customer.view_all"):
             raise PermissionDenied("Customer Directory access is not enabled for this account.")
-        qs = _customer_scope(user, "customer.view_all").select_related("salesperson").prefetch_related(
-            "credit_profile", "voucher_statuses", "remarks", "followups"
+        cutoff = timezone.now().date() - timezone.timedelta(days=90)
+        recent_tax_statuses = CustomerVoucherStatus.objects.filter(
+            voucher_type__iexact="TAX INVOICE", voucher_date__gte=cutoff
+        ).only("id", "customer_id", "voucher_date", "voucher_type")
+        qs = _annotate_portfolio_metrics(_customer_scope(user, "customer.view", "customer.view_all")).select_related("salesperson", "unit_membership__unit").prefetch_related(
+            "credit_profile", "voucher_statuses", "remarks", "followups",
+            Prefetch("voucher_statuses", queryset=recent_tax_statuses, to_attr="recent_tax_invoice_statuses"),
         )
 
         # Search
@@ -354,7 +385,8 @@ class DashboardStatsView(APIView):
         today = timezone.now().date()
         active_cutoff = today - timezone.timedelta(days=90)
         active_customers_count = cust_qs.filter(
-            voucher_statuses__voucher_date__gte=active_cutoff
+            voucher_statuses__voucher_type__iexact="TAX INVOICE",
+            voucher_statuses__voucher_date__gte=active_cutoff,
         ).distinct().count()
         followups_due = CustomerFollowUp.objects.filter(
             followup_date__lte=today, is_completed=False
@@ -366,6 +398,35 @@ class DashboardStatsView(APIView):
         overdue_qs = CustomerVoucherStatus.objects.filter(is_credit_period_crossed=True)
         overdue_qs = overdue_qs.filter(customer__in=cust_qs)
         overdue_count = overdue_qs.count()
+        pending_customers_count = cust_qs.filter(
+            credit_profile__outstanding_balance__gt=0
+        ).distinct().count()
+
+        # A real seven-day activity series for the same customers the user may
+        # see. Remarks are touchpoints; scheduled follow-ups are counted by
+        # their scheduled date. Empty days stay zero rather than using samples.
+        week_start = today - timezone.timedelta(days=6)
+        day_dates = [week_start + timezone.timedelta(days=offset) for offset in range(7)]
+        remark_counts = {
+            row["day"]: row["total"]
+            for row in CustomerRemark.objects.filter(
+                customer__in=cust_qs,
+                created_at__date__range=(week_start, today),
+            ).annotate(day=TruncDate("created_at")).values("day").annotate(total=Count("id"))
+        }
+        followup_counts = {
+            row["followup_date"]: row["total"]
+            for row in CustomerFollowUp.objects.filter(
+                customer__in=cust_qs,
+                followup_date__range=(week_start, today),
+            ).values("followup_date").annotate(total=Count("id"))
+        }
+        weekly_activity = [{
+            "date": day.isoformat(),
+            "day": day.strftime("%a"),
+            "interactions": remark_counts.get(day, 0),
+            "followups": followup_counts.get(day, 0),
+        } for day in day_dates]
 
         # Total outstanding
         total_balance = cust_qs.aggregate(
@@ -381,7 +442,9 @@ class DashboardStatsView(APIView):
                 "totalCustomers": total_customers,
                 "activeCustomersCount": active_customers_count,
                 "followUpsDueCount": followups_due_count,
+                "pendingPaymentsCount": pending_customers_count,
                 "overduePaymentsCount": overdue_count,
+                "weeklyCustomerActivity": weekly_activity,
                 "totalOutstandingNum": float(abs(total_balance)),
                 "totalOutstandingFormatted": f"₹{int(abs(total_balance)):,}",
                 "totalLeadsCount": leads_count,
@@ -475,9 +538,15 @@ class CustomerWorkspaceToolsView(APIView):
         from django.db.models import Q
 
         if tool == "team-customers":
-            if not _has_customer_permission(request.user, "customer.view"):
+            if not _has_customer_permission(request.user, "customer.view", "customer.view_all"):
                 raise PermissionDenied("Team customer access is not enabled for this account.")
-            qs = _customer_scope(request.user, "customer.view").select_related("salesperson").order_by("name")
+            cutoff = timezone.now().date() - timezone.timedelta(days=90)
+            recent_tax_statuses = CustomerVoucherStatus.objects.filter(
+                voucher_type__iexact="TAX INVOICE", voucher_date__gte=cutoff
+            ).only("id", "customer_id", "voucher_date", "voucher_type")
+            qs = _annotate_portfolio_metrics(_customer_scope(request.user, "customer.view", "customer.view_all")).select_related("salesperson", "unit_membership__unit").prefetch_related(
+                Prefetch("voucher_statuses", queryset=recent_tax_statuses, to_attr="recent_tax_invoice_statuses")
+            ).order_by("name")
             return Response(CustomerListSerializer(qs, many=True).data)
 
         if tool == "payment-followups":
@@ -655,6 +724,7 @@ class CustomerWorkspaceToolsView(APIView):
                         "blocked": str(context.get("grand_rsm_triggered_off", 0)),
                     },
                 })
+
             elif tool == "sales-head-incentives":
                 if not allowed or not self._has_role(request.user, "sales_head", "business", "admin") and not (request.user.is_staff or request.user.is_superuser):
                     return Response({"error": "Administrator access required."}, status=403)
@@ -709,16 +779,53 @@ class CustomerWorkspaceToolsView(APIView):
         return Response({"error": "Unknown customer workspace tool."}, status=404)
 
     def post(self, request, tool):
-        if tool != "voucher-approvals" or not (request.user.is_staff or request.user.is_superuser or is_admin(request.user) or self._has_role(request.user, "accounts_operations")):
-            return Response({"error": "Administrator access required."}, status=403)
-        row = get_object_or_404(CustomerVoucherStatus, pk=request.data.get("id"), claim_status="PENDING")
-        action = request.data.get("action")
-        if action not in {"approve", "reject"}:
-            return Response({"error": "action must be approve or reject"}, status=400)
-        if action == "approve":
-            row.sold_by = row.claim_requested_by
-        row.claim_status = "APPROVED" if action == "approve" else "REJECTED"
-        row.claim_requested_by = None
-        row.save(update_fields=["sold_by", "claim_status", "claim_requested_by", "updated_at"])
-        return Response({"success": True, "id": row.pk, "status": row.claim_status})
+        if tool == "voucher-approvals":
+            if not (request.user.is_staff or request.user.is_superuser or is_admin(request.user) or self._has_role(request.user, "accounts_operations")):
+                return Response({"error": "Administrator access required."}, status=403)
+            row = get_object_or_404(CustomerVoucherStatus, pk=request.data.get("id"), claim_status="PENDING")
+            action = request.data.get("action")
+            if action not in {"approve", "reject"}:
+                return Response({"error": "action must be approve or reject"}, status=400)
+            if action == "approve":
+                row.sold_by = row.claim_requested_by
+            row.claim_status = "APPROVED" if action == "approve" else "REJECTED"
+            row.claim_requested_by = None
+            row.save(update_fields=["sold_by", "claim_status", "claim_requested_by", "updated_at"])
+            return Response({"success": True, "id": row.pk, "status": row.claim_status})
+
+        if tool != "team-customers":
+            return Response({"error": "This customer action is not available."}, status=404)
+        user = request.user
+        if not (user.is_superuser or user.is_staff or is_admin(user) or can(user, "customer.edit")):
+            raise PermissionDenied("Customer edit access is not enabled for this account.")
+
+        action = str(request.data.get("action", "")).strip().lower()
+        unit_id = request.data.get("unit_id")
+        visible_customers = _customer_scope(user, "customer.view", "customer.view_all")
+        editable_customers = _customer_scope(user, "customer.edit")
+        unit = get_object_or_404(
+            CustomerUnit.objects.filter(memberships__customer__in=visible_customers).distinct(),
+            pk=unit_id,
+        )
+        member_ids = list(unit.memberships.values_list("customer_id", flat=True))
+        if not member_ids or editable_customers.filter(pk__in=member_ids).count() != len(member_ids):
+            raise PermissionDenied("You can edit only units whose ledgers are inside your edit scope.")
+
+        if action == "rename_unit":
+            name = str(request.data.get("unit_name", "")).strip()
+            if not name:
+                return Response({"error": "Enter a name for this customer unit."}, status=400)
+            if len(name) > 255:
+                return Response({"error": "Unit names can be up to 255 characters."}, status=400)
+            if CustomerUnit.objects.filter(salesperson_id=unit.salesperson_id, name__iexact=name).exclude(pk=unit.pk).exists():
+                return Response({"error": "This salesperson already has a customer unit with that name."}, status=400)
+            unit.name = name
+            unit.save(update_fields=["name", "updated_at"])
+            return Response({"success": True, "unit_id": unit.pk, "unit_name": unit.name})
+
+        if action == "delete_unit":
+            unit.delete()
+            return Response({"success": True, "deleted": True})
+
+        return Response({"error": "Unsupported customer unit action."}, status=400)
 

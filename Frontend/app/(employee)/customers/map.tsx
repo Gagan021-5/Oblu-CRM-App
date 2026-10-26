@@ -7,7 +7,7 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { hasPermission, hasRole } from "@/services/permissionService";
 import { Typography } from "@/constants/theme";
-import { Customer } from "@/data/mockCustomers";
+import { Customer } from "@/data/customerTypes";
 import { fetchCustomersFromApi } from "@/services/customerService";
 
 export default function CustomerMapScreen() {

@@ -15,13 +15,11 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { Typography, FontSizes } from "@/constants/theme";
 import { SearchBar } from "@/components/ui/SearchBar";
-import { FilterChip } from "@/components/ui/FilterChip";
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { CustomerCard } from "@/components/employee/CustomerCard";
-import { WeeklyActivityChart } from "@/components/employee/WeeklyActivityChart";
-import { Customer } from "@/data/mockCustomers";
-import { fetchCustomersFromApi } from "@/services/customerService";
+import { Customer } from "@/data/customerTypes";
+import { DashboardStats, fetchCustomersFromApi, fetchDashboardStatsApi } from "@/services/customerService";
 import { CustomerNavDrawer } from "@/components/CustomerNavDrawer";
 import { CustomerBalanceFilter, CustomerFilterSheet, CustomerPaymentFilter, CustomerSortOption } from "@/components/ui/CustomerFilterSheet";
 
@@ -77,6 +75,7 @@ export default function CustomerDashboardScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState<FilterTab>(() => {
     const value = routeParams.filter;
@@ -87,12 +86,22 @@ export default function CustomerDashboardScreen() {
     const value = routeParams.filter;
     setActiveFilter(value === "followup_due" || value === "payment_pending" || value === "recently_contacted" ? value : "all");
   }, [routeParams.filter]);
-  const [showSearch, setShowSearch] = useState(false);
   const [drawerVisible, setDrawerVisible] = useState(false);
   const [filterVisible, setFilterVisible] = useState(false);
   const [paymentFilter, setPaymentFilter] = useState<CustomerPaymentFilter>("all");
   const [balanceFilter, setBalanceFilter] = useState<CustomerBalanceFilter>("all");
   const [sortOption, setSortOption] = useState<CustomerSortOption>("default");
+
+  const loadDashboardStats = useCallback(async () => {
+    try {
+      const stats = await fetchDashboardStatsApi();
+      setDashboardStats(stats);
+    } catch {
+      setDashboardStats(null);
+    }
+  }, []);
+
+  useEffect(() => { void loadDashboardStats(); }, [loadDashboardStats]);
 
   const loadData = useCallback(async (isPullToRefresh = false) => {
     if (!isPullToRefresh) setLoading(true);
@@ -119,6 +128,7 @@ export default function CustomerDashboardScreen() {
   const onRefresh = () => {
     setRefreshing(true);
     loadData(true);
+    void loadDashboardStats();
   };
 
   // Filter and search logic
@@ -140,11 +150,7 @@ export default function CustomerDashboardScreen() {
     // Tab filter
     switch (activeFilter) {
       case "followup_due":
-        list = list.filter(
-          (c) =>
-            (c.nextFollowUp || "").toLowerCase().includes("today") ||
-            (c.nextFollowUp || "").toLowerCase().includes("tomorrow")
-        );
+        list = list.filter((c) => (c.followupsDue || 0) > 0);
         break;
       case "payment_pending":
         list = list.filter(
@@ -183,7 +189,7 @@ export default function CustomerDashboardScreen() {
     return list;
   }, [customers, searchQuery, activeFilter, paymentFilter, balanceFilter, sortOption]);
 
-  const filtersActive = paymentFilter !== "all" || balanceFilter !== "all" || sortOption !== "default";
+  const filtersActive = activeFilter !== "all" || paymentFilter !== "all" || balanceFilter !== "all" || sortOption !== "default";
 
   const resetDirectoryFilters = useCallback(() => {
     setActiveFilter("all");
@@ -191,25 +197,6 @@ export default function CustomerDashboardScreen() {
     setBalanceFilter("all");
     setSortOption("default");
   }, []);
-
-  // Counts for filter chips
-  const counts = useMemo(() => {
-    const total = customers.length;
-    const followups = customers.filter(
-      (c) =>
-        (c.nextFollowUp || "").toLowerCase().includes("today") ||
-        (c.nextFollowUp || "").toLowerCase().includes("tomorrow")
-    ).length;
-    const pending = customers.filter(
-      (c) => c.paymentStatus === "pending" || c.paymentStatus === "overdue"
-    ).length;
-    const recent = customers.filter(
-      (c) =>
-        (c.lastContactTime || "").toLowerCase().includes("today") ||
-        (c.lastContactTime || "").toLowerCase().includes("yesterday")
-    ).length;
-    return { total, followups, pending, recent };
-  }, [customers]);
 
   const listHeaderComponent = useMemo(() => (
     <View>
@@ -254,39 +241,6 @@ export default function CustomerDashboardScreen() {
           </Text>
         </View>
 
-        <View style={styles.rightNav}>
-          <TouchableOpacity
-            style={[
-              styles.iconBtn,
-              {
-                backgroundColor: showSearch
-                  ? isDark
-                    ? "rgba(53, 214, 160, 0.16)"
-                    : "#DDF4EA"
-                  : isDark
-                  ? "#121F1B"
-                  : "#FFFFFF",
-                borderColor: isDark ? "#294039" : "#D8E0DC",
-              },
-            ]}
-            onPress={() => setShowSearch(!showSearch)}
-            activeOpacity={0.7}
-          >
-            <Ionicons
-              name="search-outline"
-              size={18}
-              color={
-                showSearch
-                  ? isDark
-                    ? "#35D6A0"
-                    : "#00A879"
-                  : isDark
-                  ? "#F1F7F4"
-                  : "#101513"
-              }
-            />
-          </TouchableOpacity>
-        </View>
       </View>
 
       {/* Summary Bento Card */}
@@ -315,7 +269,7 @@ export default function CustomerDashboardScreen() {
                 { color: isDark ? "#F1F7F4" : "#101513" },
               ]}
             >
-              128
+              {dashboardStats?.totalCustomers ?? 0}
             </Text>
             <Text
               style={[
@@ -339,7 +293,7 @@ export default function CustomerDashboardScreen() {
                 { color: isDark ? "#35D6A0" : "#00A879" },
               ]}
             >
-              96
+              {dashboardStats?.activeCustomersCount ?? 0}
             </Text>
             <Text
               style={[
@@ -363,7 +317,7 @@ export default function CustomerDashboardScreen() {
                 { color: isDark ? "#B7F34A" : "#2E7D32" },
               ]}
             >
-              7
+              {dashboardStats?.followUpsDueCount ?? 0}
             </Text>
             <Text
               style={[
@@ -387,7 +341,7 @@ export default function CustomerDashboardScreen() {
                 { color: isDark ? "#F2B84B" : "#C97A1E" },
               ]}
             >
-              12
+              {dashboardStats?.pendingPaymentsCount ?? 0}
             </Text>
             <Text
               style={[
@@ -401,43 +355,25 @@ export default function CustomerDashboardScreen() {
         </View>
       </View>
 
-      {/* Weekly Customer Activity Chart */}
-      <WeeklyActivityChart />
-
-      {/* Collapsible Search Input */}
-      {showSearch && (
-        <View style={styles.searchWrap}>
+      {/* Search with filters beside it */}
+      <View style={styles.searchFilterRow}>
+        <View style={styles.searchInputWrap}>
           <SearchBar
             value={searchQuery}
             onChangeText={setSearchQuery}
             placeholder="Search by company, contact person, city..."
-            onFilterPress={() => setFilterVisible(true)}
-            filterActive={filtersActive}
           />
         </View>
-      )}
-
-      {/* Filter Chips Horizontal Bar */}
-      <View style={styles.filterBar}>
-        <FlatList
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          data={[
-            { key: "all", label: "All", count: counts.total },
-            { key: "followup_due", label: "Follow-up Due", count: counts.followups },
-            { key: "payment_pending", label: "Payment Pending", count: counts.pending },
-            { key: "recently_contacted", label: "Recently Contacted", count: counts.recent },
-          ]}
-          keyExtractor={(item) => item.key}
-          renderItem={({ item }) => (
-            <FilterChip
-              label={item.label}
-              count={item.count}
-              isActive={activeFilter === item.key}
-              onPress={() => setActiveFilter(item.key as FilterTab)}
-            />
-          )}
-        />
+        <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityLabel="Filter and sort customers"
+          accessibilityState={{ selected: filtersActive }}
+          onPress={() => setFilterVisible(true)}
+          activeOpacity={0.75}
+          style={[styles.filterButton, { backgroundColor: isDark ? "#121F1B" : "#FFFFFF", borderColor: filtersActive ? (isDark ? "#35D6A0" : "#00A879") : (isDark ? "#294039" : "#D8E0DC") }]}
+        >
+          <Ionicons name="options-outline" size={20} color={filtersActive ? (isDark ? "#35D6A0" : "#00A879") : (isDark ? "#F1F7F4" : "#101513")} />
+        </TouchableOpacity>
       </View>
 
       {/* List Header Count */}
@@ -456,11 +392,13 @@ export default function CustomerDashboardScreen() {
   ), [
     isDark,
     isBusinessManager,
-    showSearch,
     searchQuery,
     activeFilter,
-    counts,
+    filtersActive,
+    loadError,
+    customers.length,
     filteredCustomers.length,
+    dashboardStats,
   ]);
 
   const handleCustomerPress = useCallback((id: string | number) => {
@@ -533,6 +471,8 @@ export default function CustomerDashboardScreen() {
       )}
       <CustomerFilterSheet
         visible={filterVisible}
+        activityFilter={activeFilter}
+        onActivityFilterChange={setActiveFilter}
         paymentFilter={paymentFilter}
         balanceFilter={balanceFilter}
         sortOption={sortOption}
@@ -584,19 +524,6 @@ const styles = StyleSheet.create({
     fontSize: FontSizes.caption,
     fontFamily: Typography.regular,
   },
-  rightNav: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  iconBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
   summaryCard: {
     borderRadius: 18,
     borderWidth: 1,
@@ -632,11 +559,22 @@ const styles = StyleSheet.create({
     width: 1,
     height: 28,
   },
-  searchWrap: {
+  searchFilterRow: {
     marginBottom: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
   },
-  filterBar: {
-    marginBottom: 12,
+  searchInputWrap: {
+    flex: 1,
+  },
+  filterButton: {
+    width: 44,
+    height: 42,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderRadius: 13,
   },
   listHeaderRow: {
     paddingHorizontal: 2,

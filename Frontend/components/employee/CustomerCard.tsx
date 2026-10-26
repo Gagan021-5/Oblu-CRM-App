@@ -4,7 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/contexts/ThemeContext";
 import { Typography, FontSizes } from "@/constants/theme";
 import { StatusPill } from "@/components/ui/StatusPill";
-import { Customer } from "@/data/mockCustomers";
+import { Customer } from "@/data/customerTypes";
 
 interface CustomerCardProps {
   customer: Customer;

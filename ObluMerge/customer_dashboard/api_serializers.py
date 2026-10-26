@@ -185,12 +185,18 @@ class CustomerListSerializer(serializers.ModelSerializer):
     contactPerson = serializers.SerializerMethodField()
     city = serializers.SerializerMethodField()
     assignedSalesperson = serializers.SerializerMethodField()
+    unitId = serializers.SerializerMethodField()
+    unitName = serializers.SerializerMethodField()
+    totalOrders = serializers.SerializerMethodField()
+    totalOrderValue = serializers.SerializerMethodField()
+    lastOrderDate = serializers.SerializerMethodField()
     customerSince = serializers.SerializerMethodField()
     creditPeriod = serializers.SerializerMethodField()
     outstandingPayment = serializers.SerializerMethodField()
     outstandingPaymentNum = serializers.SerializerMethodField()
     paymentStatus = serializers.SerializerMethodField()
     status = serializers.SerializerMethodField()
+    portfolioStatus = serializers.SerializerMethodField()
     lastContactTime = serializers.SerializerMethodField()
     nextFollowUp = serializers.SerializerMethodField()
     followups_due = serializers.SerializerMethodField()
@@ -211,12 +217,18 @@ class CustomerListSerializer(serializers.ModelSerializer):
             "latitude",
             "longitude",
             "assignedSalesperson",
+            "unitId",
+            "unitName",
+            "totalOrders",
+            "totalOrderValue",
+            "lastOrderDate",
             "customerSince",
             "creditPeriod",
             "outstandingPayment",
             "outstandingPaymentNum",
             "paymentStatus",
             "status",
+            "portfolioStatus",
             "lastContactTime",
             "nextFollowUp",
             "followups_due",
@@ -234,6 +246,25 @@ class CustomerListSerializer(serializers.ModelSerializer):
 
     def get_assignedSalesperson(self, obj):
         return obj.salesperson.name if obj.salesperson else "Unassigned"
+
+    def get_unitId(self, obj):
+        membership = getattr(obj, "unit_membership", None)
+        return membership.unit_id if membership else None
+
+    def get_unitName(self, obj):
+        membership = getattr(obj, "unit_membership", None)
+        return membership.unit.name if membership else ""
+
+    def get_totalOrders(self, obj):
+        return getattr(obj, "portfolio_total_orders", 0) or 0
+
+    def get_totalOrderValue(self, obj):
+        value = getattr(obj, "portfolio_total_order_value", None)
+        return str(value or 0)
+
+    def get_lastOrderDate(self, obj):
+        value = getattr(obj, "portfolio_last_order_date", None)
+        return value.strftime("%d %b %Y") if value else ""
 
     def get_customerSince(self, obj):
         return obj.created_at.strftime("%b %Y") if obj.created_at else ""
@@ -277,6 +308,18 @@ class CustomerListSerializer(serializers.ModelSerializer):
         except Exception:
             return "Active"
 
+    def get_portfolioStatus(self, obj):
+        # The website's unit table marks a ledger active when it has a tax
+        # invoice in the last 90 days; keep that separate from the VIP label.
+        recent = getattr(obj, "recent_tax_invoice_statuses", None)
+        if recent is not None:
+            return "Active" if recent else "Inactive"
+        cutoff = timezone.now().date() - timezone.timedelta(days=90)
+        has_recent = obj.voucher_statuses.filter(
+            voucher_type__iexact="TAX INVOICE", voucher_date__gte=cutoff
+        ).exists()
+        return "Active" if has_recent else "Inactive"
+
     def get_lastContactTime(self, obj):
         remark = obj.remarks.order_by("-created_at").first()
         if remark and remark.created_at:
@@ -310,12 +353,14 @@ class CustomerDetailSerializer(CustomerListSerializer):
     remarks = serializers.SerializerMethodField()
     followUps = serializers.SerializerMethodField()
     payments = serializers.SerializerMethodField()
+    purchases = serializers.SerializerMethodField()
 
     class Meta(CustomerListSerializer.Meta):
         fields = CustomerListSerializer.Meta.fields + [
             "remarks",
             "followUps",
             "payments",
+            "purchases",
         ]
 
     def get_remarks(self, obj):
@@ -336,3 +381,32 @@ class CustomerDetailSerializer(CustomerListSerializer):
             return []
         vouchers = obj.voucher_statuses.select_related("voucher").order_by("-voucher_date")[:30]
         return CustomerPaymentSerializer(vouchers, many=True).data
+
+    def get_purchases(self, obj):
+        """Return the same invoice-item purchase summary shown on the website."""
+        from tally_voucher.models import VoucherStockItem
+
+        stock_items = VoucherStockItem.objects.filter(
+            voucher__party_name__iexact=obj.name,
+            voucher__voucher_type__iexact="TAX INVOICE",
+        ).select_related("voucher", "item").order_by("voucher__date")
+
+        grouped = {}
+        for stock_item in stock_items:
+            product_name = (stock_item.item.name if stock_item.item else "") or stock_item.item_name_text or "Unknown item"
+            row = grouped.setdefault(product_name, {
+                "product": product_name,
+                "quantity": 0,
+                "amount": 0,
+                "entries": [],
+            })
+            quantity = stock_item.quantity or 0
+            amount = stock_item.amount or 0
+            row["quantity"] += quantity
+            row["amount"] += amount
+            row["entries"].append({
+                "date": stock_item.voucher.date.isoformat() if stock_item.voucher.date else "",
+                "quantity": str(quantity),
+            })
+        ordered = sorted(grouped.values(), key=lambda row: row["quantity"], reverse=True)
+        return [{**row, "quantity": str(row["quantity"]), "amount": str(row["amount"])} for row in ordered]

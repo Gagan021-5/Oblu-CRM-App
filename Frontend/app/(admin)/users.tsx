@@ -64,7 +64,7 @@ import {
   DashboardStats,
 } from "@/services/customerService";
 import { fetchLeadsFromApi } from "@/services/leadService";
-import { Customer } from "@/data/mockCustomers";
+import { Customer } from "@/data/customerTypes";
 import { Lead } from "@/data/mockLeads";
 
 interface UserItem {

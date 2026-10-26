@@ -29,7 +29,7 @@ import { CustomerCard } from "@/components/employee/CustomerCard";
 import { LeadCard } from "@/components/employee/LeadCard";
 import { fetchDashboardStatsApi, fetchCustomersFromApi, DashboardStats } from "@/services/customerService";
 import { fetchLeadsFromApi } from "@/services/leadService";
-import { Customer } from "@/data/mockCustomers";
+import { Customer } from "@/data/customerTypes";
 import { Lead } from "@/data/mockLeads";
 import {
   fetchUserPermissionsApi,

@@ -19,7 +19,7 @@ import { StatusPill } from "@/components/ui/StatusPill";
 import { TimelineItem } from "@/components/employee/TimelineItem";
 import { AddCustomerRemarkModal } from "@/components/employee/AddCustomerRemarkModal";
 import { ScheduleFollowUpModal } from "@/components/employee/ScheduleFollowUpModal";
-import { Customer } from "@/data/mockCustomers";
+import { Customer } from "@/data/customerTypes";
 import {
   fetchCustomerByIdFromApi,
   addCustomerRemarkApi,
@@ -30,10 +30,10 @@ import {
 import { scheduleFollowUpNotifications } from "@/services/followUpNotificationService";
 import { useNotifications } from "@/contexts/NotificationContext";
 
-type SegmentTab = "overview" | "remarks" | "followups" | "payments";
+type SegmentTab = "overview" | "remarks" | "followups" | "payments" | "purchases";
 
 export default function CustomerDetailScreen() {
-  const { customerId } = useLocalSearchParams<{ customerId: string }>();
+  const { customerId, tab } = useLocalSearchParams<{ customerId: string; tab?: string }>();
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useTheme();
   const { user, permissionProfile } = useAuth();
@@ -44,7 +44,7 @@ export default function CustomerDetailScreen() {
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [customerLoadError, setCustomerLoadError] = useState("");
   const [customerLoading, setCustomerLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<SegmentTab>("overview");
+  const [activeTab, setActiveTab] = useState<SegmentTab>(() => tab === "purchases" || tab === "payments" || tab === "remarks" || tab === "followups" ? tab : "overview");
   const [remarkModalVisible, setRemarkModalVisible] = useState(false);
   const [followUpModalVisible, setFollowUpModalVisible] = useState(false);
 
@@ -472,6 +472,7 @@ export default function CustomerDetailScreen() {
             [
               { key: "overview", label: "Overview" },
               { key: "remarks", label: `Remarks (${customer.remarks.length})` },
+              { key: "purchases", label: `Purchases (${customer.purchases?.length || 0})` },
               { key: "followups", label: `Follow-ups (${customer.followUps.length})` },
               ...(canViewPayments ? [{ key: "payments" as const, label: `Payments (${customer.payments.length})` }] : []),
             ] as const
@@ -814,7 +815,21 @@ export default function CustomerDetailScreen() {
         )}
 
         {/* Tab 4: Payments */}
-        {activeTab === "payments" && (
+          {activeTab === "purchases" && (
+            <View style={[styles.cardBox, { backgroundColor: isDark ? "#0E1714" : "#FFFFFF", borderColor: isDark ? "#294039" : "#D8E0DC" }]}>
+              <Text style={[styles.boxTitle, { color: isDark ? "#8FA09A" : "#5E6964" }]}>PURCHASE HISTORY</Text>
+              {(customer.purchases || []).length === 0 ? <Text style={[styles.emptySubtext, { color: isDark ? "#8FA09A" : "#5E6964" }]}>No invoice purchases found for this ledger.</Text> : (customer.purchases || []).map((purchase, index) => (
+                <View key={`${purchase.product}-${index}`} style={[styles.paymentCard, { backgroundColor: isDark ? "#121F1B" : "#F7F9F8", borderColor: isDark ? "#1C2D26" : "#E8EFEB" }]}>
+                  <View style={styles.paymentCardHeader}><Text style={[styles.invoiceNum, { color: isDark ? "#F1F7F4" : "#101513", flex: 1 }]}>{purchase.product}</Text><Text style={[styles.paymentAmountLarge, { color: isDark ? "#35D6A0" : "#008E66" }]}>×{purchase.quantity}</Text></View>
+                  <View style={styles.paymentDetailRow}><Text style={[styles.paymentSubLabel, { color: isDark ? "#8FA09A" : "#5E6964" }]}>Total purchase value</Text><Text style={[styles.paymentDetailValue, { color: isDark ? "#F1F7F4" : "#101513" }]}>₹{Number(purchase.amount || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })}</Text></View>
+                  {purchase.entries?.slice(0, 4).map((entry, entryIndex) => <Text key={`${entry.date}-${entryIndex}`} style={[styles.detailItem, { color: isDark ? "#8FA09A" : "#5E6964" }]}>{entry.date}  ·  Qty {entry.quantity}</Text>)}
+                </View>
+              ))}
+            </View>
+          )}
+
+        {/* Tab 5: Payments */}
+          {activeTab === "payments" && (
           <View
             style={[
               styles.cardBox,

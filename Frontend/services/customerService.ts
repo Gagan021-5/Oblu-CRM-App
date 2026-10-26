@@ -3,7 +3,7 @@
  */
 
 import api from "./api";
-import { Customer, CustomerRemark, CustomerFollowUp, CustomerPayment } from "@/data/mockCustomers";
+import { Customer, CustomerRemark, CustomerFollowUp, CustomerPayment } from "@/data/customerTypes";
 
 export interface CustomerListResponse {
   count: number;
@@ -16,11 +16,18 @@ export interface DashboardStats {
   totalCustomers: number;
   activeCustomersCount: number;
   followUpsDueCount: number;
+  pendingPaymentsCount: number;
   overduePaymentsCount: number;
   totalOutstandingNum: number;
   totalOutstandingFormatted: string;
   totalLeadsCount: number;
   syncHealth: string;
+  weeklyCustomerActivity: Array<{
+    date: string;
+    day: string;
+    interactions: number;
+    followups: number;
+  }>;
 }
 
 export function normalizeCustomer(raw: any): Customer {
@@ -45,7 +52,9 @@ export function normalizeCustomer(raw: any): Customer {
     status: raw.status || "",
     remarks: Array.isArray(raw.remarks) ? raw.remarks : [],
     followUps: Array.isArray(raw.followUps) ? raw.followUps : [],
+    followupsDue: Number(raw.followups_due) || 0,
     payments: Array.isArray(raw.payments) ? raw.payments : [],
+    purchases: Array.isArray(raw.purchases) ? raw.purchases : [],
   };
 }
 
