@@ -147,7 +147,6 @@
         </a>
 
         <!-- Master Customer Directory: Only users with customer.view_all permission -->
-        {% if request.user.username|lower != 'bhavya_bhardwaj' and 'rsm' not in user_roles %}
         {% if '*' in permissions or 'customer.view_all' in permissions %}
         <a href="{% url 'customers:data' %}" class="nav-link {% if request.resolver_match.url_name == 'data' %}active{% endif %}">
             <i class="bi bi-people"></i>
@@ -163,7 +162,6 @@
             <i class="bi bi-geo-alt"></i>
             <span>Detailed Map</span>
         </a>
-        {% endif %}
         {% endif %}
 
         <!-- ========================================================
@@ -191,7 +189,7 @@
         {% endif %}
 
         <!-- Monthly Sales Report -->
-        <a href="{% if request.user.is_superuser %}{% url 'customers:sales_report' %}{% else %}{% url 'customers:monthly_sales_report' %}{% endif %}" class="nav-link {% if request.resolver_match.url_name == 'monthly_sales_report' or request.resolver_match.url_name == 'sales_report' %}active{% endif %}">
+        <a href="{% url 'customers:monthly_sales_report' %}" class="nav-link {% if request.resolver_match.url_name == 'monthly_sales_report' %}active{% endif %}">
             <i class="bi bi-calendar-check"></i>
             <span>Monthly Sales Report</span>
         </a>
