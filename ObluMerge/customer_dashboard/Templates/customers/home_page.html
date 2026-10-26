@@ -74,6 +74,7 @@
             <p>Master database of all accounts and assignments.</p>
             <span class="open-link">Open →</span>
         </a>
+        {% if 'sales_head' not in user_roles %}
         <a href="{% url 'customers:charts' %}" class="feature-card">
             <div class="icon-box"><i class="bi bi-bar-chart-line"></i></div>
             <h5>Analytics</h5>
@@ -86,6 +87,7 @@
             <p>Geographic customer distribution across India.</p>
             <span class="open-link">Open →</span>
         </a>
+        {% endif %}
     </div>
 </div>
 {% endif %}
@@ -115,7 +117,7 @@
         </a>
         {% endif %}
 
-        <a href="{% url 'customers:monthly_sales_report' %}" class="feature-card">
+        <a href="{% if request.user.is_superuser %}{% url 'customers:sales_report' %}{% else %}{% url 'customers:monthly_sales_report' %}{% endif %}" class="feature-card">
             <div class="icon-box"><i class="bi bi-calendar-check"></i></div>
             <h5>Monthly Sales Report</h5>
             <p>Review monthly sales performance breakdown.</p>
@@ -138,8 +140,8 @@
             <span class="open-link">Open →</span>
         </a>
 
-        {% if 'rsm' in user_roles or 'sales_head' in user_roles or request.user.is_superuser %}
-        <a href="{% url 'incentive_calculator:rsm_team_dashboard' %}" class="feature-card">
+        {% if request.user.is_superuser or request.user.is_accountant or salesperson.name == 'Ankush' and not salesperson.manager_id or salesperson.name == 'Bhavya' and not salesperson.manager_id %}
+        <a href="{% url 'incentive_calculator:rsm_team_dashboard' %}{% if salesperson.name == 'Ankush' or salesperson.name == 'Bhavya' %}?rsm={{ salesperson.id }}&amp;month_picker={% now 'Y-m' %}{% endif %}" class="feature-card">
             <div class="icon-box"><i class="bi bi-people"></i></div>
             <h5>RSM Team Incentives</h5>
             <p>Review incentive performance across regional sales teams.</p>
@@ -147,7 +149,7 @@
         </a>
         {% endif %}
 
-        {% if 'sales_head' in user_roles or 'business' in user_roles or request.user.is_superuser %}
+        {% if 'sales_head' in user_roles or 'business' in user_roles or request.user.is_superuser or salesperson.name == 'Bhavya' %}
         <a href="{% url 'incentive_calculator:sales_head_dashboard' %}" class="feature-card">
             <div class="icon-box"><i class="bi bi-diagram-3"></i></div>
             <h5>Sales Head Incentives</h5>

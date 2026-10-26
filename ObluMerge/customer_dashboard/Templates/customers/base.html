@@ -153,6 +153,7 @@
             <span>Customer Directory</span>
         </a>
 
+        {% if 'sales_head' not in user_roles %}
         <a href="{% url 'customers:charts' %}" class="nav-link {% if request.resolver_match.url_name == 'charts' %}active{% endif %}">
             <i class="bi bi-bar-chart-line"></i>
             <span>Analytics</span>
@@ -162,6 +163,7 @@
             <i class="bi bi-geo-alt"></i>
             <span>Detailed Map</span>
         </a>
+        {% endif %}
         {% endif %}
 
         <!-- ========================================================
@@ -189,7 +191,7 @@
         {% endif %}
 
         <!-- Monthly Sales Report -->
-        <a href="{% url 'customers:monthly_sales_report' %}" class="nav-link {% if request.resolver_match.url_name == 'monthly_sales_report' %}active{% endif %}">
+        <a href="{% if request.user.is_superuser %}{% url 'customers:sales_report' %}{% else %}{% url 'customers:monthly_sales_report' %}{% endif %}" class="nav-link {% if request.resolver_match.url_name == 'monthly_sales_report' or request.resolver_match.url_name == 'sales_report' %}active{% endif %}">
             <i class="bi bi-calendar-check"></i>
             <span>Monthly Sales Report</span>
         </a>
@@ -207,15 +209,15 @@
         </a>
 
         <!-- RSM Team Incentives (RSM, Sales Head, Superuser) -->
-        {% if 'rsm' in user_roles or 'sales_head' in user_roles or request.user.is_superuser %}
-        <a href="{% url 'incentive_calculator:rsm_team_dashboard' %}" class="nav-link {% if request.resolver_match.url_name == 'rsm_team_dashboard' %}active{% endif %}">
+        {% if request.user.is_superuser or request.user.is_accountant or salesperson.name == 'Ankush' and not salesperson.manager_id or salesperson.name == 'Bhavya' and not salesperson.manager_id %}
+        <a href="{% url 'incentive_calculator:rsm_team_dashboard' %}{% if salesperson.name == 'Ankush' or salesperson.name == 'Bhavya' %}?rsm={{ salesperson.id }}&amp;month_picker={% now 'Y-m' %}{% endif %}" class="nav-link {% if request.resolver_match.url_name == 'rsm_team_dashboard' %}active{% endif %}">
             <i class="bi bi-people"></i>
             <span>RSM Team Incentives</span>
         </a>
         {% endif %}
 
         <!-- Sales Head Incentives (ONLY Sales Head, Business Manager, Superuser) -->
-        {% if 'sales_head' in user_roles or 'business' in user_roles or request.user.is_superuser %}
+        {% if 'sales_head' in user_roles or 'business' in user_roles or request.user.is_superuser or salesperson.name == 'Bhavya' %}
         <a href="{% url 'incentive_calculator:sales_head_dashboard' %}" class="nav-link {% if request.resolver_match.url_name == 'sales_head_dashboard' %}active{% endif %}">
             <i class="bi bi-diagram-3"></i>
             <span>Sales Head Incentives</span>
