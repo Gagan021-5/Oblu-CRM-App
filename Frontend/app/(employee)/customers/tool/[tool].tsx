@@ -5,6 +5,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import api from "@/services/api";
 import { useTheme } from "@/contexts/ThemeContext";
+import { useAuth } from "@/contexts/AuthContext";
+import { hasPermission, hasRole } from "@/services/permissionService";
 import { Typography } from "@/constants/theme";
 
 type ToolRow = Record<string, string | number | boolean | null | undefined>;
@@ -22,16 +24,35 @@ const ICONS: Record<string, React.ComponentProps<typeof Ionicons>["name"]> = {
 export default function CustomerToolScreen() {
   const { tool } = useLocalSearchParams<{ tool: string }>();
   const insets = useSafeAreaInsets(); const { colors, isDark } = useTheme();
+  const { user, permissionProfile } = useAuth();
+  const roleText = `${user?.role || ""} ${permissionProfile?.user.role || ""}`.toLowerCase();
+  const isSuperuser = roleText.includes("superuser");
+  const userHasRole = (role: string) => hasRole(permissionProfile, role) ||
+    (role === "rsm" && (roleText.includes("rsm") || roleText.includes("regional sales manager"))) ||
+    (role === "sales_head" && (roleText.includes("sales head") || roleText.includes("sales_head"))) ||
+    (role === "business" && roleText.includes("business manager"));
+  const accessByTool: Record<string, boolean> = {
+    "team-customers": hasPermission(permissionProfile, "customer.view"),
+    "payment-followups": hasPermission(permissionProfile, "payment.view"),
+    "monthly-sales": hasPermission(permissionProfile, "customer.view") || hasPermission(permissionProfile, "payment.view"),
+    "my-incentives": true,
+    "rsm-incentives": isSuperuser || userHasRole("rsm") || userHasRole("sales_head"),
+    "sales-head-incentives": isSuperuser || userHasRole("sales_head") || userHasRole("business"),
+    "cross-selling": hasPermission(permissionProfile, "customer.view"),
+    "voucher-approvals": isSuperuser || hasRole(permissionProfile, "admin") || hasRole(permissionProfile, "accounts_operations"),
+  };
+  const canOpen = Boolean(accessByTool[tool]);
   const [rows, setRows] = useState<ToolRow[]>([]); const [loading, setLoading] = useState(true); const [refreshing, setRefreshing] = useState(false); const [error, setError] = useState("");
   const [summary, setSummary] = useState("");
   const title = TITLES[tool] || "Customer Workspace";
   const load = useCallback(async () => {
+    if (!canOpen) return;
     setError("");
     try { const result = await api.get(`/customers/workspace/${tool}/`); setRows(Array.isArray(result.data) ? result.data : (result.data?.rows || [])); setSummary(tool === "monthly-sales" ? `Total sales: ₹${Number(result.data?.total || 0).toLocaleString("en-IN")}` : ""); }
     catch (e: any) { setRows([]); setError(e?.response?.status === 403 ? "Your account does not have permission to view this section." : "Could not load this section. Check your connection and try again."); }
     finally { setLoading(false); setRefreshing(false); }
-  }, [tool]);
-  useEffect(() => { void load(); }, [load]);
+  }, [canOpen, tool]);
+  useEffect(() => { if (!canOpen) { router.replace("/(employee)/customers/dashboard"); return; } void load(); }, [canOpen, load]);
   const approve = async (id: unknown, action: "approve" | "reject") => {
     try { await api.post(`/customers/workspace/${tool}/`, { id, action }); setRows((current) => current.filter((row) => row.id !== id)); }
     catch { Alert.alert("Could not update claim", "Refresh the list and try again."); }
@@ -40,6 +61,7 @@ export default function CustomerToolScreen() {
   const card = { backgroundColor: isDark ? "#111B18" : "#FFFFFF", borderColor: isDark ? "#263A32" : "#E4EAF0" };
   const rowTitle = (row: ToolRow) => String(row.customer || row.employee || row.name || row.voucher || "Record");
   const rowDetails = (row: ToolRow) => Object.entries(row).filter(([key, value]) => key !== "id" && value !== null && value !== undefined && value !== "" && key !== "customer" && key !== "employee").map(([key, value]) => `${key.replaceAll("_", " ")}: ${String(value)}`).join("  ·  ");
+  if (!canOpen) return null;
   return <ScrollView style={{ flex: 1, backgroundColor: colors.background }} contentContainerStyle={[styles.content, { paddingTop: Math.max(insets.top, 12) + 8, paddingBottom: insets.bottom + 105 }]} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); void load(); }} />}>
     <View style={styles.top}><TouchableOpacity accessibilityLabel="Back" onPress={() => router.back()} style={[styles.back, card]}><Ionicons name="arrow-back" size={20} color={foreground} /></TouchableOpacity><View style={styles.heading}><Text style={styles.eyebrow}>CUSTOMERS</Text><Text style={[styles.title, { color: foreground }]}>{title}</Text></View></View>
     {error ? <TouchableOpacity onPress={() => { setLoading(true); void load(); }} style={[styles.notice, { backgroundColor: isDark ? "#33251A" : "#FFF4E5" }]}><Text style={{ color: foreground, fontFamily: Typography.regular }}>{error}  Tap to retry.</Text></TouchableOpacity> : null}

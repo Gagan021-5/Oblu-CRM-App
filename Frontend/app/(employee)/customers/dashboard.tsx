@@ -7,49 +7,77 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { Typography } from "@/constants/theme";
 import { CustomerNavDrawer } from "@/components/CustomerNavDrawer";
 import { fetchCustomerChartsApi, fetchDashboardStatsApi, DashboardStats } from "@/services/customerService";
+import { useAuth } from "@/contexts/AuthContext";
+import { hasPermission, hasRole } from "@/services/permissionService";
 
-type QuickLink = { title: string; description: string; icon: React.ComponentProps<typeof Ionicons>["name"]; route: string; color: string };
+type QuickLink = { title: string; description: string; icon: React.ComponentProps<typeof Ionicons>["name"]; route: string; color: string; permission?: string; permissions?: string[]; roles?: string[] };
 const links: QuickLink[] = [
-    { title: "Customer Directory", description: "Search accounts and open customer records", icon: "people-outline", route: "/(employee)/customers", color: "#20B99A" },
-  { title: "Payment Follow-ups", description: "Review customers with pending or overdue payments", icon: "cash-outline", route: "/(employee)/customers?filter=payment_pending", color: "#F59E0B" },
-  { title: "Analytics", description: "Customer, salesperson and state summaries", icon: "bar-chart-outline", route: "/(employee)/customers/analytics", color: "#6366F1" },
-  { title: "Detailed Map", description: "Browse customer locations by city and state", icon: "map-outline", route: "/(employee)/customers/map", color: "#0EA5E9" },
+  { title: "Customer Directory", description: "Search accounts and open customer records", icon: "people-outline", route: "/(employee)/customers", color: "#20B99A", permission: "customer.view_all" },
+  { title: "Team Customers", description: "Review customers in your permitted team scope", icon: "person-add-outline", route: "/(employee)/customers/tool/team-customers", color: "#159A7C", permission: "customer.view" },
+  { title: "Payment Follow-ups", description: "Review customers with pending or overdue payments", icon: "cash-outline", route: "/(employee)/customers/tool/payment-followups", color: "#F59E0B", permission: "payment.view" },
+  { title: "Monthly Sales Report", description: "Review monthly sales performance", icon: "calendar-outline", route: "/(employee)/customers/tool/monthly-sales", color: "#0EA5E9", permissions: ["customer.view", "payment.view"] },
+  { title: "Analytics", description: "Customer, salesperson and state summaries", icon: "bar-chart-outline", route: "/(employee)/customers/analytics", color: "#6366F1", permission: "customer.view_all" },
+  { title: "Detailed Map", description: "Browse customer locations by city and state", icon: "map-outline", route: "/(employee)/customers/map", color: "#0EA5E9", permission: "customer.view_all" },
   { title: "My Incentives", description: "View your incentive workspace", icon: "wallet-outline", route: "/(employee)/incentives", color: "#A855F7" },
+  { title: "RSM Team Incentives", description: "Review team incentive performance", icon: "people-outline", route: "/(employee)/customers/tool/rsm-incentives", color: "#6366F1", roles: ["rsm", "sales_head"] },
+  { title: "Sales Head Incentives", description: "Review sales head incentive performance", icon: "git-network-outline", route: "/(employee)/customers/tool/sales-head-incentives", color: "#6366F1", roles: ["sales_head", "business"] },
+  { title: "Cross-Selling Matrix", description: "Identify customer product gap opportunities", icon: "grid-outline", route: "/(employee)/customers/tool/cross-selling", color: "#159A7C", permission: "customer.view" },
+  { title: "Voucher Approvals", description: "Review pending voucher claims", icon: "checkbox-outline", route: "/(employee)/customers/tool/voucher-approvals", color: "#F59E0B", roles: ["admin", "accounts_operations"] },
 ];
 
 export default function CustomerWorkspaceScreen({ isAdmin = false }: { isAdmin?: boolean }) {
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useTheme();
+  const { user, permissionProfile } = useAuth();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [drawerVisible, setDrawerVisible] = useState(false);
+  const username = (permissionProfile?.user.username || user?.username || "").toLowerCase();
+  const isBhavya = username === "bhavya_bhardwaj" || username === "bhavya";
+  const roleText = `${user?.role || ""} ${permissionProfile?.user.role || ""}`.toLowerCase();
+  const isRsm = hasRole(permissionProfile, "rsm") || roleText.includes("rsm") || roleText.includes("regional sales manager");
+  const userIsSuperuser = roleText.includes("superuser");
+  const userHasRole = (role: string) => hasRole(permissionProfile, role) ||
+    (role === "rsm" && (roleText.includes("rsm") || roleText.includes("regional sales manager"))) ||
+    (role === "sales_head" && (roleText.includes("sales head") || roleText.includes("sales_head"))) ||
+    (role === "business" && roleText.includes("business manager"));
+  const can = useCallback((permission: string) => hasPermission(permissionProfile, permission), [permissionProfile]);
 
   const load = useCallback(async () => {
     setError("");
     try {
       const data = await fetchDashboardStatsApi();
       setStats(data);
-      const charts = await fetchCustomerChartsApi();
-      if (!charts) setError("Some dashboard summaries could not be loaded. Check your connection and refresh.");
+      if (can("customer.view_all") && !isBhavya && !isRsm) {
+        const charts = await fetchCustomerChartsApi();
+        if (!charts) setError("Some dashboard summaries could not be loaded. Check your connection and refresh.");
+      }
     } catch {
       setError("Could not reach the customer dashboard. Check your connection and sign-in.");
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [can, isBhavya, isRsm]);
   useEffect(() => { void load(); }, [load]);
 
   const open = (route: string) => router.push(route as never);
   const cardBg = isDark ? "#111B18" : "#FFFFFF";
   const text = isDark ? "#F1F7F4" : "#101827";
   const muted = isDark ? "#9AA9A3" : "#637083";
+  const availableLinks = links.filter((item) => {
+    if (item.permission && !can(item.permission)) return false;
+    if (item.permissions && !item.permissions.some(can)) return false;
+    if (item.roles && !item.roles.some(userHasRole) && !userIsSuperuser) return false;
+    if ((isBhavya || isRsm) && (item.title === "Analytics" || item.title === "Detailed Map")) return false;
+    return true;
+  });
   const metricItems = [
-    { title: "Customers", value: stats?.totalCustomers ?? 0, icon: "people" as const, tint: "#DDF8F0", route: isAdmin ? "/(admin)/customers" : "/(employee)/customers" },
-    { title: "Follow-ups due", value: stats?.followUpsDueCount ?? 0, icon: "calendar" as const, tint: "#FFF2D8", route: "/(employee)/customers?filter=followup_due" },
-    { title: "Overdue payments", value: stats?.overduePaymentsCount ?? 0, icon: "alert-circle" as const, tint: "#FFE5E8", route: "/(employee)/customers?filter=payment_pending" },
+    ...(can("customer.view_all") ? [{ title: "Customers", value: stats?.totalCustomers ?? 0, icon: "people" as const, tint: "#DDF8F0", route: isAdmin ? "/(admin)/customers" : "/(employee)/customers" }] : []),
+    ...(can("customer.view") ? [{ title: "Follow-ups due", value: stats?.followUpsDueCount ?? 0, icon: "calendar" as const, tint: "#FFF2D8", route: "/(employee)/customers?filter=followup_due" }] : []),
+    ...(can("payment.view") ? [{ title: "Overdue payments", value: stats?.overduePaymentsCount ?? 0, icon: "alert-circle" as const, tint: "#FFE5E8", route: "/(employee)/customers?filter=payment_pending" }] : []),
   ];
 
   return <><ScrollView style={{ flex: 1, backgroundColor: isDark ? colors.background : "#F5F8FA" }} contentContainerStyle={[styles.content, { paddingTop: Math.max(insets.top, 12) + 8, paddingBottom: 110 }]} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); void load(); }} />}>
@@ -75,7 +103,7 @@ export default function CustomerWorkspaceScreen({ isAdmin = false }: { isAdmin?:
     </View>
 
     <View style={styles.sectionHeading}><Text style={[styles.sectionTitle, { color: text }]}>Workspace</Text><Text style={[styles.sectionHint, { color: muted }]}>Tools available to your account</Text></View>
-    {links.map((item) => <TouchableOpacity key={item.title} onPress={() => open(isAdmin && item.title === "Customer Directory" ? "/(admin)/customers" : isAdmin && item.title === "My Incentives" ? "/(admin)/incentives" : item.route)} activeOpacity={0.75} style={[styles.linkCard, { backgroundColor: cardBg, borderColor: isDark ? "#263A32" : "#E4EAF0" }]}>
+    {availableLinks.map((item) => <TouchableOpacity key={item.title} onPress={() => open(isAdmin && item.title === "Customer Directory" ? "/(admin)/customers" : isAdmin && item.title === "My Incentives" ? "/(admin)/incentives" : item.route)} activeOpacity={0.75} style={[styles.linkCard, { backgroundColor: cardBg, borderColor: isDark ? "#263A32" : "#E4EAF0" }]}>
       <View style={[styles.linkIcon, { backgroundColor: `${item.color}18` }]}><Ionicons name={item.icon} size={22} color={item.color} /></View>
       <View style={{ flex: 1 }}><Text style={[styles.linkTitle, { color: text }]}>{item.title}</Text><Text style={[styles.linkDescription, { color: muted }]}>{item.description}</Text></View>
       <Ionicons name="chevron-forward" size={18} color={muted} />

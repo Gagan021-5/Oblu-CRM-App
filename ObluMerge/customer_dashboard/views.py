@@ -2801,10 +2801,31 @@ def get_cross_selling_user_permissions(user):
         or any(r in user_roles for r in ["admin", "sales_head", "business", "accounts_operations"])
     )
 
+    # Keep these values aligned with the template context consumed by the
+    # Cross-Selling Matrix. The view indexes each key directly; omitting them
+    # caused a KeyError (and HTTP 500) for every role, including superusers.
+    is_accountant = bool(user.is_superuser or getattr(user, "is_accountant", False))
+    is_rsm = bool(any(r in user_roles for r in ["rsm", "sales_head", "admin"]) or user.is_superuser)
+    is_asm = bool("asm" in user_roles or is_rsm)
+    user_sp = SalesPerson.objects.filter(user=user).first()
+    if is_executive:
+        rsm_team_label = "All Salespersons"
+    elif is_rsm:
+        rsm_team_label = "RSM Team"
+    elif is_asm:
+        rsm_team_label = "ASM Team"
+    else:
+        rsm_team_label = "My Customers"
+
     if is_executive:
         allowed_sp = [sp for sp in all_sp if sp.name.lower() not in hide]
         return {
             "is_executive": True,
+            "is_accountant": is_accountant,
+            "is_rsm": is_rsm,
+            "is_asm": is_asm,
+            "rsm_team_label": rsm_team_label,
+            "user_sp": user_sp,
             "allowed_salespersons": allowed_sp,
             "can_select_salesperson": True,
         }
@@ -2817,6 +2838,11 @@ def get_cross_selling_user_permissions(user):
 
     return {
         "is_executive": False,
+        "is_accountant": is_accountant,
+        "is_rsm": is_rsm,
+        "is_asm": is_asm,
+        "rsm_team_label": rsm_team_label,
+        "user_sp": user_sp,
         "allowed_salespersons": allowed_sp,
         "can_select_salesperson": len(allowed_sp) > 1,
     }

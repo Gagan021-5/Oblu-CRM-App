@@ -64,6 +64,7 @@
 <!-- ============================================================
      1. WORKSPACE & DIRECTORY
 ============================================================= -->
+{% if request.user.username|lower != 'bhavya_bhardwaj' and 'rsm' not in user_roles %}
 {% if '*' in permissions or 'customer.view_all' in permissions %}
 <div class="quick-section">
     <div class="quick-section-title">Directory &amp; Analytics</div>
@@ -88,6 +89,7 @@
         </a>
     </div>
 </div>
+{% endif %}
 {% endif %}
 
 <!-- ============================================================
@@ -115,7 +117,7 @@
         </a>
         {% endif %}
 
-        <a href="{% url 'customers:monthly_sales_report' %}" class="feature-card">
+        <a href="{% if request.user.is_superuser %}{% url 'customers:sales_report' %}{% else %}{% url 'customers:monthly_sales_report' %}{% endif %}" class="feature-card">
             <div class="icon-box"><i class="bi bi-calendar-check"></i></div>
             <h5>Monthly Sales Report</h5>
             <p>Review monthly sales performance breakdown.</p>

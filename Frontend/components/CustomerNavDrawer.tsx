@@ -5,41 +5,52 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { hasPermission, hasRole } from "@/services/permissionService";
 import { Typography } from "@/constants/theme";
 
 type Props = { visible: boolean; onClose: () => void; isAdmin?: boolean };
 
 export function CustomerNavDrawer({ visible, onClose, isAdmin = false }: Props) {
   const insets = useSafeAreaInsets(); const { colors, isDark } = useTheme();
-  const { user } = useAuth();
+  const { user, permissionProfile } = useAuth();
   const foreground = isDark ? "#F1F7F4" : "#101827"; const muted = isDark ? "#9AA9A3" : "#637083";
   const bg = isDark ? "#0E1714" : "#FFFFFF";
-  const role = (user?.role || "").toLowerCase();
-  const adminAccess = isAdmin || role.includes("admin") || role.includes("accounts_operations");
-  const salesHeadAccess = adminAccess || role.includes("business") || role.includes("sales_head") || role.includes("sales head");
-  const managementAccess = adminAccess || role.includes("rsm") || role.includes("sales_head") || role.includes("sales head");
+  const superuser = (user?.role || permissionProfile?.user.role || "").toLowerCase().includes("superuser");
+  const roleText = `${user?.role || ""} ${permissionProfile?.user.role || ""}`.toLowerCase();
+  const isRsm = hasRole(permissionProfile, "rsm") || roleText.includes("rsm") || roleText.includes("regional sales manager");
+  const isSalesHead = hasRole(permissionProfile, "sales_head") || roleText.includes("sales head") || roleText.includes("sales_head");
+  const isBusinessManager = hasRole(permissionProfile, "business") || roleText.includes("business manager");
+  const username = (permissionProfile?.user.username || user?.username || "").toLowerCase();
+  const isBhavya = username === "bhavya_bhardwaj" || username === "bhavya";
+  const canViewAllCustomers = isAdmin || hasPermission(permissionProfile, "customer.view_all");
+  const canViewAnalyticsAndMap = canViewAllCustomers && !isBhavya && !isRsm;
+  const canViewCustomers = isAdmin || hasPermission(permissionProfile, "customer.view");
+  const canViewPayments = isAdmin || hasPermission(permissionProfile, "payment.view");
+  const canViewTeamIncentives = superuser || isRsm || isSalesHead;
+  const canViewSalesHeadIncentives = superuser || isSalesHead || isBusinessManager;
+  const canApproveVouchers = superuser || hasRole(permissionProfile, "admin") || hasRole(permissionProfile, "accounts_operations");
   const tool = (slug: string) => `/(employee)/customers/tool/${slug}`;
   const sections = [
     { title: "WORKSPACE", entries: [
       { title: "Dashboard", icon: "home-outline" as const, route: isAdmin ? "/(admin)/customer-dashboard" : "/(employee)/customers/dashboard" },
-      { title: "Customer Directory", icon: "people-outline" as const, route: isAdmin ? "/(admin)/customers" : "/(employee)/customers" },
-      { title: "Analytics", icon: "bar-chart-outline" as const, route: "/(employee)/customers/analytics" },
-      { title: "Detailed Map", icon: "map-outline" as const, route: "/(employee)/customers/map" },
+      ...(canViewAllCustomers ? [{ title: "Customer Directory", icon: "people-outline" as const, route: isAdmin ? "/(admin)/customers" : "/(employee)/customers" }] : []),
+      ...(canViewAnalyticsAndMap ? [{ title: "Analytics", icon: "bar-chart-outline" as const, route: "/(employee)/customers/analytics" }] : []),
+      ...(canViewAnalyticsAndMap ? [{ title: "Detailed Map", icon: "map-outline" as const, route: "/(employee)/customers/map" }] : []),
     ]},
     { title: "CUSTOMERS & ACCOUNTS", entries: [
-      { title: "Team Customers", icon: "person-add-outline" as const, route: tool("team-customers") },
-      { title: "Payment Follow-ups", icon: "cash-outline" as const, route: tool("payment-followups") },
-      { title: "Monthly Sales Report", icon: "calendar-outline" as const, route: tool("monthly-sales") },
+      ...(canViewCustomers ? [{ title: "Team Customers", icon: "person-add-outline" as const, route: tool("team-customers") }] : []),
+      ...(canViewPayments ? [{ title: "Payment Follow-ups", icon: "cash-outline" as const, route: tool("payment-followups") }] : []),
+      ...(canViewCustomers || canViewPayments ? [{ title: "Monthly Sales Report", icon: "calendar-outline" as const, route: tool("monthly-sales") }] : []),
     ]},
     { title: "PERFORMANCE", entries: [
       { title: "My Paid Incentives", icon: "wallet-outline" as const, route: tool("my-incentives") },
-      ...(managementAccess ? [{ title: "RSM Team Incentives", icon: "people-outline" as const, route: tool("rsm-incentives") }] : []),
-      ...(salesHeadAccess ? [{ title: "Sales Head Incentives", icon: "git-network-outline" as const, route: tool("sales-head-incentives") }] : []),
+      ...(canViewTeamIncentives ? [{ title: "RSM Team Incentives", icon: "people-outline" as const, route: tool("rsm-incentives") }] : []),
+      ...(canViewSalesHeadIncentives ? [{ title: "Sales Head Incentives", icon: "git-network-outline" as const, route: tool("sales-head-incentives") }] : []),
     ]},
     { title: "SALES INTELLIGENCE", entries: [
-      { title: "Cross-Selling Matrix", icon: "grid-outline" as const, route: tool("cross-selling") },
+      ...(canViewCustomers ? [{ title: "Cross-Selling Matrix", icon: "grid-outline" as const, route: tool("cross-selling") }] : []),
     ]},
-    ...(adminAccess ? [{ title: "ADMINISTRATION", entries: [
+    ...(canApproveVouchers ? [{ title: "ADMINISTRATION", entries: [
       { title: "Voucher Approvals", icon: "checkbox-outline" as const, route: tool("voucher-approvals") },
     ]}] : []),
   ];
@@ -50,7 +61,7 @@ export function CustomerNavDrawer({ visible, onClose, isAdmin = false }: Props) 
       <View style={[styles.drawer, { backgroundColor: bg, paddingTop: Math.max(insets.top, 16) }]}>
         <View style={styles.brandRow}><View style={styles.logo}><Ionicons name="paw" size={21} color="#159A7C" /></View><View style={{ flex: 1 }}><Text style={[styles.brand, { color: foreground }]} numberOfLines={1}>Oblu Customer</Text><Text style={[styles.caption, { color: muted }]}>Customer workspace</Text></View><TouchableOpacity accessibilityLabel="Close menu" onPress={onClose} style={styles.close}><Ionicons name="close" size={23} color={muted} /></TouchableOpacity></View>
         <ScrollView showsVerticalScrollIndicator={false}>
-          {sections.map((section) => <View key={section.title}><Text style={[styles.section, { color: muted }]}>{section.title}</Text>{section.entries.map((item) => <TouchableOpacity key={item.title} onPress={() => navigate(item.route)} style={styles.entry}>
+          {sections.filter((section) => section.entries.length > 0).map((section) => <View key={section.title}><Text style={[styles.section, { color: muted }]}>{section.title}</Text>{section.entries.map((item) => <TouchableOpacity key={item.title} onPress={() => navigate(item.route)} style={styles.entry}>
             <Ionicons name={item.icon} size={20} color={muted} /><Text style={[styles.entryText, { color: foreground }]}>{item.title}</Text><Ionicons name="chevron-forward" size={16} color={muted} />
           </TouchableOpacity>)}</View>)}
         </ScrollView>

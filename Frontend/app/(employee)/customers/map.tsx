@@ -4,18 +4,26 @@ import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "@/contexts/ThemeContext";
+import { useAuth } from "@/contexts/AuthContext";
+import { hasPermission, hasRole } from "@/services/permissionService";
 import { Typography } from "@/constants/theme";
 import { Customer } from "@/data/mockCustomers";
 import { fetchCustomersFromApi } from "@/services/customerService";
 
 export default function CustomerMapScreen() {
   const insets = useSafeAreaInsets(); const { colors, isDark } = useTheme();
+  const { user, permissionProfile } = useAuth();
+  const username = (permissionProfile?.user.username || user?.username || "").toLowerCase();
+  const role = `${user?.role || ""} ${permissionProfile?.user.role || ""}`.toLowerCase();
+  const isRsm = hasRole(permissionProfile, "rsm") || role.includes("rsm") || role.includes("regional sales manager");
+  const canOpen = hasPermission(permissionProfile, "customer.view_all") && !isRsm && username !== "bhavya_bhardwaj" && username !== "bhavya";
   const [customers, setCustomers] = useState<Customer[]>([]); const [loading, setLoading] = useState(true); const [refreshing, setRefreshing] = useState(false);
-  const load = useCallback(async () => { setCustomers(await fetchCustomersFromApi({ page_size: 200 })); setLoading(false); setRefreshing(false); }, []);
-  useEffect(() => { void load(); }, [load]);
+  const load = useCallback(async () => { if (!canOpen) return; setCustomers(await fetchCustomersFromApi({ page_size: 200 })); setLoading(false); setRefreshing(false); }, [canOpen]);
+  useEffect(() => { if (!canOpen) { router.replace("/(employee)/customers/dashboard"); return; } void load(); }, [canOpen, load]);
   const foreground = isDark ? "#F1F7F4" : "#101827"; const muted = isDark ? "#9AA9A3" : "#637083"; const card = { backgroundColor: isDark ? "#111B18" : "#FFFFFF", borderColor: isDark ? "#263A32" : "#E4EAF0" };
   const located = customers.filter((c) => Number.isFinite(c.latitude) && Number.isFinite(c.longitude));
   const openMap = async (customer: Customer) => { if (customer.latitude == null || customer.longitude == null) return; const url = `https://www.google.com/maps/search/?api=1&query=${customer.latitude},${customer.longitude}`; if (await Linking.canOpenURL(url)) await Linking.openURL(url); };
+  if (!canOpen) return null;
   return <ScrollView style={{ flex: 1, backgroundColor: colors.background }} contentContainerStyle={[styles.content, { paddingTop: Math.max(insets.top, 12) + 8, paddingBottom: 110 }]} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); void load(); }} />}>
     <View style={styles.top}><TouchableOpacity onPress={() => router.back()} style={[styles.back, card]}><Ionicons name="arrow-back" size={20} color={foreground} /></TouchableOpacity><View><Text style={styles.eyebrow}>CUSTOMERS</Text><Text style={[styles.title, { color: foreground }]}>Detailed Map</Text></View></View>
     <View style={[styles.banner, { backgroundColor: "#0E9E83" }]}><Ionicons name="map" size={22} color="white"/><View style={{ flex: 1 }}><Text style={styles.bannerTitle}>{located.length} customers with coordinates</Text><Text style={styles.bannerSub}>Tap a customer to open the location in your map app.</Text></View></View>

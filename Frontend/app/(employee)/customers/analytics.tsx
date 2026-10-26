@@ -4,24 +4,35 @@ import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "@/contexts/ThemeContext";
+import { useAuth } from "@/contexts/AuthContext";
+import { hasPermission, hasRole } from "@/services/permissionService";
 import { Typography } from "@/constants/theme";
 import { CustomerChartsData, fetchCustomerChartsApi } from "@/services/customerService";
 
 export default function CustomerAnalyticsScreen() {
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useTheme();
+  const { user, permissionProfile } = useAuth();
+  const username = (permissionProfile?.user.username || user?.username || "").toLowerCase();
+  const role = `${user?.role || ""} ${permissionProfile?.user.role || ""}`.toLowerCase();
+  const isRsm = hasRole(permissionProfile, "rsm") || role.includes("rsm") || role.includes("regional sales manager");
+  const canOpen = hasPermission(permissionProfile, "customer.view_all") && !isRsm && username !== "bhavya_bhardwaj" && username !== "bhavya";
   const [data, setData] = useState<CustomerChartsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const load = useCallback(async () => {
+    if (!canOpen) return;
     setError("");
     const result = await fetchCustomerChartsApi();
     setData(result);
     if (!result) setError("Analytics could not be loaded. Check your connection and sign-in, then refresh.");
     setLoading(false); setRefreshing(false);
-  }, []);
-  useEffect(() => { void load(); }, [load]);
+  }, [canOpen]);
+  useEffect(() => {
+    if (!canOpen) { router.replace("/(employee)/customers/dashboard"); return; }
+    void load();
+  }, [canOpen, load]);
   const foreground = isDark ? "#F1F7F4" : "#101827";
   const muted = isDark ? "#9AA9A3" : "#637083";
   const card = { backgroundColor: isDark ? "#111B18" : "#FFFFFF", borderColor: isDark ? "#263A32" : "#E4EAF0" };
@@ -31,6 +42,7 @@ export default function CustomerAnalyticsScreen() {
     <View style={styles.barLabelLine}><Text numberOfLines={1} style={[styles.barLabel, { color: foreground }]}>{label || "Other"}</Text><Text style={[styles.barValue, { color: muted }]}>{value}</Text></View>
     <View style={[styles.track, { backgroundColor: isDark ? "#23322D" : "#EDF2F5" }]}><View style={[styles.fill, { width: `${Math.max(value ? 4 : 0, value / max * 100)}%`, backgroundColor: tint }]} /></View>
   </View>;
+  if (!canOpen) return null;
   return <ScrollView style={{ flex: 1, backgroundColor: colors.background }} contentContainerStyle={[styles.content, { paddingTop: Math.max(insets.top, 12) + 8, paddingBottom: 110 }]} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); void load(); }} />}>
     <View style={styles.top}><TouchableOpacity onPress={() => router.back()} style={[styles.back, card]}><Ionicons name="arrow-back" size={20} color={foreground} /></TouchableOpacity><View><Text style={[styles.eyebrow, { color: "#20B99A" }]}>CUSTOMERS</Text><Text style={[styles.title, { color: foreground }]}>Analytics</Text></View></View>
     {error ? <TouchableOpacity onPress={() => { setLoading(true); void load(); }} style={[styles.notice, { backgroundColor: isDark ? "#33251A" : "#FFF4E5" }]}><Text style={{ color: foreground, fontFamily: Typography.regular }}>{error}</Text></TouchableOpacity> : null}

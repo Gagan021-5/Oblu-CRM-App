@@ -51,12 +51,7 @@ export interface UserPermissionProfile {
 }
 
 export const DEFAULT_ALLOWED_APPS: AllowedApp[] = [
-  { id: "all", label: "All", icon: "grid" },
-  { id: "customers", label: "Customers", icon: "people" },
-  { id: "inventory", label: "Inventory", icon: "cube" },
-  { id: "proforma", label: "Proforma", icon: "document" },
-  { id: "hrms", label: "HRMS", icon: "briefcase" },
-  { id: "incentives", label: "Incentives", icon: "trophy" },
+  // Intentionally empty: visible apps must come from the authenticated RBAC API.
 ];
 
 export async function fetchUserPermissionsApi(): Promise<UserPermissionProfile> {
@@ -109,31 +104,15 @@ export async function fetchUserPermissionsApi(): Promise<UserPermissionProfile> 
     // Fallback handled below
   }
 
+  // Fail closed. Never substitute a privileged demo profile when the server
+  // permission endpoints are unavailable; that makes every signed-in account
+  // appear to have Business Manager access.
   return {
-    user: {
-      id: 4,
-      username: "vibhuti_panwar",
-      name: "Vibhuti Panwar",
-      role: "Business Manager",
-      reporting_to: "Nitin Aggarwal",
-    },
-    allowed_apps: DEFAULT_ALLOWED_APPS,
-    hierarchy_scope: {
-      can_view_all_salespersons: true,
-      subordinates: [],
-    },
-    roles: [
-      { key: "business", name: "Business Manager", temporary: false, expires_at: null },
-    ],
-    permissions: [
-      "customer.view_all",
-      "customer.view",
-      "customer.edit",
-      "payment.view",
-      "proforma.create",
-      "proforma.view",
-      "inventory.view",
-    ],
+    user: { id: 0, username: "", name: "", role: "Employee" },
+    allowed_apps: [],
+    hierarchy_scope: { can_view_all_salespersons: false, subordinates: [] },
+    roles: [],
+    permissions: [],
   };
 }
 
