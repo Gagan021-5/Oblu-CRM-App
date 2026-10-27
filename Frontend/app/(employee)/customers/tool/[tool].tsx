@@ -106,7 +106,17 @@ export default function CustomerToolScreen() {
         setSummary("");
       }
     }
-    catch (e: any) { setRows([]); setProductRows([]); setError(e?.response?.status === 403 ? "Your account does not have permission to view this section." : "Could not load this section. Check your connection and try again."); }
+    catch (e: any) {
+      const status = e?.response?.status;
+      console.warn(`[CustomerTool:${tool}] API request failed:`, status ? `HTTP ${status}` : e?.message || "Network error");
+      setRows([]);
+      setProductRows([]);
+      setError(status === 401
+        ? "Your session is not valid. Sign in again to load this section."
+        : status === 403
+          ? "Your account does not have permission to view this section."
+          : "Could not load this section. Check your connection and try again.");
+    }
     finally { setLoading(false); setRefreshing(false); }
   }, [canOpen, isMonthlyReport, monthKey, selectedRsm, tool]);
   useEffect(() => { if (!canOpen) { router.replace("/(employee)/customers/dashboard"); return; } void load(); }, [canOpen, load]);
