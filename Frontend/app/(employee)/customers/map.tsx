@@ -8,7 +8,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { hasPermission, hasRole } from "@/services/permissionService";
 import { Typography } from "@/constants/theme";
 import { Customer } from "@/data/customerTypes";
-import { fetchCustomersFromApi } from "@/services/customerService";
+import { fetchCustomerMapPointsFromApi } from "@/services/customerService";
 
 export default function CustomerMapScreen() {
   const insets = useSafeAreaInsets(); const { colors, isDark } = useTheme();
@@ -21,8 +21,13 @@ export default function CustomerMapScreen() {
   const load = useCallback(async () => {
     if (!canOpen) return;
     setError("");
-    try { setCustomers(await fetchCustomersFromApi({ page_size: 200 })); }
-    catch { setCustomers([]); setError("Customer locations could not be loaded from the server."); }
+    try { setCustomers(await fetchCustomerMapPointsFromApi()); }
+    catch (error: any) {
+      const status = error?.response?.status;
+      console.warn("[CustomerMap] Map API request failed:", status ? `HTTP ${status}` : error?.message || "Network error");
+      setCustomers([]);
+      setError("Customer locations could not be loaded from the server.");
+    }
     finally { setLoading(false); setRefreshing(false); }
   }, [canOpen]);
   useEffect(() => { if (!canOpen) { router.replace("/(employee)/customers/dashboard"); return; } void load(); }, [canOpen, load]);
@@ -35,7 +40,7 @@ export default function CustomerMapScreen() {
     {error ? <TouchableOpacity onPress={() => { setLoading(true); void load(); }} style={[styles.banner, { backgroundColor: isDark ? "#33251A" : "#FFF4E5" }]}><Text style={{ color: foreground, fontFamily: Typography.regular }}>{error} Tap to retry.</Text></TouchableOpacity> : null}
     <View style={[styles.banner, { backgroundColor: "#0E9E83" }]}><Ionicons name="map" size={22} color="white"/><View style={{ flex: 1 }}><Text style={styles.bannerTitle}>{located.length} customers with coordinates</Text><Text style={styles.bannerSub}>Tap a customer to open the location in your map app.</Text></View></View>
     {loading ? <ActivityIndicator color="#20B99A" /> : customers.map((customer) => <TouchableOpacity key={customer.id} onPress={() => openMap(customer)} disabled={customer.latitude == null || customer.longitude == null} style={[styles.row, card]}><View style={styles.pin}><Ionicons name="location" size={18} color="#159A7C" /></View><View style={{ flex: 1 }}><Text numberOfLines={1} style={[styles.name, { color: foreground }]}>{customer.name}</Text><Text style={[styles.location, { color: muted }]}>{[customer.city, (customer as any).state].filter(Boolean).join(", ") || "Location not available"}</Text></View><Ionicons name={customer.latitude != null && customer.longitude != null ? "navigate" : "location-outline"} size={18} color={customer.latitude != null && customer.longitude != null ? "#159A7C" : muted}/></TouchableOpacity>)}
-    {!loading && customers.length === 0 ? <Text style={{ color: muted, fontFamily: Typography.regular }}>No customer records are available for your account.</Text> : null}
+    {!loading && !error && customers.length === 0 ? <Text style={{ color: muted, fontFamily: Typography.regular }}>No customer locations with coordinates are available for your account.</Text> : null}
   </ScrollView>;
 }
 const styles = StyleSheet.create({ content: { padding: 18, gap: 12 }, top: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 6 }, back: { borderWidth: 1, width: 42, height: 42, borderRadius: 13, alignItems: "center", justifyContent: "center" }, eyebrow: { color: "#20B99A", fontFamily: Typography.bold, fontSize: 10, letterSpacing: 1 }, title: { fontFamily: Typography.heading, fontSize: 25, marginTop: 3 }, banner: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 16, padding: 16, marginBottom: 4 }, bannerTitle: { color: "white", fontFamily: Typography.headingSemi, fontSize: 15 }, bannerSub: { color: "#D9FFF5", fontFamily: Typography.regular, fontSize: 11, marginTop: 3 }, row: { borderWidth: 1, borderRadius: 15, padding: 12, flexDirection: "row", alignItems: "center", gap: 11, minHeight: 66 }, pin: { width: 38, height: 38, borderRadius: 12, backgroundColor: "#DDF8F0", alignItems: "center", justifyContent: "center" }, name: { fontFamily: Typography.semiBold, fontSize: 13 }, location: { fontFamily: Typography.regular, fontSize: 11, marginTop: 3 } });

@@ -146,6 +146,27 @@ class StandardResultsSetPagination(PageNumberPagination):
     max_page_size = 200
 
 
+class CustomerMapPointsView(APIView):
+    """Return only geocoded customers visible under the detailed-map grant."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if not can(request.user, "customer.view_all"):
+            raise PermissionDenied("Detailed customer map access is not enabled for this account.")
+
+        points = scope_queryset(
+            request.user,
+            "customer.view_all",
+            Customer.objects.all(),
+        ).filter(
+            latitude__isnull=False,
+            longitude__isnull=False,
+        ).order_by("name", "pk").values(
+            "id", "name", "state", "district", "latitude", "longitude",
+        )
+        return Response(list(points))
+
+
 class CustomerListView(generics.ListAPIView):
     """
     GET /api/customers/?search=&filter=&page=

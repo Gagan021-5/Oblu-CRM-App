@@ -87,6 +87,11 @@ export async function fetchCustomersFromApi(params?: {
   return rawList.map(normalizeCustomer);
 }
 
+export async function fetchCustomerMapPointsFromApi(): Promise<Customer[]> {
+  const response = await api.get<any[]>("/customers/map/");
+  return response.data.map(normalizeCustomer);
+}
+
 export async function fetchCustomerPageFromApi(params?: {
   search?: string;
   filter?: string;

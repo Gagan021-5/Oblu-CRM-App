@@ -6,6 +6,7 @@ Mounted at /api/customers/ and /api/dashboard/
 from django.urls import path
 from .api_views import (
     CustomerListView,
+    CustomerMapPointsView,
     CustomerDetailView,
     CustomerRemarkCreateView,
     CustomerFollowUpListCreateView,
@@ -17,6 +18,7 @@ from .api_views import (
 
 urlpatterns = [
     path("", CustomerListView.as_view(), name="employee-customer-list"),
+    path("map/", CustomerMapPointsView.as_view(), name="employee-customer-map-points"),
     path("charts/", CustomerChartsView.as_view(), name="employee-customer-charts"),
     path("workspace/<str:tool>/", CustomerWorkspaceToolsView.as_view(), name="employee-customer-workspace-tool"),
     path("<int:pk>/", CustomerDetailView.as_view(), name="employee-customer-detail"),

@@ -41,7 +41,7 @@ function isAdm(u: any) {
 
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
-  const { login, mockLogin, logout } = useAuth();
+  const { login, logout } = useAuth();
   const { colors, isDark } = useTheme();
 
   const [username, setUsername] = useState("");
@@ -65,21 +65,11 @@ export default function LoginScreen() {
         router.replace("/(employee)");
       }
     } catch (error: any) {
-      // Direct demo fallback for test users
-      try {
-        const mockU = await mockLogin(username.trim());
-        if (isAdm(mockU)) {
-          router.replace("/(admin)/users");
-        } else {
-          router.replace("/(employee)");
-        }
-      } catch {
-        const msg =
-          error.response?.data?.detail ||
-          error.response?.data?.message ||
-          "Login failed. Please check your credentials and connection.";
-        Alert.alert("Sign In Failed", msg);
-      }
+      const msg =
+        error.response?.data?.detail ||
+        error.response?.data?.message ||
+        "Login failed. Please check your credentials and connection.";
+      Alert.alert("Sign In Failed", msg);
     } finally {
       setLoading(false);
     }
@@ -99,18 +89,12 @@ export default function LoginScreen() {
       } else {
         router.replace("/(employee)");
       }
-    } catch {
-      // 2. Demo fallback
-      try {
-        const mockU = await mockLogin(targetUser.username);
-        if (isAdm(mockU)) {
-          router.replace("/(admin)/users");
-        } else {
-          router.replace("/(employee)");
-        }
-      } catch {
-        router.replace("/(employee)");
-      }
+    } catch (error: any) {
+      const msg =
+        error.response?.data?.detail ||
+        error.response?.data?.message ||
+        "This account could not sign in to the backend. Check its credentials and connection.";
+      Alert.alert("Sign In Failed", msg);
     } finally {
       setLoading(false);
     }

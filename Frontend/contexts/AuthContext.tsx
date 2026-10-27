@@ -1,7 +1,7 @@
 /**
  * AuthContext — provides authentication state and methods to the entire app.
  *
- * Exposes: user, permissionProfile, isLoading, login(), mockLogin(), register(), logout(), refreshProfile()
+ * Exposes: user, permissionProfile, isLoading, login(), register(), logout(), refreshProfile()
  * Stores JWT tokens in expo-secure-store.
  * Decodes the JWT and syncs with live RBAC permissions from /access-control/my-permissions/
  */
@@ -19,7 +19,6 @@ import api, {
   clearTokens,
   getAccessToken,
 } from "@/services/api";
-import { getRoleAndUserDetails } from "@/data/rolesData";
 import {
   fetchUserPermissionsApi,
   UserPermissionProfile,
@@ -50,7 +49,6 @@ interface AuthContextType {
   permissionProfile: UserPermissionProfile | null;
   isLoading: boolean;
   login: (username: string, password: string) => Promise<AuthUser>;
-  mockLogin: (usernameOrRole: string) => Promise<AuthUser>;
   register: (data: RegisterData) => Promise<void>;
   logout: () => Promise<void>;
   refreshProfile: () => Promise<UserPermissionProfile | null>;
@@ -93,7 +91,6 @@ const AuthContext = createContext<AuthContextType>({
   permissionProfile: null,
   isLoading: true,
   login: async () => ({} as AuthUser),
-  mockLogin: async () => ({} as AuthUser),
   register: async () => {},
   logout: async () => {},
   refreshProfile: async () => null,
@@ -170,75 +167,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })();
   }, [syncUserProfile]);
 
-  const mockLogin = useCallback(async (usernameOrRole: string): Promise<AuthUser> => {
-    const { role, user: targetUser } = getRoleAndUserDetails(usernameOrRole);
-    await clearTokens();
-    try {
-      const response = await api.post("/auth/login/", {
-        username: targetUser.username,
-        password: "test1234",
-      });
-      const { access, refresh, user: userData } = response.data;
-      await saveTokens(access, refresh);
-      return await syncUserProfile({
-        id: userData?.id || response.data.user_id,
-        username: userData?.username || targetUser.username,
-        name: targetUser.name,
-        email: targetUser.email,
-        role: userData?.role || role.key,
-        roleKey: role.key,
-        roleTitle: role.shortTitle,
-        consent_given: true,
-      });
-    } catch {
-      // Graceful offline demo fallback
-      const authUser: AuthUser = {
-        id: Math.floor(Math.random() * 1000) + 10,
-        username: targetUser.username,
-        name: targetUser.name,
-        email: targetUser.email,
-        role: role.title || role.key,
-        consent_given: true,
-        roleKey: role.key,
-        roleTitle: role.shortTitle,
-      };
-      setUser(authUser);
-      return authUser;
-    }
-  }, [syncUserProfile]);
-
   const login = useCallback(async (username: string, password: string): Promise<AuthUser> => {
     await clearTokens();
-    try {
-      const response = await api.post("/auth/login/", { username, password });
-      const { access, refresh, user: userData } = response.data;
-      await saveTokens(access, refresh);
+    const response = await api.post("/auth/login/", { username, password });
+    const { access, refresh, user: userData } = response.data;
+    if (!access || !refresh) throw new Error("The server did not return an authentication token.");
+    await saveTokens(access, refresh);
 
-      return await syncUserProfile({
-        id: userData?.id || response.data.user_id,
-        username: userData?.username || response.data.username,
-        email: userData?.email,
-        role: userData?.role || response.data.role,
-        consent_given: userData?.consent_given || false,
-      });
-    } catch (error) {
-      if (password === "test1234") {
-        const { role, user: targetUser } = getRoleAndUserDetails(username);
-        const authUser: AuthUser = {
-          id: Math.floor(Math.random() * 1000) + 10,
-          username: targetUser.username,
-          name: targetUser.name,
-          email: targetUser.email,
-          role: role.title || role.key,
-          consent_given: true,
-          roleKey: role.key,
-          roleTitle: role.shortTitle,
-        };
-        setUser(authUser);
-        return authUser;
-      }
-      throw error;
-    }
+    return await syncUserProfile({
+      id: userData?.id || response.data.user_id,
+      username: userData?.username || response.data.username,
+      email: userData?.email,
+      role: userData?.role || response.data.role,
+      consent_given: userData?.consent_given || false,
+    });
   }, [syncUserProfile]);
 
   const register = useCallback(async (data: RegisterData) => {
@@ -291,7 +233,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         permissionProfile,
         isLoading,
         login,
-        mockLogin,
         register,
         logout,
         refreshProfile,
