@@ -1,3 +1,3 @@
 # Oblu CRM
 
-Oblu CRM is an enterprise mobile sales workspace and relationship management platform.
+Oblu Central is an enterprise workspace and relationship management platform.
