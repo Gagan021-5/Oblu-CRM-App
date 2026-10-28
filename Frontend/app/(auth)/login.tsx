@@ -17,7 +17,7 @@ import {
   ScrollView,
   Image,
 } from "react-native";
-import { router, Link } from "expo-router";
+import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTheme } from "@/contexts/ThemeContext";
@@ -241,22 +241,6 @@ export default function LoginScreen() {
                 <Text style={styles.submitButtonText}>Sign In</Text>
               )}
             </TouchableOpacity>
-
-            {/* Register Link */}
-            <View style={styles.footerRow}>
-              <Text style={[styles.footerText, { color: colors.textSecondary }]}>
-                Don't have an account?{" "}
-              </Text>
-              <Link href="/(auth)/register" asChild>
-                <TouchableOpacity>
-                  <Text style={[styles.linkText, { color: colors.primary }]}>
-                    Register
-                  </Text>
-                </TouchableOpacity>
-              </Link>
-            </View>
-
-
           </View>
         </View>
 

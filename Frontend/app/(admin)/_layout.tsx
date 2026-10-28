@@ -162,6 +162,7 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   dockLabel: {
+    fontFamily: Typography.medium,
     fontSize: FontSizes.tabLabel,
     letterSpacing: 0.2,
   },

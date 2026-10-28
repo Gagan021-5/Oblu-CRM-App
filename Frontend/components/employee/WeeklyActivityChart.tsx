@@ -84,7 +84,7 @@ const styles = StyleSheet.create({
   colContainer: { alignItems: "center", flex: 1 },
   barTrack: { height: 72, width: 20, justifyContent: "flex-end", alignItems: "center" },
   barFill: { width: 12, borderRadius: 6 },
-  dayLabel: { fontSize: FontSizes.micro, marginTop: 6 },
+  dayLabel: { fontFamily: Typography.medium, fontSize: FontSizes.micro, marginTop: 6 },
   state: { minHeight: 90, alignItems: "center", justifyContent: "center", gap: 8 },
   stateText: { fontFamily: Typography.regular, fontSize: FontSizes.caption, textAlign: "center" },
 });

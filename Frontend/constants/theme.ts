@@ -246,11 +246,11 @@ export const Typography = {
   gambettaItalic: "GeneralSans-Italic",
 
   // Clean Sans-Serif (Inter)
-  interRegular: "Inter_400Regular",
-  interMedium: "Inter_500Medium",
-  interSemiBold: "Inter_600SemiBold",
-  interBold: "Inter_700Bold",
-  interExtraBold: "Inter_800ExtraBold",
+  interRegular: "GeneralSans-Regular",
+  interMedium: "GeneralSans-Medium",
+  interSemiBold: "GeneralSans-Semibold",
+  interBold: "GeneralSans-Bold",
+  interExtraBold: "GeneralSans-Bold",
 };
 
 // ── Font Sizes ────────────────────────────────────────────────────────

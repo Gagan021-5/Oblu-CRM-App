@@ -927,7 +927,7 @@ export default function CallLogsScreen() {
                     </View>
                   ))
                 ) : (
-                  <Text style={{ color: colors.textMuted, fontSize: 13, paddingVertical: 8 }}>
+                  <Text style={{ color: colors.textMuted, fontSize: 13, paddingVertical: 8, fontFamily: Typography.regular }}>
                     No call records available for this selection.
                   </Text>
                 )}
@@ -1427,6 +1427,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   filterChipText: {
+    fontFamily: Typography.semiBold,
     fontSize: FontSizes.label,
   },
   centered: {
@@ -1574,6 +1575,7 @@ const styles = StyleSheet.create({
     marginRight: 20,
   },
   tabText: {
+    fontFamily: Typography.medium,
     fontSize: FontSizes.bodySmall,
   },
 
@@ -1860,6 +1862,7 @@ const styles = StyleSheet.create({
     borderRadius: Radius.lg,
   },
   segmentText: {
+    fontFamily: Typography.semiBold,
     fontSize: FontSizes.caption,
     letterSpacing: 0.2,
   },
@@ -1911,6 +1914,7 @@ const styles = StyleSheet.create({
     gap: 5,
   },
   pillText: {
+    fontFamily: Typography.semiBold,
     fontSize: FontSizes.caption,
   },
   analyticsKpiRow: {

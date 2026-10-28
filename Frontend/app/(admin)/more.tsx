@@ -339,6 +339,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   themeBtnText: {
+    fontFamily: Typography.medium,
     fontSize: FontSizes.bodySmall,
   },
   signOutBtn: {

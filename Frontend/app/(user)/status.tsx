@@ -747,6 +747,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   themeBtnText: {
+    fontFamily: Typography.medium,
     fontSize: FontSizes.caption,
   },
   detailsCard: {

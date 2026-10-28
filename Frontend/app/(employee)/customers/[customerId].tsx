@@ -216,8 +216,8 @@ export default function CustomerDetailScreen() {
           },
         ]}
       >
-        {customerLoading ? <Text style={{ color: isDark ? "#8FA09A" : "#5E6964" }}>Loading customer record...</Text> : <>
-          <Text style={{ color: isDark ? "#F1F7F4" : "#101513", textAlign: "center", marginBottom: 12 }}>{customerLoadError || "Customer record is not available to your account."}</Text>
+        {customerLoading ? <Text style={{ color: isDark ? "#8FA09A" : "#5E6964", fontFamily: Typography.regular }}>Loading customer record...</Text> : <>
+          <Text style={{ color: isDark ? "#F1F7F4" : "#101513", textAlign: "center", marginBottom: 12, fontFamily: Typography.medium }}>{customerLoadError || "Customer record is not available to your account."}</Text>
           <TouchableOpacity onPress={() => { setCustomerLoading(true); void fetchCustomer(); }} style={{ padding: 12, borderRadius: 10, backgroundColor: "#0E9E83" }}><Text style={{ color: "#FFFFFF", fontFamily: Typography.semiBold }}>Retry</Text></TouchableOpacity>
         </>}
       </View>
@@ -1213,6 +1213,7 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   segmentText: {
+    fontFamily: Typography.semiBold,
     fontSize: 11,
     textAlign: "center",
   },

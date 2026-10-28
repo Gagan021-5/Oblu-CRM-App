@@ -475,7 +475,7 @@ export default function LeadsScreen() {
 
             {leads.length === 0 ? (
               <View style={{ padding: 24, alignItems: "center" }}>
-                <Text style={{ color: colors.textMuted, fontSize: FontSizes.bodySmall }}>
+                <Text style={{ color: colors.textMuted, fontSize: FontSizes.bodySmall, fontFamily: Typography.regular }}>
                   No leads recorded in database.
                 </Text>
               </View>
@@ -746,6 +746,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   pipelineStageText: {
+    fontFamily: Typography.semiBold,
     fontSize: 10,
   },
   actionPanel: {

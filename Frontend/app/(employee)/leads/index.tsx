@@ -522,6 +522,7 @@ const styles = StyleSheet.create({
     fontFamily: Typography.bold,
   },
   ribbonStageName: {
+    fontFamily: Typography.medium,
     fontSize: FontSizes.micro,
     marginTop: 2,
   },

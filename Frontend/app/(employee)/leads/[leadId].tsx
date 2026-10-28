@@ -135,7 +135,7 @@ export default function LeadDetailScreen() {
           },
         ]}
       >
-        <Text style={{ color: isDark ? "#8FA09A" : "#5E6964" }}>
+        <Text style={{ color: isDark ? "#8FA09A" : "#5E6964", fontFamily: Typography.regular }}>
           Loading lead profile...
         </Text>
       </View>
@@ -990,6 +990,7 @@ const styles = StyleSheet.create({
     borderRadius: 3,
   },
   stepText: {
+    fontFamily: Typography.medium,
     fontSize: FontSizes.micro,
   },
   segmentBar: {
@@ -1007,6 +1008,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   segmentText: {
+    fontFamily: Typography.semiBold,
     fontSize: FontSizes.caption,
   },
   cardBox: {

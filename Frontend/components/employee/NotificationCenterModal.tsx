@@ -588,6 +588,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   filterChipText: {
+    fontFamily: Typography.medium,
     fontSize: 12,
   },
   list: {

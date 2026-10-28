@@ -2301,6 +2301,7 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   categoryLabel: {
+    fontFamily: Typography.medium,
     fontSize: 12,
     textAlign: "center",
   },

@@ -273,6 +273,7 @@ const styles = StyleSheet.create({
     position: "relative",
   },
   tabLabel: {
+    fontFamily: Typography.medium,
     fontSize: FontSizes.tabLabel,
     marginTop: 2,
   },

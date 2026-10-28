@@ -101,6 +101,7 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   label: {
+    fontFamily: Typography.medium,
     fontSize: FontSizes.bodySmall,
   },
   badge: {

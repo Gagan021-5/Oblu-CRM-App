@@ -1511,6 +1511,7 @@ const styles = StyleSheet.create({
     ...Shadows.card,
   },
   categoryLabel: {
+    fontFamily: Typography.medium,
     fontSize: 12,
     textAlign: "center",
   },

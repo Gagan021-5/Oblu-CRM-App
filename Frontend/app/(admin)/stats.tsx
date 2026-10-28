@@ -459,6 +459,7 @@ const styles = StyleSheet.create({
     gap: 5,
   },
   pillText: {
+    fontFamily: Typography.semiBold,
     fontSize: FontSizes.label,
   },
   centered: {
