@@ -166,7 +166,7 @@ class CustomerMapPointsView(APIView):
         )
         return Response(list(points))
 
-
+#Authentication , RBAC , Pagination , Filteration
 class CustomerListView(generics.ListAPIView):
     """
     GET /api/customers/?search=&filter=&page=
@@ -608,14 +608,10 @@ class CustomerWorkspaceToolsView(APIView):
         if tool == "team-customers":
             if not _has_customer_permission(request.user, "customer.view", "customer.view_all"):
                 raise PermissionDenied("Team customer access is not enabled for this account.")
-            cutoff = timezone.now().date() - timezone.timedelta(days=90)
-            recent_tax_statuses = CustomerVoucherStatus.objects.filter(
-                voucher_type__iexact="TAX INVOICE", voucher_date__gte=cutoff
-            ).only("id", "customer_id", "voucher_date", "voucher_type")
-            qs = _annotate_portfolio_metrics(_customer_scope(request.user, "customer.view", "customer.view_all")).select_related("salesperson", "unit_membership__unit").prefetch_related(
-                Prefetch("voucher_statuses", queryset=recent_tax_statuses, to_attr="recent_tax_invoice_statuses")
-            ).order_by("name")
-            return Response(CustomerListSerializer(qs, many=True).data)
+            qs = _annotate_customer_list_activity(
+                _customer_scope(request.user, "customer.view", "customer.view_all")
+            ).select_related("salesperson", "unit_membership__unit", "credit_profile").order_by("name")
+            return Response(CustomerListSerializer(qs[:200], many=True).data)
 
         if tool == "payment-followups":
             if not _has_customer_permission(request.user, "payment.view"):

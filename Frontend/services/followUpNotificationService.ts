@@ -87,7 +87,6 @@ export async function initializeNotifications(): Promise<boolean> {
         importance: Notifications.AndroidImportance?.MAX ?? 5,
         vibrationPattern: [0, 250, 250, 250],
         lightColor: "#00A879",
-        sound: "default",
         enableVibrate: true,
         showBadge: true,
       });
@@ -334,7 +333,7 @@ export async function scheduleFollowUpNotifications(params: {
             title: `⏰ Follow-up Tomorrow: ${customerName}`,
             body: `You have a scheduled follow-up tomorrow at ${followUpTime} for "${purpose}".`,
             data: { customerId, customerName, followUpDate, followUpTime, purpose },
-            sound: "default",
+            sound: true,
             color: "#00A879",
           },
           trigger: {
@@ -348,7 +347,7 @@ export async function scheduleFollowUpNotifications(params: {
             title: `⏰ Follow-up Tomorrow: ${customerName}`,
             body: `Reminder: You have a scheduled follow-up at ${followUpTime} with ${customerName} for "${purpose}".`,
             data: { customerId, customerName, followUpDate, followUpTime, purpose },
-            sound: "default",
+            sound: true,
             color: "#00A879",
           },
           trigger: {
@@ -363,7 +362,7 @@ export async function scheduleFollowUpNotifications(params: {
           title: `✅ Follow-up Scheduled: ${customerName}`,
           body: `1-Day-Before Reminder is active for ${followUpDate} at ${followUpTime} (${purpose}).`,
           data: { customerId, customerName, followUpDate, followUpTime, purpose },
-          sound: "default",
+          sound: true,
           color: "#00A879",
         },
         trigger: null,
@@ -417,7 +416,7 @@ export async function notifyPaymentTicketRaised(params: {
           title: `🚨 Payment Ticket Raised: ${customerName}`,
           body: `Expected date crossed for Invoice #${invoiceNumber} (${amount}). Payment ticket raised.`,
           data: { customerId, customerName, invoiceNumber, amount },
-          sound: "default",
+          sound: true,
           color: "#FF4D4F",
         },
         trigger: null,

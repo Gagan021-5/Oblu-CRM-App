@@ -124,11 +124,12 @@ export default function CustomerDashboardScreen() {
         has_outstanding: balanceFilter === "outstanding",
         ordering: sortOption,
         page,
-        page_size: 100,
+        page_size: 25,
       });
-      setCustomers((previous) => append ? [...previous, ...result.customers] : result.customers);
-      setNextPage(result.nextPage);
-      setTotalCustomerCount(result.count);
+      const customerList = result?.customers || [];
+      setCustomers((previous) => append ? [...previous, ...customerList] : customerList);
+      setNextPage(result?.nextPage ?? null);
+      setTotalCustomerCount(result?.count ?? customerList.length);
     } catch (error: any) {
       if (!append) setCustomers([]);
       if (page === 1) setLoadError(error?.response?.status === 403

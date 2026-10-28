@@ -18,8 +18,13 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { ThemeProvider, useTheme } from "@/contexts/ThemeContext";
 import { NotificationProvider } from "@/contexts/NotificationContext";
 import { Colors } from "@/constants/theme";
-import { View, ActivityIndicator } from "react-native";
+import { View, ActivityIndicator, LogBox } from "react-native";
 import { registerBackgroundSync } from "@/services/backgroundSync";
+
+LogBox.ignoreLogs([
+  "expo-notifications: Custom sound 'default' not found",
+  "Custom sound 'default' not found in native app",
+]);
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 

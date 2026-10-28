@@ -63,28 +63,52 @@ export async function fetchCustomersFromApi(params?: {
   filter?: string;
   page?: number;
   page_size?: number;
+  max_pages?: number;
 }): Promise<Customer[]> {
   const rawList: any[] = [];
   let page = params?.page || 1;
-  const pageSize = params?.page_size || 200;
-  while (true) {
-    const res = await api.get<CustomerListResponse | any[]>("/customers/", {
-      params: {
-        search: params?.search || undefined,
-        filter: params?.filter && params.filter !== "all" ? params.filter : undefined,
-        page,
-        page_size: pageSize,
-      },
-    });
-    if (Array.isArray(res.data)) {
-      rawList.push(...res.data);
+  const pageSize = params?.page_size || 50;
+  const maxPages = params?.max_pages || 1;
+  let fetchedPages = 0;
+  while (fetchedPages < maxPages) {
+    try {
+      const res = await api.get<CustomerListResponse | any[]>("/customers/", {
+        params: {
+          search: params?.search || undefined,
+          filter: params?.filter && params.filter !== "all" ? params.filter : undefined,
+          page,
+          page_size: pageSize,
+        },
+      });
+      let data = res.data;
+      if (typeof data === "string") {
+        try {
+          data = JSON.parse(data);
+        } catch {}
+      }
+      if (Array.isArray(data)) {
+        rawList.push(...data);
+        break;
+      }
+      const pageResults = Array.isArray(data?.results) ? data.results : [];
+      rawList.push(...pageResults);
+      if (!data?.next || pageResults.length === 0) break;
+      page += 1;
+      fetchedPages += 1;
+    } catch (err) {
+      console.warn("[CustomerService] fetchCustomersFromApi error on page " + page, err);
       break;
     }
-    rawList.push(...(Array.isArray(res.data?.results) ? res.data.results : []));
-    if (!res.data?.next) break;
-    page += 1;
   }
-  return rawList.map(normalizeCustomer);
+  const customers: Customer[] = [];
+  for (const item of rawList) {
+    try {
+      customers.push(normalizeCustomer(item));
+    } catch (e) {
+      console.warn("[CustomerService] normalization error for customer item", item?.id, e);
+    }
+  }
+  return customers;
 }
 
 export async function fetchCustomerMapPointsFromApi(): Promise<Customer[]> {
@@ -101,6 +125,8 @@ export async function fetchCustomerPageFromApi(params?: {
   page?: number;
   page_size?: number;
 }): Promise<{ customers: Customer[]; nextPage: number | null; count: number }> {
+  const pageSize = params?.page_size || 25;
+  const currentPage = params?.page || 1;
   const res = await api.get<CustomerListResponse | any[]>("/customers/", {
     params: {
       search: params?.search || undefined,
@@ -108,18 +134,59 @@ export async function fetchCustomerPageFromApi(params?: {
       payment_status: params?.payment_status && params.payment_status !== "all" ? params.payment_status : undefined,
       has_outstanding: params?.has_outstanding ? "true" : undefined,
       ordering: params?.ordering && params.ordering !== "default" ? params.ordering : undefined,
-      page: params?.page || 1,
-      page_size: params?.page_size || 100,
+      page: currentPage,
+      page_size: pageSize,
     },
   });
-  if (Array.isArray(res.data)) {
-    return { customers: res.data.map(normalizeCustomer), nextPage: null, count: res.data.length };
+
+  if (!res || !res.data) {
+    return { customers: [], nextPage: null, count: 0 };
   }
-  const results = Array.isArray(res.data?.results) ? res.data.results : [];
-  const nextPage = res.data?.next
-    ? Number(new URL(res.data.next).searchParams.get("page") || (params?.page || 1) + 1)
-    : null;
-  return { customers: results.map(normalizeCustomer), nextPage, count: Number(res.data?.count) || 0 };
+
+  let data = res.data;
+  if (typeof data === "string") {
+    try {
+      data = JSON.parse(data);
+    } catch (e) {
+      console.error("[CustomerService] Failed to parse customers response:", e);
+    }
+  }
+
+  if (Array.isArray(data)) {
+    const list: Customer[] = [];
+    for (const item of data) {
+      try {
+        list.push(normalizeCustomer(item));
+      } catch {}
+    }
+    return { customers: list, nextPage: null, count: list.length };
+  }
+
+  const results = Array.isArray(data?.results) ? data.results : [];
+  let nextPage: number | null = null;
+  if (data?.next) {
+    try {
+      const match = String(data.next).match(/[?&]page=(\d+)/);
+      nextPage = match ? Number(match[1]) : currentPage + 1;
+    } catch {
+      nextPage = currentPage + 1;
+    }
+  }
+
+  const customers: Customer[] = [];
+  for (const item of results) {
+    try {
+      customers.push(normalizeCustomer(item));
+    } catch (e) {
+      console.warn("[CustomerService] normalizeCustomer skipped invalid item:", item?.id, e);
+    }
+  }
+
+  return {
+    customers,
+    nextPage,
+    count: Number(data?.count) || customers.length,
+  };
 }
 
 export async function fetchCustomerByIdFromApi(id: string): Promise<Customer> {

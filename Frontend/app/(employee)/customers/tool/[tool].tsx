@@ -84,10 +84,23 @@ export default function CustomerToolScreen() {
     if (!canOpen) return;
     setError("");
     try {
-      const reportParams = tool === "monthly-sales" ? { month: monthKey } : isMonthlyReport ? { month_picker: monthKey } : {};
-      const result = await api.get(`/customers/workspace/${tool}/`, { params: { ...reportParams, ...(tool === "rsm-incentives" && selectedRsm ? { rsm: selectedRsm } : {}) } });
-      setRows(Array.isArray(result.data) ? result.data : (result.data?.rows || []));
-      setProductRows(tool === "my-incentives" && Array.isArray(result.data?.products) ? result.data.products : []);
+      let result: any;
+      if (tool === "team-customers") {
+        try {
+          result = await api.get("/customers/workspace/team-customers/");
+          if (!result?.data || (Array.isArray(result.data) && result.data.length === 0)) {
+            result = await api.get("/customers/", { params: { page_size: 150 } });
+          }
+        } catch {
+          result = await api.get("/customers/", { params: { page_size: 150 } });
+        }
+      } else {
+        const reportParams = tool === "monthly-sales" ? { month: monthKey } : isMonthlyReport ? { month_picker: monthKey } : {};
+        result = await api.get(`/customers/workspace/${tool}/`, { params: { ...reportParams, ...(tool === "rsm-incentives" && selectedRsm ? { rsm: selectedRsm } : {}) } });
+      }
+      const rawRows = Array.isArray(result?.data) ? result.data : (result?.data?.results || result?.data?.rows || []);
+      setRows(rawRows);
+      setProductRows(tool === "my-incentives" && Array.isArray(result?.data?.products) ? result.data.products : []);
       if (tool === "rsm-incentives") {
         const options = Array.isArray(result.data?.rsms) ? result.data.rsms : [];
         setRsmOptions(options);
