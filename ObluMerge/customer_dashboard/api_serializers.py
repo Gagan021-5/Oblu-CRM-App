@@ -257,25 +257,15 @@ class CustomerListSerializer(serializers.ModelSerializer):
 
     def get_totalOrders(self, obj):
         val = getattr(obj, "portfolio_total_orders", None)
-        if val is not None and val > 0:
-            return val
-        if hasattr(obj, "voucher_statuses"):
-            cnt = obj.voucher_statuses.filter(voucher_type__iexact="TAX INVOICE").count()
-            if cnt > 0:
-                return cnt
-        return val or 0
-
+        if val is not None:
+            return int(val or 0)
+        return 0
 
     def get_totalOrderValue(self, obj):
         val = getattr(obj, "portfolio_total_order_value", None)
-        if val is not None and float(val or 0) > 0:
-            return str(val)
-        if hasattr(obj, "voucher_statuses"):
-            from django.db.models import Sum
-            total = obj.voucher_statuses.filter(voucher_type__iexact="TAX INVOICE").aggregate(total=Sum("voucher_amount"))["total"]
-            if total:
-                return str(total)
-        return str(val or 0)
+        if val is not None:
+            return str(val or 0)
+        return "0"
 
     def get_lastOrderDate(self, obj):
         val = getattr(obj, "portfolio_last_order_date", None)
@@ -283,10 +273,6 @@ class CustomerListSerializer(serializers.ModelSerializer):
             if hasattr(val, "strftime"):
                 return val.strftime("%d %b %Y")
             return str(val)
-        if hasattr(obj, "voucher_statuses"):
-            latest = obj.voucher_statuses.filter(voucher_type__iexact="TAX INVOICE").order_by("-voucher_date").first()
-            if latest and latest.voucher_date:
-                return latest.voucher_date.strftime("%d %b %Y")
         return ""
 
 

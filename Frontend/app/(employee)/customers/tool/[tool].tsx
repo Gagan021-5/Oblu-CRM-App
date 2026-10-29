@@ -96,7 +96,8 @@ export default function CustomerToolScreen() {
 
   // Filters State
   const [customerSearch, setCustomerSearch] = useState("");
-  const [customerSalesperson, setCustomerSalesperson] = useState("All Salespeople");
+  const [customerSalesperson, setCustomerSalesperson] = useState("All Salespeople");
+
   const [serverSalespeople, setServerSalespeople] = useState<string[]>([]);
   const [customerStatus, setCustomerStatus] = useState("All Statuses");
   const [customerBalance, setCustomerBalance] = useState("All Balances");
@@ -119,6 +120,21 @@ export default function CustomerToolScreen() {
   const [renameUnitName, setRenameUnitName] = useState("");
   const [unitActionLoading, setUnitActionLoading] = useState(false);
 
+  // Pagination state for team-customers
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [hasNextPage, setHasNextPage] = useState(false);
+  const [hasPrevPage, setHasPrevPage] = useState(false);
+  const [totalAccountCount, setTotalAccountCount] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [serverStats, setServerStats] = useState<{
+    total_accounts: number;
+    active_clients: number;
+    inactive_dormant: number;
+    due_accounts: number;
+    total_exposure: number;
+  } | null>(null);
+
   // Monthly date state
   const [reportMonth, setReportMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   const monthKey = `${reportMonth.getFullYear()}-${String(reportMonth.getMonth() + 1).padStart(2, "0")}`;
@@ -127,19 +143,27 @@ export default function CustomerToolScreen() {
 
   const title = TITLES[tool] || "Customer Workspace";
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (pageToLoad = 1, append = false) => {
     if (!canOpen) return;
     setError("");
+    if (pageToLoad === 1 && !append) {
+      setLoading(true);
+    } else {
+      setLoadingMore(true);
+    }
     try {
       let result: any;
       if (tool === "team-customers") {
-        const params: Record<string, string> = {};
+        const params: Record<string, string | number> = {
+          page: pageToLoad,
+          page_size: 50,
+        };
         if (customerSalesperson !== "All Salespeople") {
           params.salesperson = customerSalesperson;
         }
         result = await api.get("/customers/workspace/team-customers/", { params });
         if (!result?.data || (Array.isArray(result.data) && result.data.length === 0)) {
-          result = await api.get("/customers/", { params: { page_size: 250, ...params } });
+          result = await api.get("/customers/", { params: { page: pageToLoad, page_size: 50, ...params } });
         }
       } else {
         const reportParams = tool === "monthly-sales" ? { month: monthKey } : isMonthlyReport ? { month_picker: monthKey } : {};
@@ -149,7 +173,22 @@ export default function CustomerToolScreen() {
       }
 
       const rawRows = Array.isArray(result?.data) ? result.data : (result?.data?.rows || result?.data?.results || []);
-      setRows(rawRows);
+      if (append) {
+        setRows((prev) => [...prev, ...rawRows]);
+      } else {
+        setRows(rawRows);
+      }
+
+      if (tool === "team-customers" && result?.data) {
+        setCurrentPage(Number(result.data.page || pageToLoad));
+        setTotalPages(Number(result.data.total_pages || 1));
+        setHasNextPage(Boolean(result.data.has_next));
+        setHasPrevPage(Boolean(result.data.has_prev || pageToLoad > 1));
+        setTotalAccountCount(Number(result.data.total_count || rawRows.length));
+        if (result.data.stats) {
+          setServerStats(result.data.stats);
+        }
+      }
 
       if (Array.isArray(result?.data?.salespersons) && result.data.salespersons.length > 0) {
         setServerSalespeople(result.data.salespersons);
@@ -183,17 +222,20 @@ export default function CustomerToolScreen() {
     } catch (e: any) {
       const status = e?.response?.status;
       console.warn(`[CustomerTool:${tool}] API request failed:`, status ? `HTTP ${status}` : e?.message || "Network error");
-      setRows([]);
-      setProductRows([]);
-      setError(
-        status === 401
-          ? "Your session is not valid. Sign in again to load this section."
-          : status === 403
-          ? "Your account does not have permission to view this section."
-          : "Could not load this section. Check your connection and try again."
-      );
+      if (!append) {
+        setRows([]);
+        setProductRows([]);
+        setError(
+          status === 401
+            ? "Your session is not valid. Sign in again to load this section."
+            : status === 403
+            ? "Your account does not have permission to view this section."
+            : "Could not load this section. Check your connection and try again."
+        );
+      }
     } finally {
       setLoading(false);
+      setLoadingMore(false);
       setRefreshing(false);
     }
   }, [canOpen, customerSalesperson, isMonthlyReport, monthKey, selectedRsm, tool]);
@@ -360,9 +402,26 @@ export default function CustomerToolScreen() {
     paymentStatusFilter,
   ]);
 
-  // Recalculate customer overview strictly from visibleRows (Problem 2 Fix)
+  // Recalculate customer overview strictly from serverStats or visibleRows
   const customerOverview = useMemo(() => {
     if (tool !== "team-customers") return [];
+
+    const hasLocalFilters = Boolean(
+      customerSearch.trim() ||
+      customerStatus !== "All Statuses" ||
+      customerBalance !== "All Balances"
+    );
+
+    if (serverStats && !hasLocalFilters) {
+      return [
+        { label: "TOTAL ACCOUNTS", value: Number(serverStats.total_accounts || 0).toLocaleString("en-IN"), color: foreground, icon: "people-outline" as const },
+        { label: "ACTIVE CLIENTS", value: Number(serverStats.active_clients || 0).toLocaleString("en-IN"), color: "#159A7C", icon: "checkmark-circle-outline" as const },
+        { label: "INACTIVE / DORMANT", value: Number(serverStats.inactive_dormant || 0).toLocaleString("en-IN"), color: "#DF5262", icon: "alert-circle-outline" as const },
+        { label: "DUE ACCOUNTS", value: Number(serverStats.due_accounts || 0).toLocaleString("en-IN"), color: "#D97706", icon: "time-outline" as const },
+        { label: "TOTAL EXPOSURE", value: `₹${Number(serverStats.total_exposure || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`, color: "#159A7C", icon: "cash-outline" as const },
+      ];
+    }
+
     const units = new Map<string, ToolRow[]>();
     const groups: ToolRow[][] = [];
     for (const row of visibleRows) {
@@ -394,7 +453,7 @@ export default function CustomerToolScreen() {
       { label: "DUE ACCOUNTS", value: dueGroups.length.toLocaleString("en-IN"), color: "#D97706", icon: "time-outline" as const },
       { label: "TOTAL EXPOSURE", value: `₹${exposure.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`, color: "#159A7C", icon: "cash-outline" as const },
     ];
-  }, [tool, visibleRows, foreground]);
+  }, [tool, serverStats, customerSearch, customerStatus, customerBalance, visibleRows, foreground]);
 
   // Portfolio entries for team-customers
   const portfolioEntries = useMemo<PortfolioEntry[]>(() => {
@@ -1259,6 +1318,88 @@ export default function CustomerToolScreen() {
           ))
         )}
 
+        {/* ── PAGINATION CONTROLS FOR TEAM CUSTOMERS ── */}
+        {tool === "team-customers" && !loading && totalAccountCount > 0 && (
+          <View style={styles.paginationContainer}>
+            <Text style={[styles.paginationInfo, { color: muted }]}>
+              Showing {visibleRows.length} of {totalAccountCount} accounts · Page {currentPage} of {totalPages}
+            </Text>
+
+            {hasNextPage && (
+              <TouchableOpacity
+                onPress={() => void load(currentPage + 1, true)}
+                disabled={loadingMore}
+                activeOpacity={0.7}
+                style={[
+                  styles.loadMoreButton,
+                  {
+                    backgroundColor: isDark ? "#183B32" : "#E2F7F1",
+                    borderColor: "#159A7C",
+                  },
+                ]}
+              >
+                {loadingMore ? (
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    <ActivityIndicator size="small" color="#159A7C" />
+                    <Text style={[styles.loadMoreText, { color: "#159A7C" }]}>Loading more accounts…</Text>
+                  </View>
+                ) : (
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    <Ionicons name="arrow-down-circle" size={20} color="#159A7C" />
+                    <Text style={[styles.loadMoreText, { color: "#159A7C" }]}>
+                      Load Next 50 Customers ({Math.max(0, totalAccountCount - visibleRows.length)} remaining)
+                    </Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            )}
+
+            {totalPages > 1 && (
+              <View style={styles.paginationBar}>
+                <TouchableOpacity
+                  onPress={() => {
+                    if (hasPrevPage && !loading && !loadingMore) {
+                      void load(currentPage - 1, false);
+                    }
+                  }}
+                  disabled={!hasPrevPage || loading || loadingMore}
+                  style={[
+                    styles.pageNavButton,
+                    card,
+                    !hasPrevPage && { opacity: 0.4 },
+                  ]}
+                >
+                  <Ionicons name="chevron-back" size={18} color={hasPrevPage ? foreground : muted} />
+                  <Text style={[styles.pageNavText, { color: hasPrevPage ? foreground : muted }]}>Previous</Text>
+                </TouchableOpacity>
+
+                <View style={[styles.pageIndicator, card]}>
+                  <Text style={[styles.pageIndicatorText, { color: foreground }]}>
+                    Page {currentPage} of {totalPages}
+                  </Text>
+                </View>
+
+                <TouchableOpacity
+                  onPress={() => {
+                    if (hasNextPage && !loading && !loadingMore) {
+                      void load(currentPage + 1, false);
+                    }
+                  }}
+                  disabled={!hasNextPage || loading || loadingMore}
+                  style={[
+                    styles.pageNavButton,
+                    card,
+                    !hasNextPage && { opacity: 0.4 },
+                  ]}
+                >
+                  <Text style={[styles.pageNavText, { color: hasNextPage ? foreground : muted }]}>Next</Text>
+                  <Ionicons name="chevron-forward" size={18} color={hasNextPage ? foreground : muted} />
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        )}
+
         {!loading && !error && visibleRows.length === 0 && (
           <View style={[styles.emptyCard, card]}>
             <Ionicons name={ICONS[tool] || "document-text-outline"} size={32} color="#159A7C" />
@@ -1411,4 +1552,13 @@ const styles = StyleSheet.create({
   modalCancel: { minHeight: 38, borderWidth: 1, borderRadius: 10, paddingHorizontal: 14, alignItems: "center", justifyContent: "center" },
   modalSave: { minHeight: 38, borderRadius: 10, paddingHorizontal: 16, alignItems: "center", justifyContent: "center" },
   modalBtnText: { fontFamily: Typography.semiBold, fontSize: 12 },
+  paginationContainer: { marginTop: 16, marginBottom: 24, gap: 12, alignItems: "stretch" },
+  paginationInfo: { textAlign: "center", fontFamily: Typography.regular, fontSize: 12 },
+  loadMoreButton: { minHeight: 46, borderRadius: 14, borderWidth: 1.5, flexDirection: "row", alignItems: "center", justifyContent: "center", paddingHorizontal: 16, gap: 8 },
+  loadMoreText: { fontFamily: Typography.semiBold, fontSize: 13 },
+  paginationBar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  pageNavButton: { minHeight: 40, flex: 1, borderWidth: 1, borderRadius: 12, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingHorizontal: 10 },
+  pageNavText: { fontFamily: Typography.semiBold, fontSize: 12 },
+  pageIndicator: { minHeight: 40, paddingHorizontal: 14, borderWidth: 1, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  pageIndicatorText: { fontFamily: Typography.bold, fontSize: 12 },
 });

@@ -1,76 +1,418 @@
 {% extends 'customers/base.html' %}
 {% block content %}
-<h2>🗺️ Customer Distribution Map (District-Level)</h2>
+<style>
+  .map-dashboard-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    margin-bottom: 30px;
+  }
+  .map-header-card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 18px 24px;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+  .map-header-left h2 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 700;
+    color: #0f172a;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .map-header-left p {
+    margin: 4px 0 0 0;
+    font-size: 13px;
+    color: #64748b;
+  }
+  .map-stats-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .stat-badge {
+    background: #f1f5f9;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #334155;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .stat-badge.green {
+    background: #ecfdf5;
+    border-color: #a7f3d0;
+    color: #047857;
+  }
+  .stat-badge.blue {
+    background: #eff6ff;
+    border-color: #bfdbfe;
+    color: #1d4ed8;
+  }
+  .map-filter-bar {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 12px 18px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+  .map-search-box {
+    flex: 1;
+    min-width: 240px;
+    position: relative;
+  }
+  .map-search-box input {
+    width: 100%;
+    padding: 9px 12px 9px 36px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    font-size: 13px;
+    outline: none;
+    box-sizing: border-box;
+    transition: border-color 0.2s;
+  }
+  .map-search-box input:focus {
+    border-color: #10b981;
+  }
+  .map-search-box .search-icon {
+    position: absolute;
+    left: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #94a3b8;
+    font-size: 14px;
+    pointer-events: none;
+  }
+  .filter-select {
+    padding: 9px 12px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    font-size: 13px;
+    background: #fff;
+    color: #1e293b;
+    outline: none;
+    cursor: pointer;
+  }
+  .filter-select:focus {
+    border-color: #10b981;
+  }
+  .btn-reset-map {
+    background: #f8fafc;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    padding: 9px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #475569;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .btn-reset-map:hover {
+    background: #e2e8f0;
+    color: #0f172a;
+  }
+  #map {
+    height: 720px;
+    width: 100%;
+    border-radius: 12px;
+    border: 1px solid #cbd5e1;
+    box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
+    background: #e5e7eb;
+  }
+  .custom-pin-active {
+    background: #10b981;
+    border: 2px solid #ffffff;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    border-radius: 50%;
+    width: 14px;
+    height: 14px;
+  }
+  .custom-pin-inactive {
+    background: #ef4444;
+    border: 2px solid #ffffff;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    border-radius: 50%;
+    width: 14px;
+    height: 14px;
+  }
+  .leaflet-popup-content-wrapper {
+    border-radius: 10px;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.2);
+    padding: 4px;
+  }
+  .cust-popup {
+    font-family: inherit;
+    min-width: 200px;
+    max-width: 260px;
+    font-size: 13px;
+    line-height: 1.4;
+  }
+  .cust-popup h4 {
+    margin: 0 0 6px 0;
+    font-size: 14px;
+    font-weight: 700;
+    color: #0f172a;
+  }
+  .cust-popup .popup-meta {
+    margin: 4px 0;
+    color: #475569;
+    font-size: 12px;
+  }
+  .cust-popup .status-pill {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 9999px;
+    font-size: 11px;
+    font-weight: 700;
+    margin-top: 6px;
+  }
+  .cust-popup .status-pill.active {
+    background: #dcfce7;
+    color: #15803d;
+  }
+  .cust-popup .status-pill.inactive {
+    background: #fee2e2;
+    color: #b91c1c;
+  }
+  .cust-popup a.btn-view {
+    display: inline-block;
+    margin-top: 8px;
+    padding: 5px 10px;
+    background: #0f172a;
+    color: #fff !important;
+    border-radius: 6px;
+    text-decoration: none;
+    font-size: 11px;
+    font-weight: 600;
+  }
+</style>
 
-<div id="map" style="height: 650px; border-radius: 10px; border: 1px solid #ccc;"></div>
+<!-- Leaflet CSS & JS -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 
-<!-- ✅ Leaflet CSS & JS -->
-<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
-<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-
-<!-- Optional: marker clustering if you have many districts -->
+<!-- MarkerCluster Plugin -->
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
 
+<div class="map-dashboard-wrap">
+  <!-- Top Header Card -->
+  <div class="map-header-card">
+    <div class="map-header-left">
+      <h2>🗺️ Customer Geographic Distribution</h2>
+      <p>Interactive district and client level distribution across India</p>
+    </div>
+    <div class="map-stats-badges">
+      <div class="stat-badge blue">
+        <span>📍</span> <span id="badgeTotalCust">{{ total_customers_count|default:"0" }} Accounts Mapped</span>
+      </div>
+      <div class="stat-badge green">
+        <span>🏛️</span> <span id="badgeTotalDist">{{ total_districts_count|default:"0" }} Districts</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Filter & Search Control Bar -->
+  <div class="map-filter-bar">
+    <div class="map-search-box">
+      <span class="search-icon">🔍</span>
+      <input type="text" id="mapSearchInput" placeholder="Search customer name, city, district..." />
+    </div>
+
+    <select id="stateFilterSelect" class="filter-select">
+      <option value="">All States ({{ states|length }})</option>
+      {% for s in states %}
+      <option value="{{ s }}">{{ s }}</option>
+      {% endfor %}
+    </select>
+
+    <select id="spFilterSelect" class="filter-select">
+      <option value="">All Salespeople ({{ salespersons|length }})</option>
+      {% for sp in salespersons %}
+      <option value="{{ sp }}">{{ sp }}</option>
+      {% endfor %}
+    </select>
+
+    <select id="statusFilterSelect" class="filter-select">
+      <option value="">All Statuses</option>
+      <option value="active">🟢 Active Only</option>
+      <option value="inactive">🔴 Inactive Only</option>
+    </select>
+
+    <button type="button" id="btnResetView" class="btn-reset-map">🎯 Reset View</button>
+  </div>
+
+  <!-- The Map Canvas -->
+  <div id="map"></div>
+</div>
+
 <script>
 document.addEventListener("DOMContentLoaded", function () {
-    // Initialize map centered on India
-    const map = L.map('map').setView([22.9734, 78.6569], 5);
+    // 1. Initialize map centered on India
+    const map = L.map('map', {
+        zoomControl: true,
+        scrollWheelZoom: true
+    }).setView([22.5, 79.0], 5);
 
-    // Add high-reliability CartoDB base layer with automatic ESRI Street Map fallback
-    const tileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+    // 2. High-reliability free ESRI World Street Map (NO API KEY REQUIRED, NO WATERMARK)
+    const esriStreets = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
         maxZoom: 19,
-        subdomains: 'abcd',
-        attribution: '&copy; CARTO &copy; OpenStreetMap contributors'
-    });
-    tileLayer.on('tileerror', function (e) {
-        if (e.tile && e.coords) {
-            e.tile.src = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/' + e.coords.z + '/' + e.coords.y + '/' + e.coords.x;
-        }
-    });
-    tileLayer.addTo(map);
+        attribution: '&copy; <a href="https://www.esri.com/">Esri</a> &mdash; World Street Map'
+    }).addTo(map);
 
-    // Parse the JSON data from Django context
-    const data = JSON.parse('{{ map_data_json|escapejs }}');
+    const esriTopo = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}', {
+        maxZoom: 19,
+        attribution: '&copy; Esri &mdash; Topographic'
+    });
 
-    // Optional: create cluster group (helps when many points overlap)
-    const markers = L.markerClusterGroup({
-        spiderfyOnEveryZoom: false,
+    const osmFrance = L.tileLayer('https://{s}.tile.openstreetmap.fr/osmfr/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        subdomains: 'abc',
+        attribution: '&copy; OpenStreetMap France'
+    });
+
+    // Layer Switcher Control
+    L.control.layers({
+        "🗺️ Esri Streets (Default)": esriStreets,
+        "🏔️ Esri Topo": esriTopo,
+        "🌐 OpenStreetMap": osmFrance
+    }, null, { position: 'topright' }).addTo(map);
+
+    // 3. Load Customers Data from Django
+    const rawCustomers = JSON.parse('{{ customer_points_json|default:"[]"|escapejs }}');
+    const rawDistricts = JSON.parse('{{ district_data_json|default:"[]"|escapejs }}');
+
+    // 4. Marker Cluster Group with intelligent spiderfying
+    const markersCluster = L.markerClusterGroup({
+        spiderfyOnMaxZoom: true,
         showCoverageOnHover: false,
-        maxClusterRadius: 50
+        zoomToBoundsOnClick: true,
+        maxClusterRadius: 35,
+        disableClusteringAtZoom: 12
     });
 
-    // Loop through each district and add marker
-    data.forEach(d => {
-        if (d.lat && d.lon) {
-            const marker = L.circleMarker([d.lat, d.lon], {
-                radius: Math.sqrt(d.Customer_Count) * 2.5,  // scale by number of customers
-                color: '#007bff',
-                fillColor: '#007bff',
-                fillOpacity: 0.6,
-                weight: 1
+    let currentMarkers = [];
+
+    // Helper: render markers based on active filters
+    function renderPoints() {
+        markersCluster.clearLayers();
+        currentMarkers = [];
+
+        const searchVal = (document.getElementById('mapSearchInput').value || "").trim().toLowerCase();
+        const selectedState = (document.getElementById('stateFilterSelect').value || "").trim().toLowerCase();
+        const selectedSp = (document.getElementById('spFilterSelect').value || "").trim().toLowerCase();
+        const selectedStatus = (document.getElementById('statusFilterSelect').value || "").trim().toLowerCase();
+
+        let visibleCount = 0;
+
+        rawCustomers.forEach(c => {
+            if (!c.lat || !c.lon) return;
+
+            // Apply filters
+            if (selectedState && c.state.toLowerCase() !== selectedState) return;
+            if (selectedSp && c.sp.toLowerCase() !== selectedSp) return;
+            if (selectedStatus === 'active' && !c.is_active) return;
+            if (selectedStatus === 'inactive' && c.is_active) return;
+
+            if (searchVal) {
+                const matchName = (c.name || "").toLowerCase().includes(searchVal);
+                const matchDist = (c.district || "").toLowerCase().includes(searchVal);
+                const matchState = (c.state || "").toLowerCase().includes(searchVal);
+                const matchPhone = (c.phone || "").toLowerCase().includes(searchVal);
+                if (!matchName && !matchDist && !matchState && !matchPhone) return;
+            }
+
+            visibleCount++;
+
+            // Create pin icon
+            const pinClass = c.is_active ? 'custom-pin-active' : 'custom-pin-inactive';
+            const pinIcon = L.divIcon({
+                className: pinClass,
+                iconSize: [14, 14],
+                iconAnchor: [7, 7],
+                popupAnchor: [0, -8]
             });
 
-            marker.bindPopup(`
-                <div style="font-size: 14px;">
-                    <strong>${d.District}</strong>, ${d.State}<br>
-                    Customers: <b>${d.Customer_Count}</b>
-                </div>
-            `);
+            const marker = L.marker([c.lat, c.lon], { icon: pinIcon });
 
-            markers.addLayer(marker);
+            // Popup content
+            const popupHtml = `
+                <div class="cust-popup">
+                    <h4>${c.name}</h4>
+                    <div class="popup-meta"><strong>Salesperson:</strong> ${c.sp || 'Unassigned'}</div>
+                    <div class="popup-meta"><strong>Location:</strong> ${c.district}, ${c.state}</div>
+                    ${c.phone ? `<div class="popup-meta"><strong>Phone:</strong> <a href="tel:${c.phone}">${c.phone}</a></div>` : ''}
+                    <div>
+                        <span class="status-pill ${c.is_active ? 'active' : 'inactive'}">
+                            ${c.is_active ? '● Active Client' : '● Dormant / Inactive'}
+                        </span>
+                    </div>
+                    <a href="/customers/customer/${c.id}/" class="btn-view" target="_blank">Open Customer Record →</a>
+                </div>
+            `;
+            marker.bindPopup(popupHtml);
+            marker.customerData = c;
+
+            markersCluster.addLayer(marker);
+            currentMarkers.push(marker);
+        });
+
+        map.addLayer(markersCluster);
+
+        // Update total counter
+        const totalBadge = document.getElementById('badgeTotalCust');
+        if (totalBadge) {
+            totalBadge.textContent = `${visibleCount} Accounts Shown`;
+        }
+    }
+
+    renderPoints();
+
+    // Event listeners for filters
+    document.getElementById('mapSearchInput').addEventListener('input', function() {
+        renderPoints();
+    });
+    document.getElementById('stateFilterSelect').addEventListener('change', function() {
+        renderPoints();
+        const st = this.value;
+        if (st && rawCustomers.length) {
+            const stateCoords = rawCustomers.filter(c => c.state.toLowerCase() === st.toLowerCase() && c.lat && c.lon).map(c => [c.lat, c.lon]);
+            if (stateCoords.length) map.fitBounds(stateCoords, { maxZoom: 8 });
         }
     });
+    document.getElementById('spFilterSelect').addEventListener('change', renderPoints);
+    document.getElementById('statusFilterSelect').addEventListener('change', renderPoints);
 
-    // Add cluster markers to map
-    map.addLayer(markers);
+    document.getElementById('btnResetView').addEventListener('click', function() {
+        document.getElementById('mapSearchInput').value = '';
+        document.getElementById('stateFilterSelect').value = '';
+        document.getElementById('spFilterSelect').value = '';
+        document.getElementById('statusFilterSelect').value = '';
+        renderPoints();
+        map.setView([22.5, 79.0], 5);
+    });
 
-    // Fit bounds if there’s data
-    if (data.length > 0) {
-        const coords = data.filter(d => d.lat && d.lon).map(d => [d.lat, d.lon]);
+    // Auto-fit bounds if points exist
+    if (rawCustomers.length > 0) {
+        const coords = rawCustomers.filter(c => c.lat && c.lon).map(c => [c.lat, c.lon]);
         if (coords.length > 0) {
-            map.fitBounds(coords);
+            map.fitBounds(coords, { padding: [30, 30], maxZoom: 6 });
         }
     }
 });

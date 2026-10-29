@@ -4248,32 +4248,194 @@ class MapView(RBACViewMixin,TemplateView):
         return ctx
 
 
+INDIA_DISTRICT_COORDS = {
+    # Gujarat
+    "ahmedabad": (23.0225, 72.5714), "surat": (21.1702, 72.8311), "vadodara": (22.3072, 73.1812),
+    "rajkot": (22.3039, 70.8022), "bhavnagar": (21.7645, 72.1519), "jamnagar": (22.4707, 70.0577),
+    "gandhinagar": (23.2156, 72.6369), "anand": (22.5645, 72.9289), "mehsana": (23.5880, 72.3693),
+    "bharuch": (21.7051, 72.9959), "valsad": (20.5992, 72.9342), "morbi": (22.8120, 70.8377),
+    # Maharashtra
+    "mumbai": (19.0760, 72.8777), "mumbai suburban": (19.1136, 72.8697), "pune": (18.5204, 73.8567),
+    "nagpur": (21.1458, 79.0882), "thane": (19.2183, 72.9781), "nashik": (19.9975, 73.7898),
+    "aurangabad": (19.8762, 75.3433), "chhatrapati sambhajinagar": (19.8762, 75.3433),
+    "solapur": (17.6599, 75.9064), "kolhapur": (16.7050, 74.2433), "navi mumbai": (19.0330, 73.0297),
+    "amravati": (20.9374, 77.7796), "nanded": (19.1383, 77.3210), "sangli": (16.8524, 74.5815),
+    "jalgaon": (21.0077, 75.5626), "akola": (20.7002, 77.0082), "latur": (18.4088, 76.5604),
+    "dhule": (20.9042, 74.7749), "ahmednagar": (19.0948, 74.7480), "satara": (17.6805, 73.9934),
+    # Delhi & NCR
+    "delhi": (28.7041, 77.1025), "new delhi": (28.6139, 77.2090), "north delhi": (28.7306, 77.1643),
+    "south delhi": (28.4817, 77.1873), "east delhi": (28.6273, 77.2784), "west delhi": (28.6663, 77.0689),
+    "central delhi": (28.6448, 77.2167), "noida": (28.5355, 77.3910), "greater noida": (28.4744, 77.5040),
+    "ghaziabad": (28.6692, 77.4538), "gurugram": (28.4595, 77.0266), "gurgaon": (28.4595, 77.0266),
+    "faridabad": (28.4089, 77.3178),
+    # Karnataka
+    "bengaluru": (12.9716, 77.5946), "bangalore": (12.9716, 77.5946), "mysuru": (12.2958, 76.6394),
+    "mysore": (12.2958, 76.6394), "hubballi": (15.3647, 75.1240), "hubli": (15.3647, 75.1240),
+    "dharwad": (15.4589, 75.0078), "mangaluru": (12.9141, 74.8560), "mangalore": (12.9141, 74.8560),
+    "belagavi": (15.8497, 74.4977), "belgaum": (15.8497, 74.4977), "kalaburagi": (17.3297, 76.8343),
+    "davangere": (14.4644, 75.9218), "ballari": (15.1394, 76.9214), "udupi": (13.3409, 74.7421),
+    # Tamil Nadu
+    "chennai": (13.0827, 80.2707), "coimbatore": (11.0168, 76.9558), "madurai": (9.9252, 78.1198),
+    "tiruchirappalli": (10.7905, 78.7047), "trichy": (10.7905, 78.7047), "salem": (11.6643, 78.1460),
+    "tirunelveli": (8.7139, 77.7567), "tiruppur": (11.1085, 77.3411), "erode": (11.3410, 77.7172),
+    "vellore": (12.9165, 79.1325), "kanchipuram": (12.8342, 79.7036), "thanjavur": (10.7870, 79.1378),
+    # Telangana & AP
+    "hyderabad": (17.3850, 78.4867), "warangal": (17.9689, 79.5941), "nizamabad": (18.6725, 78.0941),
+    "karimnagar": (18.4386, 79.1288), "khammam": (17.2473, 80.1514), "secunderabad": (17.4399, 78.4983),
+    "visakhapatnam": (17.6868, 83.2185), "vizag": (17.6868, 83.2185), "vijayawada": (16.5062, 80.6480),
+    "guntur": (16.3067, 80.4365), "nellore": (14.4426, 79.9865), "kurnool": (15.8281, 78.0373),
+    "rajahmundry": (17.0005, 81.8040), "tirupati": (13.6288, 79.4192),
+    # West Bengal & East
+    "kolkata": (22.5726, 88.3639), "howrah": (22.5958, 88.2636), "siliguri": (26.7271, 88.3953),
+    "asansol": (23.6739, 86.9524), "durgapur": (23.5204, 87.3119), "patna": (25.5941, 85.1376),
+    "gaya": (24.7914, 85.0002), "bhagalpur": (25.2425, 86.9842), "muzaffarpur": (26.1209, 85.3647),
+    "ranchi": (23.3441, 85.3096), "jamshedpur": (22.8046, 86.2029), "dhanbad": (23.7957, 86.4304),
+    "bhubaneswar": (20.2961, 85.8245), "cuttack": (20.4625, 85.8828), "rourkela": (22.2604, 84.8536),
+    "guwahati": (26.1445, 91.7362),
+    # Rajasthan
+    "jaipur": (26.9124, 75.7873), "jodhpur": (26.2389, 73.0243), "kota": (25.2138, 75.8648),
+    "bikaner": (28.0229, 73.3119), "ajmer": (26.4499, 74.6399), "udaipur": (24.5854, 73.7125),
+    "bhilwara": (25.3407, 74.6313), "alwar": (27.5530, 76.6346),
+    # Uttar Pradesh
+    "lucknow": (26.8467, 80.9462), "kanpur": (26.4499, 80.3319), "varanasi": (25.3176, 82.9739),
+    "agra": (27.1767, 78.0081), "prayagraj": (25.4358, 81.8463), "meerut": (28.9845, 77.7064),
+    "bareilly": (28.3670, 79.4304), "aligarh": (27.8974, 78.0880), "moradabad": (28.8386, 78.7733),
+    "gorakhpur": (26.7606, 83.3732), "jhansi": (25.4484, 78.5685),
+    # MP & CG
+    "indore": (22.7196, 75.8577), "bhopal": (23.2599, 77.4126), "jabalpur": (23.1815, 79.9864),
+    "gwalior": (26.2183, 78.1828), "ujjain": (23.1765, 75.7885), "raipur": (21.2514, 81.6296),
+    "bhilai": (21.2121, 81.3733), "bilaspur": (22.0797, 82.1409),
+    # Punjab & Haryana
+    "ludhiana": (30.9010, 75.8573), "amritsar": (31.6340, 74.8723), "jalandhar": (31.3260, 75.5762),
+    "chandigarh": (30.7333, 76.7794), "panipat": (29.3909, 76.9635), "ambala": (30.3782, 76.7767),
+    # Kerala & South
+    "kochi": (9.9312, 76.2673), "thiruvananthapuram": (8.5241, 76.9366), "kozhikode": (11.2588, 75.7804),
+    "thrissur": (10.5276, 76.2144), "dehradun": (30.3165, 78.0322), "shimla": (31.1048, 77.1734),
+    "jammu": (32.7266, 74.8570), "srinagar": (34.0837, 74.7973), "panaji": (15.4909, 73.8278),
+}
+
 class DetailedMapView(RBACViewMixin, TemplateView):
     template_name = "customers/detailed_map.html"
     rbac_permission = "customer.view_all"
 
-
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        qs = (
-            Customer.objects
-            .filter(latitude__isnull=False, longitude__isnull=False)
-            .values("state", "district", "latitude", "longitude")
-            .annotate(count=Count("id"))
+        user = self.request.user
+        cutoff_date = date.today() - timedelta(days=90)
+
+        # Retrieve customers scoped to RBAC
+        customers = Customer.objects.select_related("salesperson").all()
+        customers = scope_queryset(user, "customer.view_all", customers)
+
+        active_customer_ids = set(
+            CustomerVoucherStatus.objects.filter(
+                customer__in=customers,
+                voucher_type__iexact="TAX INVOICE",
+                voucher_date__gte=cutoff_date,
+            ).values_list("customer_id", flat=True).distinct()
         )
 
-        data = [
-            {
-                "State": q["state"],
-                "District": q["district"],
-                "Customer_Count": q["count"],
-                "lat": q["latitude"],
-                "lon": q["longitude"]
-            }
-            for q in qs
-        ]
+        state_coords = MapView.STATE_COORDS
 
-        ctx["map_data_json"] = json.dumps(data)
+        states_set = set()
+        salespersons_set = set()
+        customer_points = []
+        district_map = defaultdict(lambda: {
+            "count": 0, "active": 0, "state": "", "district": "",
+            "lat": None, "lon": None, "customers": []
+        })
+
+        for c in customers:
+            st = (c.state or "").strip()
+            dt = (c.district or "").strip()
+            if st:
+                states_set.add(st)
+            sp_name = c.salesperson.name if c.salesperson else "Unassigned"
+            salespersons_set.add(sp_name)
+
+            lat = c.latitude
+            lon = c.longitude
+            resolved = False
+
+            # Check if lat/lon are valid coordinates (and not the Madhya Pradesh default unless state is MP)
+            if lat and lon and -90 <= lat <= 90 and -180 <= lon <= 180:
+                is_mp_center = abs(lat - 22.9734) < 0.005 and abs(lon - 78.6569) < 0.005
+                if not is_mp_center or st.lower() == "madhya pradesh":
+                    resolved = True
+
+            if not resolved:
+                dt_key = dt.lower()
+                if dt_key in INDIA_DISTRICT_COORDS:
+                    base_lat, base_lon = INDIA_DISTRICT_COORDS[dt_key]
+                    lat = base_lat + (((c.id * 17) % 19 - 9) * 0.002)
+                    lon = base_lon + (((c.id * 31) % 19 - 9) * 0.002)
+                    resolved = True
+                elif st in state_coords:
+                    base_lat, base_lon = state_coords[st]
+                    lat = base_lat + (((c.id * 19) % 31 - 15) * 0.015)
+                    lon = base_lon + (((c.id * 23) % 31 - 15) * 0.015)
+                    resolved = True
+                elif st.title() in state_coords:
+                    base_lat, base_lon = state_coords[st.title()]
+                    lat = base_lat + (((c.id * 19) % 31 - 15) * 0.015)
+                    lon = base_lon + (((c.id * 23) % 31 - 15) * 0.015)
+                    resolved = True
+
+            if not resolved or lat is None or lon is None:
+                lat = 22.9734 + (((c.id * 17) % 21 - 10) * 0.02)
+                lon = 78.6569 + (((c.id * 29) % 21 - 10) * 0.02)
+
+            is_active = c.id in active_customer_ids
+
+            pt = {
+                "id": c.id,
+                "name": c.name,
+                "sp": sp_name,
+                "phone": c.phone or "",
+                "state": st or "Unknown State",
+                "district": dt or "Unknown District",
+                "lat": round(lat, 5),
+                "lon": round(lon, 5),
+                "is_active": is_active,
+            }
+            customer_points.append(pt)
+
+            d_key = f"{dt.lower()}__{st.lower()}"
+            dm = district_map[d_key]
+            dm["count"] += 1
+            if is_active:
+                dm["active"] += 1
+            dm["state"] = st or "Unknown"
+            dm["district"] = dt or (st or "Office")
+            if dm["lat"] is None:
+                dm["lat"] = round(lat, 5)
+                dm["lon"] = round(lon, 5)
+            dm["customers"].append({
+                "id": c.id,
+                "name": c.name,
+                "sp": sp_name,
+                "phone": c.phone or "",
+                "active": is_active,
+            })
+
+        district_list = list(district_map.values())
+
+        ctx["customer_points_json"] = json.dumps(customer_points)
+        ctx["district_data_json"] = json.dumps(district_list)
+        ctx["map_data_json"] = json.dumps([
+            {
+                "State": d["state"],
+                "District": d["district"],
+                "Customer_Count": d["count"],
+                "lat": d["lat"],
+                "lon": d["lon"]
+            }
+            for d in district_list
+        ])
+        ctx["states"] = sorted(list(states_set))
+        ctx["salespersons"] = sorted(list(salespersons_set))
+        ctx["total_customers_count"] = len(customer_points)
+        ctx["total_districts_count"] = len(district_list)
         return ctx
 
 

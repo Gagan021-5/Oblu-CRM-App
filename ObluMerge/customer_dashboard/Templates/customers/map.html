@@ -10,23 +10,22 @@
 <script>
     const map = L.map('map').setView([20, 78], 5);
 
-L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-            maxZoom: 19,
-            subdomains: 'abcd',
-            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
-        }).addTo(map);
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
+        maxZoom: 19,
+        attribution: '&copy; Esri &mdash; World Street Map'
+    }).addTo(map);
 
-        const data = JSON.parse('{{ map_data_json|escapejs }}');
+    const data = JSON.parse('{{ map_data_json|escapejs }}');
 
-        data.forEach(d => {
-            if (d.lat && d.lon) {
-                L.circleMarker([d.lat, d.lon], {
-                    radius: Math.sqrt(d.Customer_Count) * 3,
-                    color: '#ff5733',
-                    fillColor: '#ff5733',
-                    fillOpacity: 0.6
-                }).bindPopup(`<b>${d.State}</b><br>Customers: ${d.Customer_Count}`).addTo(map);
-            }
-        });
+    data.forEach(d => {
+        if (d.lat && d.lon) {
+            L.circleMarker([d.lat, d.lon], {
+                radius: Math.sqrt(d.Customer_Count) * 3,
+                color: '#ff5733',
+                fillColor: '#ff5733',
+                fillOpacity: 0.6
+            }).bindPopup(`<b>${d.State}</b><br>Customers: ${d.Customer_Count}`).addTo(map);
+        }
+    });
 </script>
 {% endblock %}

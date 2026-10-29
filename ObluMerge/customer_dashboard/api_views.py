@@ -88,26 +88,25 @@ def _get_customer_for_user(user, customer_id, *permission_keys):
 
 
 def _annotate_portfolio_metrics(queryset):
-    """Attach the voucher metrics used by the website customer portfolio."""
-    from tally_voucher.models import Voucher, VoucherRow
+    """Attach the voucher metrics using the fast indexed CustomerVoucherStatus table."""
+    from django.db.models import DecimalField, IntegerField
+    from decimal import Decimal
 
-    party_total = VoucherRow.objects.filter(
-        voucher_id=OuterRef("pk"), ledger__iexact=OuterRef("party_name")
-    ).values("voucher_id").annotate(total=Sum("amount")).values("total")[:1]
-    customer_vouchers = Voucher.objects.annotate(party_clean=Lower("party_name")).filter(
-        party_clean=Lower(OuterRef("name")), voucher_type__iexact="TAX INVOICE"
+    tax_invoices = CustomerVoucherStatus.objects.filter(
+        customer_id=OuterRef("pk"),
+        voucher_type__iexact="TAX INVOICE",
     )
-    order_count = customer_vouchers.order_by().values("party_clean").annotate(
-        total=Count("pk")
+    order_count = tax_invoices.order_by().values("customer_id").annotate(
+        total=Count("id")
     ).values("total")[:1]
-    order_value = customer_vouchers.order_by().annotate(
-        party_total=Subquery(party_total)
-    ).values("party_clean").annotate(total=Sum("party_total")).values("total")[:1]
-    last_order = customer_vouchers.order_by("-date").values("date")[:1]
+    order_value = tax_invoices.order_by().values("customer_id").annotate(
+        total=Sum("voucher_amount")
+    ).values("total")[:1]
+    last_order = tax_invoices.order_by("-voucher_date").values("voucher_date")[:1]
     return queryset.annotate(
-        portfolio_total_orders=Subquery(order_count),
-        portfolio_total_order_value=Subquery(order_value),
-        portfolio_last_order_date=Subquery(last_order),
+        portfolio_total_orders=Coalesce(Subquery(order_count, output_field=IntegerField()), Value(0)),
+        portfolio_total_order_value=Coalesce(Subquery(order_value, output_field=DecimalField(max_digits=14, decimal_places=2)), Value(Decimal("0.00"))),
+        portfolio_last_order_date=Subquery(last_order, output_field=DateField()),
     )
 
 
@@ -612,18 +611,75 @@ class CustomerWorkspaceToolsView(APIView):
             sp_names = sorted(list(set(
                 base_scope.exclude(salesperson__isnull=True).values_list("salesperson__name", flat=True)
             )))
-            qs = _annotate_customer_list_activity(
-                _annotate_portfolio_metrics(base_scope)
-            ).select_related("salesperson", "unit_membership__unit", "credit_profile").order_by("name")
+
+            target_scope = base_scope
             sp_param = request.query_params.get("salesperson")
             if sp_param and sp_param != "All Salespeople":
                 if str(sp_param).isdigit():
-                    qs = qs.filter(salesperson_id=int(sp_param))
+                    target_scope = target_scope.filter(salesperson_id=int(sp_param))
                 else:
-                    qs = qs.filter(salesperson__name__iexact=str(sp_param).strip())
+                    target_scope = target_scope.filter(salesperson__name__iexact=str(sp_param).strip())
+
+            q_search = request.query_params.get("search", "").strip()
+            if q_search:
+                target_scope = target_scope.filter(
+                    Q(name__icontains=q_search) |
+                    Q(phone__icontains=q_search) |
+                    Q(district__icontains=q_search) |
+                    Q(state__icontains=q_search)
+                )
+
+            from decimal import Decimal
+            today = timezone.now().date()
+            cutoff_date = today - timezone.timedelta(days=90)
+            total_accounts = target_scope.count()
+
+            active_clients = target_scope.filter(
+                voucher_statuses__voucher_type__iexact="TAX INVOICE",
+                voucher_statuses__voucher_date__gte=cutoff_date,
+            ).distinct().count()
+            inactive_clients = max(0, total_accounts - active_clients)
+
+            due_accounts = target_scope.filter(credit_profile__outstanding_balance__gt=0).count()
+            total_exposure = target_scope.filter(credit_profile__outstanding_balance__gt=0).aggregate(
+                total=Sum("credit_profile__outstanding_balance")
+            )["total"] or Decimal("0.00")
+
+            stats = {
+                "total_accounts": total_accounts,
+                "active_clients": active_clients,
+                "inactive_dormant": inactive_clients,
+                "due_accounts": due_accounts,
+                "total_exposure": float(total_exposure),
+            }
+
+            page_param = request.query_params.get("page")
+            page_size_param = request.query_params.get("page_size")
+
+            page_size = int(page_size_param) if page_size_param and str(page_size_param).isdigit() else 50
+            page_num = int(page_param) if page_param and str(page_param).isdigit() else 1
+            offset = (page_num - 1) * page_size
+
+            paged_ids = list(target_scope.order_by("name").values_list("id", flat=True)[offset : offset + page_size])
+            paged_qs = target_scope.filter(id__in=paged_ids)
+            qs = _annotate_customer_list_activity(
+                _annotate_portfolio_metrics(paged_qs)
+            ).select_related("salesperson", "unit_membership__unit", "credit_profile").order_by("name")
+
+            total_pages = (total_accounts + page_size - 1) // page_size if total_accounts > 0 else 1
+            has_next = page_num < total_pages
+            has_prev = page_num > 1
+
             return Response({
                 "rows": CustomerListSerializer(qs, many=True).data,
                 "salespersons": sp_names,
+                "stats": stats,
+                "page": page_num,
+                "page_size": page_size,
+                "total_count": total_accounts,
+                "total_pages": total_pages,
+                "has_next": has_next,
+                "has_prev": has_prev,
             })
 
         if tool == "payment-followups":
