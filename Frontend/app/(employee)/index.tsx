@@ -1060,8 +1060,8 @@ export default function EmployeeHomeScreen() {
                 <SubAppCard
                   type="leads"
                   onPress={() => router.push("/(employee)/leads" as any)}
-                  leadsCount={14}
-                  pipelineValue="₹18.5L"
+                  leadsCount={stats?.totalLeadsCount ?? leads.length}
+                  pipelineValue={stats?.totalOutstandingFormatted ? `Due ${stats.totalOutstandingFormatted}` : "Active"}
                 />
               </View>
             )}
@@ -1114,7 +1114,7 @@ export default function EmployeeHomeScreen() {
                 <View style={styles.metricsRow}>
                   <MetricCard
                     label="Enterprise Accounts"
-                    value={String(stats?.totalCustomers ?? 180)}
+                    value={String(stats?.totalCustomers ?? 0)}
                     subValue="corporate portfolio"
                     icon="business-outline"
                   />
@@ -1135,9 +1135,9 @@ export default function EmployeeHomeScreen() {
                     isHighlight={(stats?.overduePaymentsCount ?? 0) > 0}
                   />
                   <MetricCard
-                    label="Warehouse SKUs"
-                    value="540+"
-                    subValue="catalog inventory"
+                    label="Total Exposure"
+                    value={stats?.totalOutstandingFormatted ?? "₹0"}
+                    subValue="receivables due"
                     icon="cube-outline"
                   />
                 </View>
@@ -1161,7 +1161,7 @@ export default function EmployeeHomeScreen() {
                 </View>
                 <View style={styles.metricsRow}>
                   <MetricCard
-                    label="Pending Payments"
+                    label="Accounts with Dues"
                     value={String(stats?.overduePaymentsCount ?? 0)}
                     subValue="payment pending"
                     icon="cash-outline"
@@ -1169,7 +1169,7 @@ export default function EmployeeHomeScreen() {
                   />
                   <MetricCard
                     label="Active Leads"
-                    value="14"
+                    value={String(stats?.totalLeadsCount ?? leads.length)}
                     subValue="pipeline prospects"
                     icon="filter-outline"
                   />

@@ -609,17 +609,17 @@ export default function CustomerDetailScreen() {
                     styles.paramValue,
                     {
                       color:
-                        customer.outstandingPayment === "₹0"
+                        String(customer.outstandingPayment || '').startsWith('-') || customer.outstandingPayment === '₹0'
                           ? isDark
-                            ? "#35D6A0"
-                            : "#00A879"
+                            ? '#35D6A0'
+                            : '#00A879'
                           : isDark
-                          ? "#F2B84B"
-                          : "#C97A1E",
+                          ? '#F2B84B'
+                          : '#C97A1E',
                     },
                   ]}
                 >
-                  {customer.outstandingPayment}
+                  {String(customer.outstandingPayment || '').startsWith('-') ? `${customer.outstandingPayment} (Cr)` : customer.outstandingPayment}
                 </Text>
               </View>
 

@@ -608,10 +608,23 @@ class CustomerWorkspaceToolsView(APIView):
         if tool == "team-customers":
             if not _has_customer_permission(request.user, "customer.view", "customer.view_all"):
                 raise PermissionDenied("Team customer access is not enabled for this account.")
+            base_scope = _customer_scope(request.user, "customer.view", "customer.view_all")
+            sp_names = sorted(list(set(
+                base_scope.exclude(salesperson__isnull=True).values_list("salesperson__name", flat=True)
+            )))
             qs = _annotate_customer_list_activity(
-                _customer_scope(request.user, "customer.view", "customer.view_all")
+                _annotate_portfolio_metrics(base_scope)
             ).select_related("salesperson", "unit_membership__unit", "credit_profile").order_by("name")
-            return Response(CustomerListSerializer(qs[:200], many=True).data)
+            sp_param = request.query_params.get("salesperson")
+            if sp_param and sp_param != "All Salespeople":
+                if str(sp_param).isdigit():
+                    qs = qs.filter(salesperson_id=int(sp_param))
+                else:
+                    qs = qs.filter(salesperson__name__iexact=str(sp_param).strip())
+            return Response({
+                "rows": CustomerListSerializer(qs, many=True).data,
+                "salespersons": sp_names,
+            })
 
         if tool == "payment-followups":
             if not _has_customer_permission(request.user, "payment.view"):

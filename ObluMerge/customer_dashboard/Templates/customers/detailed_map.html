@@ -18,12 +18,18 @@ document.addEventListener("DOMContentLoaded", function () {
     // Initialize map centered on India
     const map = L.map('map').setView([22.9734, 78.6569], 5);
 
-    // Add OpenStreetMap base layer
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+    // Add high-reliability CartoDB base layer with automatic ESRI Street Map fallback
+    const tileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
         maxZoom: 19,
         subdomains: 'abcd',
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
-    }).addTo(map);
+        attribution: '&copy; CARTO &copy; OpenStreetMap contributors'
+    });
+    tileLayer.on('tileerror', function (e) {
+        if (e.tile && e.coords) {
+            e.tile.src = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/' + e.coords.z + '/' + e.coords.y + '/' + e.coords.x;
+        }
+    });
+    tileLayer.addTo(map);
 
     // Parse the JSON data from Django context
     const data = JSON.parse('{{ map_data_json|escapejs }}');

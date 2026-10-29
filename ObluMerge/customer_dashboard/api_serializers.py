@@ -256,15 +256,44 @@ class CustomerListSerializer(serializers.ModelSerializer):
         return membership.unit.name if membership else ""
 
     def get_totalOrders(self, obj):
-        return getattr(obj, "portfolio_total_orders", 0) or 0
+        val = getattr(obj, "portfolio_total_orders", None)
+        if val is not None and val > 0:
+            return val
+        if hasattr(obj, "voucher_statuses"):
+            cnt = obj.voucher_statuses.filter(voucher_type__iexact="TAX INVOICE").count()
+            if cnt > 0:
+                return cnt
+        return val or 0
+
 
     def get_totalOrderValue(self, obj):
-        value = getattr(obj, "portfolio_total_order_value", None)
-        return str(value or 0)
+        val = getattr(obj, "portfolio_total_order_value", None)
+        if val is not None and float(val or 0) > 0:
+            return str(val)
+        if hasattr(obj, "voucher_statuses"):
+            from django.db.models import Sum
+            total = obj.voucher_statuses.filter(voucher_type__iexact="TAX INVOICE").aggregate(total=Sum("voucher_amount"))["total"]
+            if total:
+                return str(total)
+        return str(val or 0)
 
     def get_lastOrderDate(self, obj):
-        value = getattr(obj, "portfolio_last_order_date", None)
-        return value.strftime("%d %b %Y") if value else ""
+        val = getattr(obj, "portfolio_last_order_date", None)
+        if val:
+            if hasattr(val, "strftime"):
+                return val.strftime("%d %b %Y")
+            return str(val)
+        if hasattr(obj, "voucher_statuses"):
+            latest = obj.voucher_statuses.filter(voucher_type__iexact="TAX INVOICE").order_by("-voucher_date").first()
+            if latest and latest.voucher_date:
+                return latest.voucher_date.strftime("%d %b %Y")
+        return ""
+
+
+
+
+
+
 
     def get_customerSince(self, obj):
         return obj.created_at.strftime("%b %Y") if obj.created_at else ""
@@ -277,11 +306,13 @@ class CustomerListSerializer(serializers.ModelSerializer):
 
     def get_outstandingPayment(self, obj):
         num = self.get_outstandingPaymentNum(obj)
+        if num < 0:
+            return f"-₹{int(abs(num)):,}"
         return f"₹{int(num):,}"
 
     def get_outstandingPaymentNum(self, obj):
         try:
-            return float(abs(obj.credit_profile.outstanding_balance or 0))
+            return float(obj.credit_profile.outstanding_balance or 0)
         except Exception:
             return 0.0
 
