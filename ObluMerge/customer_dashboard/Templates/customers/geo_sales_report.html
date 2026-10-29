@@ -125,14 +125,14 @@
     document.addEventListener('DOMContentLoaded', () => {
         {% if selected_sp %}
         const map1 = L.map('map1', { attributionControl: false }).setView([22.5, 78], 5);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map1);
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { maxZoom: 19, subdomains: 'abcd' }).addTo(map1);
         const m1s = buildLayer({{ map1_state_json|safe }}, 'green', true).addTo(map1);
         const m1d = buildLayer({{ map1_dist_json|safe }}, 'green', false);
         L.control.layers({"State View": m1s, "District View": m1d}, null, {collapsed: false}).addTo(map1);
 
         {% if map2_state_json %}
         const map2 = L.map('map2', { attributionControl: false }).setView([22.5, 78], 5);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map2);
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { maxZoom: 19, subdomains: 'abcd' }).addTo(map2);
         const m2s = buildLayer({{ map2_state_json|safe }}, 'yellow', true).addTo(map2);
         const m2d = buildLayer({{ map2_dist_json|safe }}, 'yellow', false);
         L.control.layers({"State View": m2s, "District View": m2d}, null, {collapsed: false}).addTo(map2);
