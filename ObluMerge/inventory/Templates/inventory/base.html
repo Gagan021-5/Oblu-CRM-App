@@ -224,7 +224,7 @@
             flex-direction: column;
             will-change: transform;
             transform: translate3d(0, 0, 0);
-            transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+            transition: transform 0.16s cubic-bezier(0, 0, 0.2, 1);
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             overflow: hidden;
             backface-visibility: hidden;
@@ -389,7 +389,13 @@
             margin-left: var(--sidebar-width);
             box-sizing: border-box;
             will-change: margin-left;
-            transition: margin-left 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+            transition: margin-left 0.16s cubic-bezier(0, 0, 0.2, 1);
+        }
+
+        /* Suppress all internal child transitions during sidebar toggle to prevent lag & slow crawling */
+        html.sidebar-animating #page-content-wrapper *,
+        body.sidebar-animating #page-content-wrapper * {
+            transition: none !important;
         }
 
 
@@ -624,7 +630,7 @@
                 transform: translate3d(-100%, 0, 0);
                 box-shadow: none;
                 z-index: 1200;
-                transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+                transition: transform 0.16s cubic-bezier(0, 0, 0.2, 1);
             }
 
             #sidebar-wrapper.mobile-open {
@@ -692,7 +698,7 @@
     <!-- =========================================================
          STATE-OF-THE-ART SIDEBAR (TAILWIND HTML UI WITH DROPDOWNS)
          ========================================================= -->
-    <aside id="sidebar-wrapper" data-turbo-permanent class="w-[285px] bg-[#f1f5f9] border-r border-slate-200 flex flex-col h-screen fixed top-0 left-0 z-[1100] transition-transform duration-300 ease-in-out select-none shadow-xs">
+    <aside id="sidebar-wrapper" data-turbo-permanent class="w-[285px] bg-[#f1f5f9] border-r border-slate-200 flex flex-col h-screen fixed top-0 left-0 z-[1100] select-none shadow-xs">
 
         <!-- 1. BRAND HEADER -->
         <div class="h-[70px] px-4 flex items-center justify-between border-b border-slate-200/80 shrink-0 bg-[#f1f5f9]">
@@ -1475,6 +1481,10 @@ document.addEventListener(
                     openMobileDrawer();
                 }
             } else {
+                // Freeze heavy internal child transitions during the 160ms slide
+                document.documentElement.classList.add("sidebar-animating");
+                document.body.classList.add("sidebar-animating");
+
                 const willCollapse = !isCollapsed();
                 if (willCollapse) {
                     document.documentElement.classList.add("sidebar-collapsed");
@@ -1487,13 +1497,15 @@ document.addEventListener(
                 }
                 updateToggleIcon();
 
-                // Silky smooth Chart.js resize once transition completes (zero frame drops)
+                // Restore transitions and update Chart.js once layout is settled (170ms)
                 setTimeout(function() {
+                    document.documentElement.classList.remove("sidebar-animating");
+                    document.body.classList.remove("sidebar-animating");
                     if (window.velocityChart && typeof window.velocityChart.resize === "function") {
                         window.velocityChart.resize();
                     }
                     window.dispatchEvent(new Event("resize"));
-                }, 240);
+                }, 170);
             }
         }
 
