@@ -2763,7 +2763,7 @@ def get_cross_selling_mobile_dataset():
 
     customers = list(
         Customer.objects.select_related("salesperson").only(
-            "id", "name", "district", "city", "state", "phone",
+            "id", "name", "district", "state", "phone",
             "salesperson_id", "salesperson__id", "salesperson__name",
         )
     )

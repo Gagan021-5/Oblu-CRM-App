@@ -864,7 +864,7 @@ class CustomerWorkspaceToolsView(APIView):
                         item["customer"].phone,
                         item["customer"].state,
                         item["customer"].district,
-                        item["customer"].city,
+                        getattr(item["customer"], "city", "") or getattr(item["customer"], "district", ""),
                         item["customer"].salesperson.name if item["customer"].salesperson else "Unassigned",
                     ))
                 ]
@@ -941,7 +941,7 @@ class CustomerWorkspaceToolsView(APIView):
                         "id": customer.pk,
                         "customer": customer.name,
                         "customer_id": customer.pk,
-                        "city": customer.district or customer.city or "",
+                        "city": customer.district or getattr(customer, "city", "") or "",
                         "state": customer.state or "",
                         "phone": customer.phone or "",
                         "salesperson": customer.salesperson.name if customer.salesperson else "Unassigned",
