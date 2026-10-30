@@ -476,7 +476,7 @@ export default function CustomerDashboardScreen() {
           renderItem={renderItem}
           onEndReached={loadNextPage}
           onEndReachedThreshold={0.5}
-          ListFooterComponent={loadingMore ? <ActivityIndicator style={{ padding: 16 }} color={isDark ? "#35D6A0" : "#00A879"} /> : null}
+          ListFooterComponent={loadingMore ? <ActivityIndicator style={{ padding: 16 }} color={isDark ? "#35D6A0" : "#00A879"} /> : undefined}
           ListHeaderComponent={listHeaderComponent}
           ListEmptyComponent={emptyComponent}
           contentContainerStyle={[

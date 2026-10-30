@@ -430,7 +430,7 @@ export default function CustomersScreen() {
           renderItem={renderCustomerCard}
           onEndReached={loadNextPage}
           onEndReachedThreshold={0.5}
-          ListFooterComponent={loadingMore ? <ActivityIndicator style={{ padding: 16 }} color={colors.primary} /> : null}
+          ListFooterComponent={loadingMore ? <ActivityIndicator style={{ padding: 16 }} color={colors.primary} /> : undefined}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{
             paddingHorizontal: Spacing.screenPadding,
