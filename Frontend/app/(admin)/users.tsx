@@ -116,7 +116,25 @@ export default function UsersScreen() {
   const [searchQuery, setSearchQuery] = useState("");
 
   const openSubApp = (appId: string) => {
-    setSelectedCategory(appId);
+    if (appId === "all") {
+      setSelectedCategory("all");
+      return;
+    }
+
+    const routes: Record<string, string> = {
+      hrms: "/(admin)/hrms",
+      customers: "/(admin)/customers",
+      calls: "/(admin)/call-logs",
+      leads: "/(admin)/leads",
+      inventory: "/(admin)/inventory",
+      proforma: "/(admin)/proforma",
+      incentives: "/(admin)/incentives",
+      security: "/(admin)/security",
+    };
+    const route = routes[appId];
+    if (route) {
+      router.push(route as any);
+    }
   };
 
   const [users, setUsers] = useState<UserItem[]>([]);

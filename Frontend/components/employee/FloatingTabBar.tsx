@@ -28,7 +28,8 @@ const FloatingTabBarComponent: React.FC<FloatingTabBarProps> = () => {
       r.includes("director") ||
       u === "infected" ||
       u === "akshay_narayan" ||
-      u === "nitin_aggarwal"
+      u === "nitin_aggarwal" ||
+      u === "abhijay"
     );
   }, [user]);
 
@@ -60,7 +61,7 @@ const FloatingTabBarComponent: React.FC<FloatingTabBarProps> = () => {
     activeTabParam === "staff";
 
   const isCustomers = pathname.includes("customers");
-  const isProfile = pathname.includes("profile");
+  const isProfile = pathname.includes("profile") || pathname.includes("more");
   const isCalls =
     pathname.includes("status") ||
     pathname.includes("(user)") ||
@@ -90,7 +91,9 @@ const FloatingTabBarComponent: React.FC<FloatingTabBarProps> = () => {
       iconInactive: "people-outline" as const,
       isActive: isCustomers,
       onPress: () => {
-        if (!isCustomers) {
+        if (isAdmin) {
+          router.replace("/(admin)/customers" as any);
+        } else if (!isCustomers) {
           router.replace("/(employee)/customers" as any);
         }
       },
@@ -116,7 +119,9 @@ const FloatingTabBarComponent: React.FC<FloatingTabBarProps> = () => {
       iconInactive: "person-outline" as const,
       isActive: isProfile,
       onPress: () => {
-        if (!isProfile) {
+        if (isAdmin) {
+          router.push("/(admin)/more" as any);
+        } else if (!isProfile) {
           router.push("/(employee)/profile" as any);
         }
       },
@@ -164,7 +169,9 @@ const FloatingTabBarComponent: React.FC<FloatingTabBarProps> = () => {
       iconInactive: "person-outline" as const,
       isActive: isProfile,
       onPress: () => {
-        if (!isProfile) {
+        if (isAdmin) {
+          router.push("/(admin)/more" as any);
+        } else if (!isProfile) {
           router.push("/(employee)/profile" as any);
         }
       },

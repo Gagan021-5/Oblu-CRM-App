@@ -1,190 +1,43 @@
 import React from "react";
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-} from "react-native";
-import { Tabs, router } from "expo-router";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Ionicons } from "@expo/vector-icons";
+import { View, StyleSheet } from "react-native";
+import { Stack } from "expo-router";
 import { useTheme } from "@/contexts/ThemeContext";
-import { Typography, FontSizes, Radius, Shadows } from "@/constants/theme";
-
-function FloatingBottomDock({ state, descriptors, navigation }: any) {
-  const insets = useSafeAreaInsets();
-  const { isDark } = useTheme();
-
-  const bottomPad = Math.max(insets.bottom, 12);
-
-  // Map route names to visual labels and icons (4 Clean Tabs: Home, Customers, Calls, More)
-  const dockTabs = [
-    {
-      name: "users",
-      label: "Home",
-      iconActive: "home" as const,
-      iconInactive: "home-outline" as const,
-    },
-    {
-      name: "customers",
-      label: "Customers",
-      iconActive: "people" as const,
-      iconInactive: "people-outline" as const,
-    },
-    {
-      name: "call-logs",
-      label: "Calls",
-      iconActive: "call" as const,
-      iconInactive: "call-outline" as const,
-    },
-    {
-      name: "more",
-      label: "Profile",
-      iconActive: "person" as const,
-      iconInactive: "person-outline" as const,
-    },
-  ];
-
-  const currentRoute = state?.routes?.[state?.index]?.name;
-  const isMainTab = dockTabs.some((t) => t.name === currentRoute);
-  // Do not render floating dock on sub-screens (they have their own navigation / back buttons)
-  if (!isMainTab) {
-    return null;
-  }
-
-  return (
-    <View
-      pointerEvents="box-none"
-      style={[styles.dockWrapper, { bottom: bottomPad }]}
-    >
-      <View
-        style={[
-          styles.dockContainer,
-          {
-            backgroundColor: isDark ? "#0E1714" : "#18312A",
-            borderColor: isDark ? "#294039" : "rgba(255, 255, 255, 0.12)",
-          },
-        ]}
-      >
-        {dockTabs.map((item) => {
-          const routeIndex = state?.routes?.findIndex((r: any) => r.name === item.name) ?? -1;
-          const isFocused = routeIndex !== -1 && state?.index === routeIndex;
-
-          const onPress = () => {
-            if (isFocused) return;
-            const route = state?.routes?.find((r: any) => r.name === item.name);
-
-            if (navigation?.emit && route) {
-              const event = navigation.emit({
-                type: "tabPress",
-                target: route.key,
-                canPreventDefault: true,
-              });
-              if (event?.defaultPrevented) return;
-            }
-
-            if (navigation?.navigate && route) {
-              navigation.navigate(route.name);
-            } else {
-              router.replace(`/(admin)/${item.name}` as any);
-            }
-          };
-
-          const activeColor = isDark ? "#35D6A0" : "#20E3AD";
-          const inactiveColor = "rgba(241, 247, 244, 0.55)";
-
-          return (
-            <TouchableOpacity
-              key={item.name}
-              activeOpacity={0.7}
-              onPress={onPress}
-              style={styles.dockItem}
-            >
-              <Ionicons
-                name={isFocused ? item.iconActive : item.iconInactive}
-                size={21}
-                color={isFocused ? activeColor : inactiveColor}
-              />
-              <Text
-                numberOfLines={1}
-                adjustsFontSizeToFit
-                style={[
-                  styles.dockLabel,
-                  {
-                    color: isFocused ? activeColor : inactiveColor,
-                    fontFamily: isFocused ? Typography.semiBold : Typography.regular,
-                  },
-                ]}
-              >
-                {item.label}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-    </View>
-  );
-}
+import { FloatingTabBar } from "@/components/employee/FloatingTabBar";
 
 export default function AdminLayout() {
   const { colors } = useTheme();
 
   return (
-    <Tabs
-      tabBar={(props) => <FloatingBottomDock {...props} />}
-      screenOptions={{
-        headerShown: false,
-        sceneStyle: { backgroundColor: colors.background },
-      }}
-    >
-      <Tabs.Screen name="users" options={{ title: "Home" }} />
-      <Tabs.Screen name="customers" options={{ title: "Customers" }} />
-      <Tabs.Screen name="call-logs" options={{ title: "Calls" }} />
-      <Tabs.Screen name="more" options={{ title: "Profile" }} />
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <Stack
+        screenOptions={{
+          headerShown: false,
+          contentStyle: { backgroundColor: colors.background },
+          animation: "none",
+        }}
+      >
+        <Stack.Screen name="users" options={{ animation: "none" }} />
+        <Stack.Screen name="customers" options={{ animation: "none" }} />
+        <Stack.Screen name="call-logs" options={{ animation: "none" }} />
+        <Stack.Screen name="more" options={{ animation: "none" }} />
+        <Stack.Screen name="hrms" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen name="inventory" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen name="proforma" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen name="incentives" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen name="security" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen name="leads" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen name="stats" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen name="customer-dashboard" options={{ animation: "slide_from_right" }} />
+      </Stack>
 
-      {/* Sub-screens (hidden from tab bar dock) */}
-      <Tabs.Screen name="hrms" options={{ href: null }} />
-      <Tabs.Screen name="inventory" options={{ href: null }} />
-      <Tabs.Screen name="proforma" options={{ href: null }} />
-      <Tabs.Screen name="incentives" options={{ href: null }} />
-      <Tabs.Screen name="security" options={{ href: null }} />
-      <Tabs.Screen name="leads" options={{ href: null }} />
-      <Tabs.Screen name="stats" options={{ href: null }} />
-      <Tabs.Screen name="customer-dashboard" options={{ href: null }} />
-    </Tabs>
+      {/* Persistent Floating Bottom Navigation (Clean 4-tab dock) */}
+      <FloatingTabBar />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  dockWrapper: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    alignItems: "center",
-    zIndex: 100,
-  },
-  dockContainer: {
-    width: "92%",
-    maxWidth: 390,
-    height: 64,
-    borderRadius: Radius.dock,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 12,
-    borderWidth: 1,
-    ...Shadows.floatingDock,
-  },
-  dockItem: {
+  container: {
     flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    height: "100%",
-    gap: 3,
-  },
-  dockLabel: {
-    fontFamily: Typography.medium,
-    fontSize: FontSizes.tabLabel,
-    letterSpacing: 0.2,
   },
 });
