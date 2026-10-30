@@ -195,6 +195,35 @@ export async function fetchCustomerByIdFromApi(id: string): Promise<Customer> {
   return normalizeCustomer(res.data);
 }
 
+export interface CustomerEditOptions {
+  customer: {
+    id: number | string;
+    phone: string;
+    email: string;
+    salesperson_id: number | null;
+    assignedSalesperson: string;
+    credit_period_days: number;
+  };
+  salespersons: Array<{ id: number; name: string }>;
+  can_edit_contact: boolean;
+  can_edit_credit: boolean;
+}
+
+export async function fetchCustomerEditOptionsApi(id: string | number): Promise<CustomerEditOptions> {
+  const numericId = String(id).replace(/[^0-9]/g, "") || String(id);
+  const res = await api.get<CustomerEditOptions>(`/customers/${numericId}/edit/`);
+  return res.data;
+}
+
+export async function updateCustomerEditableFieldsApi(
+  id: string | number,
+  data: { phone?: string; email?: string; salesperson?: number | null; credit_period_days?: number }
+): Promise<{ success: boolean; customer: any; credit_period_days: number }> {
+  const numericId = String(id).replace(/[^0-9]/g, "") || String(id);
+  const res = await api.patch(`/customers/${numericId}/edit/`, data);
+  return res.data;
+}
+
 export async function addCustomerRemarkApi(customerId: string, remarkText: string): Promise<CustomerRemark> {
   const numericId = customerId.replace(/[^0-9]/g, "") || customerId;
   const res = await api.post(`/customers/${numericId}/remarks/`, { remark: remarkText });

@@ -937,20 +937,6 @@ export default function CustomerToolScreen() {
         {/* ── TOOL: TEAM CUSTOMERS OVERVIEW & FILTERS ── */}
         {tool === "team-customers" && !loading && (
           <View style={styles.portfolioOverview}>
-            <View style={styles.overviewGrid}>
-              {customerOverview.map((metric) => (
-                <View key={metric.label} style={[styles.overviewMetric, card]}>
-                  <View style={styles.overviewMetricTop}>
-                    <Text style={[styles.metricLabel, { color: muted }]}>{metric.label}</Text>
-                    <Ionicons name={metric.icon} size={17} color={metric.color} />
-                  </View>
-                  <Text style={[styles.overviewValue, { color: metric.color }]} numberOfLines={1} adjustsFontSizeToFit>
-                    {metric.value}
-                  </Text>
-                </View>
-              ))}
-            </View>
-
             <View style={[styles.customerFilters, card]}>
               <Text style={[styles.filterLabel, { color: muted }]}>SALESPERSON</Text>
               <TouchableOpacity
@@ -1045,6 +1031,20 @@ export default function CustomerToolScreen() {
                   <Text style={styles.resetFilters}>Reset filters</Text>
                 </TouchableOpacity>
               </View>
+            </View>
+
+            <View style={styles.overviewGrid}>
+              {customerOverview.map((metric) => (
+                <View key={metric.label} style={[styles.overviewMetric, card]}>
+                  <View style={styles.overviewMetricTop}>
+                    <Text style={[styles.metricLabel, { color: muted }]}>{metric.label}</Text>
+                    <Ionicons name={metric.icon} size={17} color={metric.color} />
+                  </View>
+                  <Text style={[styles.overviewValue, { color: metric.color }]} numberOfLines={1} adjustsFontSizeToFit>
+                    {metric.value}
+                  </Text>
+                </View>
+              ))}
             </View>
           </View>
         )}

@@ -360,13 +360,12 @@ export default function CustomerDetailScreen() {
             >
               <Ionicons
                 name="call"
-                size={15}
+                size={16}
                 color="#FFFFFF"
               />
               <Text
-                style={[styles.actionBtnText, { color: "#FFFFFF" }]}
+                style={styles.actionBtnCallText}
                 numberOfLines={1}
-                adjustsFontSizeToFit
               >
                 Call
               </Text>
@@ -1171,30 +1170,43 @@ const styles = StyleSheet.create({
   },
   primaryActionRow: {
     flexDirection: "row",
-    gap: 8,
+    alignItems: "center",
+    gap: 6,
     borderTopWidth: 1,
     borderTopColor: "rgba(128,128,128,0.12)",
     paddingTop: 12,
   },
   actionBtn: {
     flex: 1,
+    minWidth: 0,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    height: 40,
-    paddingHorizontal: 6,
-    borderRadius: 12,
+    height: 42,
+    paddingHorizontal: 8,
+    borderRadius: 11,
     borderWidth: 1,
     gap: 5,
     ...Shadows.card,
   },
   actionBtnCall: {
+    paddingHorizontal: 10,
     ...Shadows.mintButton,
   },
   actionBtnText: {
-    fontSize: 12,
+    fontSize: 11.5,
+    lineHeight: 15,
     fontFamily: Typography.semiBold,
     textAlign: "center",
+    includeFontPadding: false,
+  },
+  actionBtnCallText: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    lineHeight: 17,
+    fontFamily: Typography.bold,
+    textAlign: "center",
+    includeFontPadding: false,
   },
   segmentBar: {
     flexDirection: "row",

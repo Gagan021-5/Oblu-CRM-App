@@ -13,6 +13,10 @@ import {
   TextInput,
   Linking,
   Alert,
+  Modal,
+  ScrollView,
+  KeyboardAvoidingView,
+  Platform,
   RefreshControl,
   ActivityIndicator,
 } from "react-native";
@@ -23,7 +27,12 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { Typography, FontSizes, Spacing, Radius, Shadows } from "@/constants/theme";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { Customer } from "@/data/customerTypes";
-import { fetchCustomerPageFromApi } from "@/services/customerService";
+import {
+  CustomerEditOptions,
+  fetchCustomerEditOptionsApi,
+  fetchCustomerPageFromApi,
+  updateCustomerEditableFieldsApi,
+} from "@/services/customerService";
 import { CustomerNavDrawer } from "@/components/CustomerNavDrawer";
 import { CustomerBalanceFilter, CustomerFilterSheet, CustomerPaymentFilter, CustomerSortOption } from "@/components/ui/CustomerFilterSheet";
 
@@ -31,6 +40,20 @@ function getOutstandingAmount(value: string): number {
   const normalized = (value || "").replace(/[^0-9.-]/g, "");
   const amount = Number(normalized);
   return Number.isFinite(amount) ? amount : 0;
+}
+
+interface CustomerEditFormState {
+  phone: string;
+  email: string;
+  salespersonId: number | null;
+  creditPeriodDays: string;
+}
+
+type CustomerEditMode = "contact" | "credit";
+
+function getCreditDays(value?: string): number {
+  const days = Number(String(value || "").match(/\d+/)?.[0]);
+  return Number.isFinite(days) && days >= 0 ? days : 7;
 }
 
 export default function CustomersScreen() {
@@ -49,6 +72,15 @@ export default function CustomersScreen() {
   const [paymentFilter, setPaymentFilter] = useState<CustomerPaymentFilter>("all");
   const [balanceFilter, setBalanceFilter] = useState<CustomerBalanceFilter>("all");
   const [sortOption, setSortOption] = useState<CustomerSortOption>("default");
+  const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
+  const [editMode, setEditMode] = useState<CustomerEditMode | null>(null);
+  const [editForm, setEditForm] = useState<CustomerEditFormState | null>(null);
+  const [salespersonOptions, setSalespersonOptions] = useState<CustomerEditOptions["salespersons"]>([]);
+  const [editPermissions, setEditPermissions] = useState({ contact: false, credit: false });
+  const [editLoading, setEditLoading] = useState(false);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [salespersonPickerOpen, setSalespersonPickerOpen] = useState(false);
+  const [editError, setEditError] = useState("");
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(search.trim()), 300);
@@ -134,6 +166,99 @@ export default function CustomersScreen() {
     setPaymentFilter("all");
     setBalanceFilter("all");
     setSortOption("default");
+  };
+
+  const closeCustomerEditor = () => {
+    if (savingEdit) return;
+    setEditingCustomer(null);
+    setEditMode(null);
+    setEditForm(null);
+    setSalespersonPickerOpen(false);
+    setEditError("");
+  };
+
+  const openCustomerEditor = async (customer: Customer, mode: CustomerEditMode) => {
+    setEditingCustomer(customer);
+    setEditMode(mode);
+    setEditForm(null);
+    setEditError("");
+    setEditLoading(true);
+    setSalespersonPickerOpen(false);
+    try {
+      const options = await fetchCustomerEditOptionsApi(customer.id);
+      const allowed = mode === "contact" ? options.can_edit_contact : options.can_edit_credit;
+      if (!allowed) {
+        setEditingCustomer(null);
+        setEditMode(null);
+        Alert.alert("Edit not available", mode === "contact"
+          ? "You don’t have permission to edit this customer’s contact or salesperson."
+          : "You don’t have permission to edit this customer’s credit period.");
+        return;
+      }
+      setSalespersonOptions(options.salespersons || []);
+      setEditPermissions({ contact: options.can_edit_contact, credit: options.can_edit_credit });
+      setEditForm({
+        phone: options.customer.phone || "",
+        email: options.customer.email || "",
+        salespersonId: options.customer.salesperson_id ?? null,
+        creditPeriodDays: String(options.customer.credit_period_days ?? getCreditDays(customer.creditPeriod)),
+      });
+    } catch (error: any) {
+      setEditingCustomer(null);
+      setEditMode(null);
+      const message = error?.response?.data?.detail || error?.response?.data?.error ||
+        (error?.response?.status === 403 ? "You don’t have permission to edit this customer." : "Could not load customer edit options. Please try again.");
+      Alert.alert("Unable to edit customer", message);
+    } finally {
+      setEditLoading(false);
+    }
+  };
+
+  const saveCustomerEditor = async () => {
+    if (!editingCustomer || !editForm || savingEdit) return;
+    setEditError("");
+    const payload: { phone?: string; email?: string; salesperson?: number | null; credit_period_days?: number } = {};
+    if (editMode === "contact" && editPermissions.contact) {
+      payload.phone = editForm.phone.trim();
+      payload.email = editForm.email.trim();
+      payload.salesperson = editForm.salespersonId;
+    }
+    if (editMode === "credit" && editPermissions.credit) {
+      const creditDays = Number(editForm.creditPeriodDays);
+      if (!Number.isInteger(creditDays) || creditDays < 0) {
+        setEditError("Enter a whole number of credit days (0 or more).");
+        return;
+      }
+      payload.credit_period_days = creditDays;
+    }
+
+    setSavingEdit(true);
+    try {
+      const result = await updateCustomerEditableFieldsApi(editingCustomer.id, payload);
+      const updated = result.customer || {};
+      setCustomers((previous) => previous.map((row) => String(row.id) === String(editingCustomer.id)
+        ? {
+            ...row,
+            ...(editMode === "contact" ? {
+              phone: updated.phone ?? editForm.phone.trim(),
+              email: updated.email ?? editForm.email.trim(),
+              assignedSalesperson: updated.assignedSalesperson ?? salespersonOptions.find((option) => option.id === editForm.salespersonId)?.name ?? "Unassigned",
+            } : {}),
+            ...(editMode === "credit" ? { creditPeriod: `${result.credit_period_days ?? Number(editForm.creditPeriodDays)} Days` } : {}),
+          }
+        : row));
+      setEditingCustomer(null);
+      setEditMode(null);
+      setEditForm(null);
+      setSalespersonPickerOpen(false);
+      Alert.alert("Customer updated", "The customer details have been saved.");
+    } catch (error: any) {
+      const responseData = error?.response?.data;
+      const detail = responseData?.detail || responseData?.error || responseData?.errors;
+      setEditError(typeof detail === "string" ? detail : "Could not save these changes. Check the fields and try again.");
+    } finally {
+      setSavingEdit(false);
+    }
   };
 
   const getStatusColor = (status: string) => {
@@ -281,15 +406,8 @@ export default function CustomersScreen() {
         {/* Footer Row: Last Contact / Credit & Quick Action Pill */}
         <View style={styles.footerRow}>
           <View style={styles.footerLeft}>
-            <Ionicons
-              name="time-outline"
-              size={13}
-              color={colors.textSecondary}
-            />
-            <Text
-              style={[styles.footerText, { color: colors.textSecondary }]}
-              numberOfLines={1}
-            >
+            <Ionicons name="time-outline" size={13} color={colors.textSecondary} />
+            <Text style={[styles.footerText, { color: colors.textSecondary }]} numberOfLines={1}>
               {item.lastContactTime
                 ? `Last contact: ${item.lastContactTime}`
                 : `Credit: ${item.creditPeriod || "30 Days"}`}
@@ -332,6 +450,46 @@ export default function CustomersScreen() {
               >
                 Call
               </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.editPillBtn,
+                {
+                  backgroundColor: isDark ? "rgba(53, 214, 160, 0.12)" : "#FFFFFF",
+                  borderColor: isDark ? "rgba(53, 214, 160, 0.25)" : "rgba(0, 168, 121, 0.25)",
+                },
+              ]}
+              onPress={(event) => {
+                event.stopPropagation?.();
+                void openCustomerEditor(item, "credit");
+              }}
+              accessibilityRole="button"
+              accessibilityLabel={`Edit ${item.name} credit period`}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="create-outline" size={12} color={isDark ? "#35D6A0" : "#00A879"} />
+              <Text style={[styles.callPillText, { color: isDark ? "#35D6A0" : "#00A879" }]}>Credit</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.editPillBtn,
+                {
+                  backgroundColor: isDark ? "rgba(53, 214, 160, 0.12)" : "#FFFFFF",
+                  borderColor: isDark ? "rgba(53, 214, 160, 0.25)" : "rgba(0, 168, 121, 0.25)",
+                },
+              ]}
+              onPress={(event) => {
+                event.stopPropagation?.();
+                void openCustomerEditor(item, "contact");
+              }}
+              accessibilityRole="button"
+              accessibilityLabel={`Edit ${item.name} phone, email, and assigned salesperson`}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="create-outline" size={12} color={isDark ? "#35D6A0" : "#00A879"} />
+              <Text style={[styles.callPillText, { color: isDark ? "#35D6A0" : "#00A879" }]}>Salesperson</Text>
             </TouchableOpacity>
 
             <Ionicons
@@ -446,6 +604,140 @@ export default function CustomersScreen() {
           }
         />
       )}
+      <Modal
+        visible={!!editingCustomer}
+        transparent
+        animationType="fade"
+        onRequestClose={closeCustomerEditor}
+        statusBarTranslucent
+      >
+        <View style={styles.editModalBackdrop}>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+            style={styles.editModalKeyboard}
+          >
+            <View style={[styles.editModalCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+              <View style={styles.editModalHeader}>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.editModalTitle, { color: colors.textPrimary }]}>
+                    {editMode === "credit" ? "Edit credit period" : "Edit salesperson"}
+                  </Text>
+                  <Text style={[styles.editModalSubtitle, { color: colors.textSecondary }]} numberOfLines={1}>
+                    {editingCustomer?.name || (editMode === "credit" ? "Credit terms" : "Contact details")}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  onPress={closeCustomerEditor}
+                  disabled={savingEdit}
+                  accessibilityRole="button"
+                  accessibilityLabel="Close customer editor"
+                  style={styles.editModalClose}
+                >
+                  <Ionicons name="close" size={20} color={colors.textSecondary} />
+                </TouchableOpacity>
+              </View>
+
+              {editLoading ? (
+                <View style={styles.editLoadingState}>
+                  <ActivityIndicator size="small" color={colors.primary} />
+                  <Text style={[styles.editModalSubtitle, { color: colors.textSecondary }]}>Loading edit access…</Text>
+                </View>
+              ) : editForm ? (
+                <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+                  {editMode === "contact" && editPermissions.contact && (
+                    <>
+                      <Text style={[styles.editSectionTitle, { color: colors.textSecondary }]}>CONTACT & SALESPERSON</Text>
+                      <Text style={[styles.editFieldLabel, { color: colors.textSecondary }]}>PHONE</Text>
+                      <TextInput
+                        value={editForm.phone}
+                        onChangeText={(phone) => setEditForm((previous) => previous ? { ...previous, phone } : previous)}
+                        keyboardType="phone-pad"
+                        placeholder="Phone number"
+                        placeholderTextColor={colors.textMuted}
+                        style={[styles.editInput, { color: colors.textPrimary, borderColor: colors.cardBorder, backgroundColor: colors.background }]}
+                        accessibilityLabel="Customer phone"
+                      />
+                      <Text style={[styles.editFieldLabel, { color: colors.textSecondary }]}>EMAIL</Text>
+                      <TextInput
+                        value={editForm.email}
+                        onChangeText={(email) => setEditForm((previous) => previous ? { ...previous, email } : previous)}
+                        keyboardType="email-address"
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        placeholder="Email address"
+                        placeholderTextColor={colors.textMuted}
+                        style={[styles.editInput, { color: colors.textPrimary, borderColor: colors.cardBorder, backgroundColor: colors.background }]}
+                        accessibilityLabel="Customer email"
+                      />
+                      <Text style={[styles.editFieldLabel, { color: colors.textSecondary }]}>ASSIGNED SALESPERSON</Text>
+                      <TouchableOpacity
+                        onPress={() => setSalespersonPickerOpen((open) => !open)}
+                        accessibilityRole="button"
+                        accessibilityLabel="Choose assigned salesperson"
+                        accessibilityState={{ expanded: salespersonPickerOpen }}
+                        style={[styles.editSelect, { borderColor: colors.cardBorder, backgroundColor: colors.background }]}
+                      >
+                        <Text style={[styles.editSelectText, { color: colors.textPrimary }]}>
+                          {salespersonOptions.find((option) => option.id === editForm.salespersonId)?.name || "Unassigned"}
+                        </Text>
+                        <Ionicons name={salespersonPickerOpen ? "chevron-up" : "chevron-down"} size={16} color={colors.textSecondary} />
+                      </TouchableOpacity>
+                      {salespersonPickerOpen && (
+                        <View style={[styles.editSalespersonList, { borderColor: colors.cardBorder, backgroundColor: colors.background }]}>
+                          <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled" style={{ maxHeight: 150 }}>
+                            <TouchableOpacity
+                              onPress={() => { setEditForm((previous) => previous ? { ...previous, salespersonId: null } : previous); setSalespersonPickerOpen(false); }}
+                              style={styles.editSalespersonOption}
+                            >
+                              <Text style={[styles.editSelectText, { color: colors.textPrimary }]}>Unassigned</Text>
+                            </TouchableOpacity>
+                            {salespersonOptions.map((option) => (
+                              <TouchableOpacity
+                                key={option.id}
+                                onPress={() => { setEditForm((previous) => previous ? { ...previous, salespersonId: option.id } : previous); setSalespersonPickerOpen(false); }}
+                                style={styles.editSalespersonOption}
+                              >
+                                <Text style={[styles.editSelectText, { color: colors.textPrimary }]}>{option.name}</Text>
+                                {editForm.salespersonId === option.id && <Ionicons name="checkmark" size={16} color={colors.primary} />}
+                              </TouchableOpacity>
+                            ))}
+                          </ScrollView>
+                        </View>
+                      )}
+                    </>
+                  )}
+
+                  {editMode === "credit" && editPermissions.credit && (
+                    <>
+                      <Text style={[styles.editSectionTitle, { color: colors.textSecondary }]}>CREDIT TERMS</Text>
+                      <Text style={[styles.editFieldLabel, { color: colors.textSecondary }]}>CREDIT PERIOD (DAYS)</Text>
+                      <TextInput
+                        value={editForm.creditPeriodDays}
+                        onChangeText={(creditPeriodDays) => setEditForm((previous) => previous ? { ...previous, creditPeriodDays: creditPeriodDays.replace(/[^0-9]/g, "") } : previous)}
+                        keyboardType="number-pad"
+                        placeholder="7"
+                        placeholderTextColor={colors.textMuted}
+                        style={[styles.editInput, { color: colors.textPrimary, borderColor: colors.cardBorder, backgroundColor: colors.background }]}
+                        accessibilityLabel="Credit period in days"
+                      />
+                    </>
+                  )}
+
+                  {!!editError && <Text style={styles.editErrorText}>{editError}</Text>}
+                  <View style={styles.editModalActions}>
+                    <TouchableOpacity onPress={closeCustomerEditor} disabled={savingEdit} style={[styles.editCancelButton, { borderColor: colors.cardBorder }]}>
+                      <Text style={[styles.editCancelText, { color: colors.textSecondary }]}>Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => void saveCustomerEditor()} disabled={savingEdit} style={[styles.editSaveButton, { backgroundColor: colors.primary, opacity: savingEdit ? 0.65 : 1 }]}>
+                      {savingEdit ? <ActivityIndicator size="small" color="#FFFFFF" /> : <Text style={styles.editSaveText}>Save changes</Text>}
+                    </TouchableOpacity>
+                  </View>
+                </ScrollView>
+              ) : null}
+            </View>
+          </KeyboardAvoidingView>
+        </View>
+      </Modal>
       <CustomerFilterSheet
         visible={filterVisible}
         paymentFilter={paymentFilter}
@@ -593,25 +885,29 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   footerRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
+    flexDirection: "column",
+    alignItems: "stretch",
+    gap: 9,
   },
   footerLeft: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    flex: 1,
-    marginRight: 8,
+    width: "100%",
+    minWidth: 0,
   },
   footerText: {
+    flex: 1,
+    minWidth: 0,
     fontFamily: Typography.medium,
     fontSize: 12,
   },
   actionsRow: {
     flexDirection: "row",
+    justifyContent: "flex-end",
     alignItems: "center",
-    gap: 8,
+    gap: 6,
+    flexWrap: "wrap",
   },
   callPillBtn: {
     flexDirection: "row",
@@ -625,6 +921,149 @@ const styles = StyleSheet.create({
   callPillText: {
     fontFamily: Typography.bold,
     fontSize: 11,
+  },
+  editPillBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: Radius.pill,
+    borderWidth: 1,
+    gap: 4,
+  },
+  editModalBackdrop: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 18,
+    backgroundColor: "rgba(5, 15, 12, 0.48)",
+  },
+  editModalKeyboard: {
+    width: "100%",
+    maxWidth: 480,
+  },
+  editModalCard: {
+    borderRadius: 20,
+    borderWidth: 1,
+    padding: 20,
+    maxHeight: "88%",
+    ...Shadows.card,
+  },
+  editModalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 18,
+  },
+  editModalTitle: {
+    fontFamily: Typography.headingSemi,
+    fontSize: 19,
+  },
+  editModalSubtitle: {
+    fontFamily: Typography.regular,
+    fontSize: 12,
+    marginTop: 2,
+  },
+  editModalClose: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 12,
+  },
+  editLoadingState: {
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    paddingVertical: 28,
+  },
+  editSectionTitle: {
+    fontFamily: Typography.semiBold,
+    fontSize: 10,
+    letterSpacing: 0.7,
+    marginBottom: 12,
+  },
+  editFieldLabel: {
+    fontFamily: Typography.semiBold,
+    fontSize: 10,
+    letterSpacing: 0.55,
+    marginBottom: 6,
+  },
+  editInput: {
+    minHeight: 44,
+    borderWidth: 1,
+    borderRadius: 11,
+    paddingHorizontal: 12,
+    fontFamily: Typography.medium,
+    fontSize: 14,
+    marginBottom: 14,
+  },
+  editSelect: {
+    minHeight: 44,
+    borderWidth: 1,
+    borderRadius: 11,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 10,
+  },
+  editSelectText: {
+    fontFamily: Typography.medium,
+    fontSize: 14,
+  },
+  editSalespersonList: {
+    borderWidth: 1,
+    borderRadius: 11,
+    overflow: "hidden",
+    marginBottom: 14,
+  },
+  editSalespersonOption: {
+    minHeight: 42,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "rgba(120, 140, 130, 0.22)",
+  },
+  editErrorText: {
+    color: "#D94A55",
+    fontFamily: Typography.medium,
+    fontSize: 12,
+    marginBottom: 12,
+  },
+  editModalActions: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: 10,
+    marginTop: 8,
+    paddingBottom: 2,
+  },
+  editCancelButton: {
+    minHeight: 42,
+    borderWidth: 1,
+    borderRadius: Radius.pill,
+    paddingHorizontal: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  editCancelText: {
+    fontFamily: Typography.semiBold,
+    fontSize: 13,
+  },
+  editSaveButton: {
+    minHeight: 42,
+    minWidth: 120,
+    borderRadius: Radius.pill,
+    paddingHorizontal: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  editSaveText: {
+    color: "#FFFFFF",
+    fontFamily: Typography.semiBold,
+    fontSize: 13,
   },
   loadingWrap: {
     flex: 1,

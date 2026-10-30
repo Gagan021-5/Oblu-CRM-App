@@ -4,6 +4,7 @@ Provides real-time access to Customers, Remarks, Follow-ups, and Tally Voucher s
 """
 
 from django.utils import timezone
+from django.db import transaction
 from django.db.models import Count, DateField, DateTimeField, Exists, IntegerField, OuterRef, Prefetch, Q, Subquery, Sum, Value
 from django.db.models.functions import Coalesce, Lower, TruncDate
 from rest_framework import generics, status
@@ -22,6 +23,7 @@ from access_control.services import can, scope_queryset
 from .models import (
     SalesPerson,
     Customer,
+    CustomerCreditProfile,
     CustomerUnit,
     CustomerRemark,
     CustomerFollowUp,
@@ -38,6 +40,7 @@ from .api_serializers import (
     CustomerFollowUpSerializer,
     CustomerPaymentSerializer,
 )
+from .forms import CustomerCreditForm, CustomerReassignForm
 
 
 def get_visible_customer_queryset(user):
@@ -251,6 +254,88 @@ class CustomerDetailView(generics.RetrieveAPIView):
             "voucher_statuses__voucher", "remarks__salesperson", "followups__salesperson",
             "voucher_statuses__payment_thread__expected_date_history",
         )
+
+
+class CustomerMobileEditView(APIView):
+    """JWT API bridge for the existing customer contact and credit forms."""
+    permission_classes = [IsAuthenticated]
+
+    def _get_customer(self, request, pk):
+        return _get_customer_for_user(request.user, pk, "customer.view", "customer.view_all")
+
+    def get(self, request, pk):
+        customer = self._get_customer(request, pk)
+        can_edit_contact = can(request.user, "customer.edit", customer)
+        can_edit_credit = can(request.user, "customer.edit_credit", customer)
+        if not can_edit_contact and not can_edit_credit:
+            raise PermissionDenied("Customer edit access is not enabled for this account.")
+
+        profile = getattr(customer, "credit_profile", None)
+        return Response({
+            "customer": {
+                "id": customer.pk,
+                "phone": customer.phone or "",
+                "email": customer.email or "",
+                "salesperson_id": customer.salesperson_id,
+                "assignedSalesperson": customer.salesperson.name if customer.salesperson else "Unassigned",
+                "credit_period_days": profile.credit_period_days if profile else 7,
+            },
+            "salespersons": list(SalesPerson.objects.order_by("name").values("id", "name")) if can_edit_contact else [],
+            "can_edit_contact": can_edit_contact,
+            "can_edit_credit": can_edit_credit,
+        })
+
+    def patch(self, request, pk):
+        customer = self._get_customer(request, pk)
+        contact_fields = {"phone", "email", "salesperson"}
+        edits_contact = any(field in request.data for field in contact_fields)
+        edits_credit = "credit_period_days" in request.data
+        if not edits_contact and not edits_credit:
+            return Response({"error": "No customer fields were provided."}, status=status.HTTP_400_BAD_REQUEST)
+        if edits_contact and not can(request.user, "customer.edit", customer):
+            raise PermissionDenied("Contact editing is not enabled for this account.")
+        if edits_credit and not can(request.user, "customer.edit_credit", customer):
+            raise PermissionDenied("Credit period editing is not enabled for this account.")
+
+        with transaction.atomic():
+            customer = Customer.objects.select_for_update().select_related("salesperson", "credit_profile").get(pk=customer.pk)
+            contact_form = None
+            if edits_contact:
+                contact_data = {
+                    "phone": request.data.get("phone", customer.phone or ""),
+                    "email": request.data.get("email", customer.email or ""),
+                    "salesperson": request.data.get("salesperson", customer.salesperson_id or ""),
+                }
+                contact_form = CustomerReassignForm(contact_data, instance=customer)
+
+            credit_form = None
+            if edits_credit:
+                profile = getattr(customer, "credit_profile", None) or CustomerCreditProfile(customer=customer)
+                credit_form = CustomerCreditForm(
+                    {"credit_period_days": request.data.get("credit_period_days")},
+                    instance=profile,
+                )
+
+            errors = {}
+            if contact_form is not None and not contact_form.is_valid():
+                errors["contact"] = contact_form.errors
+            if credit_form is not None and not credit_form.is_valid():
+                errors["credit"] = credit_form.errors
+            if errors:
+                return Response({"errors": errors}, status=status.HTTP_400_BAD_REQUEST)
+
+            if contact_form is not None:
+                customer = contact_form.save()
+            if credit_form is not None:
+                credit_form.save()
+
+        customer.refresh_from_db()
+        profile = CustomerCreditProfile.objects.filter(customer=customer).first()
+        return Response({
+            "success": True,
+            "customer": CustomerListSerializer(customer, context={"request": request}).data,
+            "credit_period_days": profile.credit_period_days if profile else 7,
+        })
 
 
 class CustomerRemarkCreateView(APIView):
