@@ -27,10 +27,16 @@ export default function CustomerAnalyticsScreen() {
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useTheme();
   const { user, permissionProfile } = useAuth();
-  const username = (permissionProfile?.user.username || user?.username || "").toLowerCase();
-  const role = `${user?.role || ""} ${permissionProfile?.user.role || ""}`.toLowerCase();
-  const isRsm = hasRole(permissionProfile, "rsm") || role.includes("rsm") || role.includes("regional sales manager");
-  const canOpen = hasPermission(permissionProfile, "customer.view_all") && !isRsm && username !== "bhavya_bhardwaj" && username !== "bhavya";
+  const roleText = `${user?.role || ""} ${permissionProfile?.user.role || ""}`.toLowerCase();
+  const isSuperuser = Boolean((user as any)?.is_superuser || roleText.includes("superuser"));
+  const userHasRole = (role: string) =>
+    hasRole(permissionProfile, role) || roleText.includes(role);
+  const isAdminUser = isSuperuser || userHasRole("admin") || roleText.includes("admin");
+  const canOpen =
+    isSuperuser ||
+    isAdminUser ||
+    userHasRole("sales_head") ||
+    hasPermission(permissionProfile, "customer.view_all");
   const [data, setData] = useState<CustomerChartsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);

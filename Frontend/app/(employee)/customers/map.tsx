@@ -3,7 +3,7 @@ import {
   ActivityIndicator,
   Dimensions,
   Linking,
-  Modal,
+  Platform,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -15,13 +15,22 @@ import {
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import Svg, { Circle, G, Line, Rect, Text as SvgText } from "react-native-svg";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { hasPermission, hasRole } from "@/services/permissionService";
 import { Typography } from "@/constants/theme";
 import { Customer } from "@/data/customerTypes";
 import { fetchCustomerMapPointsFromApi } from "@/services/customerService";
+
+let WebViewComponent: any = null;
+if (Platform.OS !== "web") {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    WebViewComponent = require("react-native-webview").WebView;
+  } catch {
+    WebViewComponent = null;
+  }
+}
 
 type DistrictCluster = {
   district: string;
@@ -32,20 +41,20 @@ type DistrictCluster = {
   customers: Customer[];
 };
 
-// India Geographic Bounding Box
-const MIN_LON = 68.0;
-const MAX_LON = 97.5;
-const MIN_LAT = 8.0;
-const MAX_LAT = 37.0;
-
 export default function CustomerMapScreen() {
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useTheme();
   const { user, permissionProfile } = useAuth();
-  const username = (permissionProfile?.user.username || user?.username || "").toLowerCase();
-  const role = `${user?.role || ""} ${permissionProfile?.user.role || ""}`.toLowerCase();
-  const isRsm = hasRole(permissionProfile, "rsm") || role.includes("rsm") || role.includes("regional sales manager");
-  const canOpen = hasPermission(permissionProfile, "customer.view_all") && !isRsm && username !== "bhavya_bhardwaj" && username !== "bhavya";
+  const roleText = `${user?.role || ""} ${permissionProfile?.user.role || ""}`.toLowerCase();
+  const isSuperuser = Boolean((user as any)?.is_superuser || roleText.includes("superuser"));
+  const userHasRole = (role: string) =>
+    hasRole(permissionProfile, role) || roleText.includes(role);
+  const isAdminUser = isSuperuser || userHasRole("admin") || roleText.includes("admin");
+  const canOpen =
+    isSuperuser ||
+    isAdminUser ||
+    userHasRole("sales_head") ||
+    hasPermission(permissionProfile, "customer.view_all");
 
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
@@ -123,20 +132,186 @@ export default function CustomerMapScreen() {
     );
   }, [districtClusters, searchQuery]);
 
-  const screenWidth = Dimensions.get("window").width;
-  const mapWidth = Math.max(300, screenWidth - 36);
-  const mapHeight = 380;
+  // Generate Leaflet Interactive Map HTML with Esri World Street Map Tiles (real globe & streets)
+  const mapHtml = useMemo(() => {
+    const clustersPayload = filteredClusters.map((c) => ({
+      district: c.district,
+      state: c.state,
+      lat: c.lat,
+      lon: c.lon,
+      count: c.count,
+    }));
 
-  // Projection formulas
-  const projectX = (lon: number) => {
-    const clamped = Math.max(MIN_LON, Math.min(MAX_LON, lon));
-    return ((clamped - MIN_LON) / (MAX_LON - MIN_LON)) * (mapWidth - 40) + 20;
-  };
+    return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body, #map {
+      width: 100%;
+      height: 100%;
+      background: #e2e8f0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    .leaflet-popup-content-wrapper {
+      border-radius: 14px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+      padding: 4px;
+      border: 1px solid #e2e8f0;
+    }
+    .custom-popup {
+      font-size: 13px;
+      padding: 6px;
+      min-width: 170px;
+    }
+    .popup-title {
+      font-weight: 700;
+      font-size: 14px;
+      color: #0f172a;
+      margin-bottom: 2px;
+    }
+    .popup-state {
+      font-size: 11px;
+      color: #64748b;
+      margin-bottom: 8px;
+    }
+    .popup-count-badge {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 8px;
+      font-weight: 700;
+      font-size: 11px;
+      background: #ecfdf5;
+      color: #047857;
+      margin-bottom: 8px;
+    }
+    .popup-btn {
+      display: block;
+      width: 100%;
+      text-align: center;
+      padding: 7px 10px;
+      background: #159A7C;
+      color: white !important;
+      text-decoration: none;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 11px;
+      border: none;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <script>
+    const map = L.map('map', {
+      zoomControl: true,
+      attributionControl: false
+    }).setView([22.5, 79.0], 5);
 
-  const projectY = (lat: number) => {
-    const clamped = Math.max(MIN_LAT, Math.min(MAX_LAT, lat));
-    return ((MAX_LAT - clamped) / (MAX_LAT - MIN_LAT)) * (mapHeight - 50) + 25;
-  };
+    // 1. High-resolution Esri World Street Map Layer (Globe, Terrain, Streets)
+    const esriStreets = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
+      maxZoom: 18
+    }).addTo(map);
+
+    const esriTopo = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}', {
+      maxZoom: 18
+    });
+
+    const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 18
+    });
+
+    L.control.layers({
+      "🗺️ Streets": esriStreets,
+      "🏔️ Terrain": esriTopo,
+      "🌐 OpenStreet": osm
+    }, null, { position: 'topright' }).addTo(map);
+
+    const clusters = ${JSON.stringify(clustersPayload)};
+
+    clusters.forEach(c => {
+      if (!c.lat || !c.lon) return;
+
+      const count = c.count || 1;
+      const color = count > 10 ? '#0EA5E9' : count > 3 ? '#6366F1' : '#159A7C';
+      const radius = Math.min(20, Math.max(8, Math.sqrt(count) * 4));
+
+      const marker = L.circleMarker([c.lat, c.lon], {
+        radius: radius,
+        fillColor: color,
+        color: '#FFFFFF',
+        weight: 2,
+        opacity: 1,
+        fillOpacity: 0.88
+      }).addTo(map);
+
+      marker.bindTooltip(c.district + ' (' + count + ')', { direction: 'top', offset: [0, -radius] });
+
+      const popupHtml = \`
+        <div class="custom-popup">
+          <div class="popup-title">\${c.district}</div>
+          <div class="popup-state">\${c.state || 'India'}</div>
+          <div class="popup-count-badge">\${count} \${count === 1 ? 'Account' : 'Accounts'}</div>
+          <button class="popup-btn" onclick="selectDistrict('\${c.district}', '\${c.state}')">Inspect Details</button>
+        </div>
+      \`;
+      marker.bindPopup(popupHtml);
+
+      marker.on('click', () => {
+        sendToNative({ type: 'SELECT_DISTRICT', district: c.district, state: c.state });
+      });
+    });
+
+    function selectDistrict(district, state) {
+      sendToNative({ type: 'SELECT_DISTRICT', district: district, state: state });
+    }
+
+    function sendToNative(data) {
+      try {
+        if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+          window.ReactNativeWebView.postMessage(JSON.stringify(data));
+        } else if (window.parent) {
+          window.parent.postMessage(JSON.stringify(data), '*');
+        }
+      } catch (e) {}
+    }
+
+    window.addEventListener('message', function(e) {
+      try {
+        const d = JSON.parse(e.data);
+        if (d.type === 'FLY_TO' && d.lat && d.lon) {
+          map.flyTo([d.lat, d.lon], 9, { duration: 1.2 });
+        }
+      } catch (err) {}
+    });
+  </script>
+</body>
+</html>`;
+  }, [filteredClusters]);
+
+  const handleWebMessage = useCallback(
+    (event: any) => {
+      try {
+        const data = typeof event.nativeEvent?.data === "string" ? JSON.parse(event.nativeEvent.data) : event.data;
+        if (data?.type === "SELECT_DISTRICT") {
+          const match = districtClusters.find(
+            (dc) => dc.district.toLowerCase() === String(data.district).toLowerCase()
+          );
+          if (match) {
+            setSelectedCluster(match);
+          }
+        }
+      } catch {
+        // ignore
+      }
+    },
+    [districtClusters]
+  );
 
   const openMapApp = async (lat: number, lon: number) => {
     const url = `https://www.google.com/maps/search/?api=1&query=${lat},${lon}`;
@@ -157,8 +332,8 @@ export default function CustomerMapScreen() {
             <Ionicons name="arrow-back" size={20} color={foreground} />
           </TouchableOpacity>
           <View style={{ flex: 1 }}>
-            <Text style={styles.eyebrow}>CUSTOMERS</Text>
-            <Text style={[styles.title, { color: foreground }]}>Detailed Map</Text>
+            <Text style={styles.eyebrow}>CUSTOMER WORKSPACE</Text>
+            <Text style={[styles.title, { color: foreground }]}>Distribution Map</Text>
           </View>
         </View>
 
@@ -172,7 +347,7 @@ export default function CustomerMapScreen() {
         <View style={[styles.banner, { backgroundColor: "#0E9E83" }]}>
           <Ionicons name="map" size={24} color="white" />
           <View style={{ flex: 1 }}>
-            <Text style={styles.bannerTitle}>Customer Distribution Map (District-Level)</Text>
+            <Text style={styles.bannerTitle}>Interactive Customer Distribution Map</Text>
             <Text style={styles.bannerSub}>
               {locatedCustomers.length} accounts mapped across {districtClusters.length} districts in India
             </Text>
@@ -201,115 +376,41 @@ export default function CustomerMapScreen() {
           <View style={styles.mapHeader}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
               <View style={styles.mapDotLive} />
-              <Text style={[styles.mapHeaderTitle, { color: foreground }]}>India Geographic Plot</Text>
+              <Text style={[styles.mapHeaderTitle, { color: foreground }]}>India Geographic Globe & Street Map</Text>
             </View>
-            <Text style={[styles.mapHeaderHint, { color: muted }]}>Tap pin for details</Text>
+            <Text style={[styles.mapHeaderHint, { color: muted }]}>Pinch to zoom · Tap pin</Text>
           </View>
 
           {loading ? (
             <View style={styles.mapLoading}>
               <ActivityIndicator color="#20B99A" size="large" />
-              <Text style={{ color: muted, marginTop: 8, fontSize: 12 }}>Loading coordinates…</Text>
+              <Text style={{ color: muted, marginTop: 8, fontSize: 12 }}>Loading map coordinates…</Text>
             </View>
           ) : (
-            <View style={[styles.canvasWrapper, { backgroundColor: isDark ? "#0A100E" : "#F1F5F9" }]}>
-              <Svg width={mapWidth} height={mapHeight}>
-                {/* Geographic Grid Lines */}
-                {[0.25, 0.5, 0.75].map((factor, i) => (
-                  <Line
-                    key={`h-${i}`}
-                    x1="10"
-                    y1={mapHeight * factor}
-                    x2={mapWidth - 10}
-                    y2={mapHeight * factor}
-                    stroke={isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.05)"}
-                    strokeDasharray="4 4"
-                    strokeWidth="1"
+            <View style={styles.canvasWrapper}>
+              {Platform.OS === "web" || !WebViewComponent ? (
+                // Web/Fallback rendering via iframe
+                <View style={{ width: "100%", height: 380, overflow: "hidden" }}>
+                  <iframe
+                    srcDoc={mapHtml}
+                    title="Customer Map"
+                    style={{ width: "100%", height: "100%", border: "none" }}
                   />
-                ))}
-                {[0.25, 0.5, 0.75].map((factor, i) => (
-                  <Line
-                    key={`v-${i}`}
-                    x1={mapWidth * factor}
-                    y1="10"
-                    x2={mapWidth * factor}
-                    y2={mapHeight - 10}
-                    stroke={isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.05)"}
-                    strokeDasharray="4 4"
-                    strokeWidth="1"
+                </View>
+              ) : (
+                // Native iOS/Android WebView
+                <View style={{ width: "100%", height: 380, overflow: "hidden" }}>
+                  <WebViewComponent
+                    originWhitelist={["*"]}
+                    source={{ html: mapHtml }}
+                    style={{ width: "100%", height: 380, backgroundColor: "transparent" }}
+                    onMessage={handleWebMessage}
+                    javaScriptEnabled={true}
+                    domStorageEnabled={true}
+                    scrollEnabled={false}
                   />
-                ))}
-
-                {/* Plot District Pins */}
-                {districtClusters.map((dc) => {
-                  const cx = projectX(dc.lon);
-                  const cy = projectY(dc.lat);
-                  const isSelected = selectedCluster?.district === dc.district;
-                  const radius = Math.min(22, Math.max(9, Math.sqrt(dc.count) * 4.5));
-
-                  return (
-                    <G key={`${dc.district}-${dc.state}`}>
-                      {/* Pulse Ring for Selected / Dense clusters */}
-                      {(isSelected || dc.count > 5) && (
-                        <Circle
-                          cx={cx}
-                          cy={cy}
-                          r={radius + (isSelected ? 7 : 4)}
-                          fill={isSelected ? "rgba(32, 185, 154, 0.3)" : "rgba(14, 165, 233, 0.18)"}
-                        />
-                      )}
-
-                      {/* Main District Bubble */}
-                      <Circle
-                        cx={cx}
-                        cy={cy}
-                        r={radius}
-                        fill={isSelected ? "#20B99A" : dc.count > 10 ? "#0EA5E9" : dc.count > 3 ? "#6366F1" : "#159A7C"}
-                        stroke={isDark ? "#0A100E" : "#FFFFFF"}
-                        strokeWidth={isSelected ? 3 : 1.5}
-                        opacity={0.92}
-                      />
-
-                      {/* Customer Count Number Inside Marker */}
-                      <SvgText
-                        x={cx}
-                        y={cy + 3.5}
-                        fontSize={radius > 12 ? "10" : "8"}
-                        fontWeight="bold"
-                        fill="#FFFFFF"
-                        textAnchor="middle"
-                      >
-                        {dc.count}
-                      </SvgText>
-                    </G>
-                  );
-                })}
-              </Svg>
-
-              {/* Touch Overlay Buttons for exact pin targeting */}
-              {districtClusters.map((dc) => {
-                const cx = projectX(dc.lon);
-                const cy = projectY(dc.lat);
-                const radius = Math.min(22, Math.max(9, Math.sqrt(dc.count) * 4.5));
-                const touchSize = Math.max(34, radius * 2);
-
-                return (
-                  <TouchableOpacity
-                    key={`touch-${dc.district}-${dc.state}`}
-                    style={[
-                      styles.touchTarget,
-                      {
-                        left: cx - touchSize / 2,
-                        top: cy - touchSize / 2,
-                        width: touchSize,
-                        height: touchSize,
-                      },
-                    ]}
-                    onPress={() => setSelectedCluster(dc)}
-                    activeOpacity={0.7}
-                  />
-                );
-              })}
+                </View>
+              )}
             </View>
           )}
 
@@ -425,9 +526,8 @@ const styles = StyleSheet.create({
   mapDotLive: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#20B99A" },
   mapHeaderTitle: { fontFamily: Typography.semiBold, fontSize: 13 },
   mapHeaderHint: { fontFamily: Typography.regular, fontSize: 11 },
-  mapLoading: { height: 320, alignItems: "center", justifyContent: "center" },
-  canvasWrapper: { position: "relative", alignItems: "center", justifyContent: "center" },
-  touchTarget: { position: "absolute", zIndex: 10 },
+  mapLoading: { height: 380, alignItems: "center", justifyContent: "center" },
+  canvasWrapper: { width: "100%", height: 380, overflow: "hidden" },
   mapLegend: { flexDirection: "row", justifyContent: "space-around", paddingVertical: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#E2E8F0" },
   legendItem: { flexDirection: "row", alignItems: "center", gap: 6 },
   legendDot: { width: 10, height: 10, borderRadius: 5 },
