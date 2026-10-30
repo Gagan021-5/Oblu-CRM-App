@@ -374,11 +374,20 @@ export default function CustomerMapScreen() {
         {/* Interactive Marked Map Container */}
         <View style={[styles.mapContainer, card]}>
           <View style={styles.mapHeader}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-              <View style={styles.mapDotLive} />
-              <Text style={[styles.mapHeaderTitle, { color: foreground }]}>India Geographic Globe & Street Map</Text>
+            <View style={styles.mapHeaderContent}>
+              <View style={styles.mapTitleRow}>
+                <View style={styles.mapDotLive} />
+                <Text style={[styles.mapHeaderTitle, { color: foreground }]} numberOfLines={1}>
+                  India Geographic Map
+                </Text>
+              </View>
+              <Text style={[styles.mapHeaderHint, { color: muted }]}>
+                Pinch to zoom · Tap pin for details
+              </Text>
             </View>
-            <Text style={[styles.mapHeaderHint, { color: muted }]}>Pinch to zoom · Tap pin</Text>
+            <View style={[styles.mapLiveBadge, { backgroundColor: isDark ? "#142820" : "#E6F7F2" }]}>
+              <Text style={styles.mapLiveBadgeText}>LIVE</Text>
+            </View>
           </View>
 
           {loading ? (
@@ -522,10 +531,32 @@ const styles = StyleSheet.create({
   searchBox: { borderWidth: 1, borderRadius: 14, paddingHorizontal: 12, minHeight: 46, flexDirection: "row", alignItems: "center", gap: 10 },
   searchInput: { flex: 1, fontFamily: Typography.regular, fontSize: 13, paddingVertical: 8 },
   mapContainer: { borderWidth: 1, borderRadius: 18, overflow: "hidden" },
-  mapHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 12 },
+  mapHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    gap: 12,
+  },
+  mapHeaderContent: { flex: 1, gap: 3 },
+  mapTitleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   mapDotLive: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#20B99A" },
-  mapHeaderTitle: { fontFamily: Typography.semiBold, fontSize: 13 },
-  mapHeaderHint: { fontFamily: Typography.regular, fontSize: 11 },
+  mapHeaderTitle: { fontFamily: Typography.semiBold, fontSize: 14, flexShrink: 1 },
+  mapHeaderHint: { fontFamily: Typography.regular, fontSize: 11, paddingLeft: 16 },
+  mapLiveBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  mapLiveBadgeText: {
+    color: "#159A7C",
+    fontFamily: Typography.bold,
+    fontSize: 10,
+    letterSpacing: 0.5,
+  },
   mapLoading: { height: 380, alignItems: "center", justifyContent: "center" },
   canvasWrapper: { width: "100%", height: 380, overflow: "hidden" },
   mapLegend: { flexDirection: "row", justifyContent: "space-around", paddingVertical: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#E2E8F0" },
