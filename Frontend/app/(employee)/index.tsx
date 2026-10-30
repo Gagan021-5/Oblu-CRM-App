@@ -113,23 +113,7 @@ export default function EmployeeHomeScreen() {
   });
 
   const openSubApp = (appId: string) => {
-    if (appId === "all") {
-      setSelectedCategory("all");
-      return;
-    }
-
-    const routes: Record<string, string> = {
-      customers: "/(employee)/customers",
-      calls: "/(user)/status",
-      leads: "/(employee)/leads",
-      hrms: "/(employee)/hrms",
-      inventory: "/(employee)/inventory",
-      proforma: "/(employee)/proforma",
-      incentives: "/(employee)/incentives",
-      security: "/(employee)/security",
-    };
-    const route = routes[appId];
-    if (route) router.push(route as any);
+    setSelectedCategory(appId);
   };
 
   const [allowedApps, setAllowedApps] = useState<AllowedApp[]>(() => {

@@ -116,23 +116,7 @@ export default function UsersScreen() {
   const [searchQuery, setSearchQuery] = useState("");
 
   const openSubApp = (appId: string) => {
-    if (appId === "all") {
-      setSelectedCategory("all");
-      return;
-    }
-
-    const routes: Record<string, string> = {
-      hrms: "/(admin)/hrms",
-      customers: "/(admin)/customers",
-      calls: "/(admin)/call-logs",
-      leads: "/(admin)/leads",
-      inventory: "/(admin)/inventory",
-      proforma: "/(admin)/proforma",
-      incentives: "/(admin)/incentives",
-      security: "/(admin)/security",
-    };
-    const route = routes[appId];
-    if (route) router.push(route as any);
+    setSelectedCategory(appId);
   };
 
   const [users, setUsers] = useState<UserItem[]>([]);
@@ -729,7 +713,15 @@ export default function UsersScreen() {
                             {hrmsData?.stats?.pending_leaves || 0} LEAVES PENDING
                           </Text>
                         </View>
-                        <Ionicons name="arrow-forward" size={16} color={colors.primary} />
+                        <TouchableOpacity
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                          onPress={(e) => {
+                            e.stopPropagation();
+                            router.navigate("/(admin)/hrms");
+                          }}
+                        >
+                          <Ionicons name="arrow-forward" size={16} color={colors.primary} />
+                        </TouchableOpacity>
                       </View>
                     </View>
                     <Text style={[styles.bentoModuleTitle, { color: colors.textPrimary }]}>
@@ -991,6 +983,20 @@ export default function UsersScreen() {
                       Workforce Management, Attendance & Leave Approvals
                     </Text>
                   </View>
+                  <TouchableOpacity
+                    style={[
+                      styles.openFullBtn,
+                      {
+                        backgroundColor: isDark ? "rgba(53, 214, 160, 0.12)" : "#E6F8F2",
+                        borderColor: isDark ? "rgba(53, 214, 160, 0.25)" : "rgba(0, 168, 121, 0.25)",
+                      },
+                    ]}
+                    onPress={() => router.navigate("/(admin)/hrms")}
+                    activeOpacity={0.75}
+                  >
+                    <Ionicons name="expand-outline" size={14} color={colors.primary} />
+                    <Text style={[styles.openFullText, { color: colors.primary }]}>Full View</Text>
+                  </TouchableOpacity>
                 </View>
 
                 {/* 4 Telemetry Metric Tiles */}
@@ -1815,6 +1821,20 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: 14,
+    gap: 12,
+  },
+  openFullBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: Radius.pill,
+    borderWidth: 1,
+  },
+  openFullText: {
+    fontFamily: Typography.semiBold,
+    fontSize: 12,
   },
   moduleTitle: {
     fontSize: 20,
