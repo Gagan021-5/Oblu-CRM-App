@@ -5,7 +5,7 @@ import {
   TouchableOpacity,
   StyleSheet,
 } from "react-native";
-import { Tabs } from "expo-router";
+import { Tabs, router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/contexts/ThemeContext";
@@ -13,7 +13,7 @@ import { Typography, FontSizes, Radius, Shadows } from "@/constants/theme";
 
 function FloatingBottomDock({ state, descriptors, navigation }: any) {
   const insets = useSafeAreaInsets();
-  const { isDark, colors } = useTheme();
+  const { isDark } = useTheme();
 
   const bottomPad = Math.max(insets.bottom, 12);
 
@@ -45,6 +45,13 @@ function FloatingBottomDock({ state, descriptors, navigation }: any) {
     },
   ];
 
+  const currentRoute = state?.routes?.[state?.index]?.name;
+  const isMainTab = dockTabs.some((t) => t.name === currentRoute);
+  // Do not render floating dock on sub-screens (they have their own navigation / back buttons)
+  if (!isMainTab) {
+    return null;
+  }
+
   return (
     <View
       pointerEvents="box-none"
@@ -60,19 +67,26 @@ function FloatingBottomDock({ state, descriptors, navigation }: any) {
         ]}
       >
         {dockTabs.map((item) => {
-          const routeIndex = state.routes.findIndex((r: any) => r.name === item.name);
-          const isFocused = routeIndex !== -1 && state.index === routeIndex;
+          const routeIndex = state?.routes?.findIndex((r: any) => r.name === item.name) ?? -1;
+          const isFocused = routeIndex !== -1 && state?.index === routeIndex;
 
           const onPress = () => {
-            const route = state.routes.find((r: any) => r.name === item.name);
-            if (!route) return;
-            const event = navigation.emit({
-              type: "tabPress",
-              target: route.key,
-              canPreventDefault: true,
-            });
-            if (!isFocused && !event.defaultPrevented) {
+            if (isFocused) return;
+            const route = state?.routes?.find((r: any) => r.name === item.name);
+
+            if (navigation?.emit && route) {
+              const event = navigation.emit({
+                type: "tabPress",
+                target: route.key,
+                canPreventDefault: true,
+              });
+              if (event?.defaultPrevented) return;
+            }
+
+            if (navigation?.navigate && route) {
               navigation.navigate(route.name);
+            } else {
+              router.replace(`/(admin)/${item.name}` as any);
             }
           };
 
@@ -125,11 +139,18 @@ export default function AdminLayout() {
     >
       <Tabs.Screen name="users" options={{ title: "Home" }} />
       <Tabs.Screen name="customers" options={{ title: "Customers" }} />
-      <Tabs.Screen name="customer-dashboard" options={{ href: null }} />
       <Tabs.Screen name="call-logs" options={{ title: "Calls" }} />
       <Tabs.Screen name="more" options={{ title: "Profile" }} />
+
+      {/* Sub-screens (hidden from tab bar dock) */}
+      <Tabs.Screen name="hrms" options={{ href: null }} />
+      <Tabs.Screen name="inventory" options={{ href: null }} />
+      <Tabs.Screen name="proforma" options={{ href: null }} />
+      <Tabs.Screen name="incentives" options={{ href: null }} />
+      <Tabs.Screen name="security" options={{ href: null }} />
       <Tabs.Screen name="leads" options={{ href: null }} />
       <Tabs.Screen name="stats" options={{ href: null }} />
+      <Tabs.Screen name="customer-dashboard" options={{ href: null }} />
     </Tabs>
   );
 }
