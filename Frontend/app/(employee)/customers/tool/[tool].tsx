@@ -37,6 +37,7 @@ const TITLES: Record<string, string> = {
   "sales-head-incentives": "Sales Head Incentives",
   "cross-selling": "Cross-Selling Matrix",
   "voucher-approvals": "Voucher Approvals",
+  "unassigned": "Unassigned Customers",
 };
 
 const ICONS: Record<string, React.ComponentProps<typeof Ionicons>["name"]> = {
@@ -48,6 +49,7 @@ const ICONS: Record<string, React.ComponentProps<typeof Ionicons>["name"]> = {
   "sales-head-incentives": "git-network-outline",
   "cross-selling": "grid-outline",
   "voucher-approvals": "checkbox-outline",
+  "unassigned": "person-remove-outline",
 };
 
 const CROSS_SELLING_CATS = [
@@ -81,7 +83,8 @@ export default function CustomerToolScreen() {
     "rsm-incentives": isAdminUser || isAccountant || userHasRole("rsm") || userHasRole("sales_head"),
     "sales-head-incentives": isAdminUser || userHasRole("sales_head") || userHasRole("business"),
     "cross-selling": hasPermission(permissionProfile, "customer.view"),
-    "voucher-approvals": isAdminUser || hasRole(permissionProfile, "accounts_operations"),
+    "voucher-approvals": isAdminUser || hasRole(permissionProfile, "accounts_operations") || userHasRole("sales_head") || hasPermission(permissionProfile, "customer.view_all"),
+    "unassigned": isAdminUser || hasPermission(permissionProfile, "customer.view_all"),
   };
   const canOpen = Boolean(accessByTool[tool]);
 
@@ -117,9 +120,12 @@ export default function CustomerToolScreen() {
 
   // Payment follow-up specific state
   const [paymentStatusFilter, setPaymentStatusFilter] = useState("All Payments");
-  const [newRemarkModal, setNewRemarkModal] = useState<{ id: string | number; customer: string } | null>(null);
+  const [newRemarkModal, setNewRemarkModal] = useState<{ id: string | number; voucher_status_id?: string | number; customer: string; remarks?: any[]; expected_dates?: any[]; ticket_status?: string } | null>(null);
   const [newRemarkText, setNewRemarkText] = useState("");
+  const [newExpectedDate, setNewExpectedDate] = useState("");
   const [actionInProgress, setActionInProgress] = useState(false);
+  const [assignModal, setAssignModal] = useState<{ customerId: string | number; customerName: string } | null>(null);
+  const [availableSalespersons, setAvailableSalespersons] = useState<Array<{ id: number; name: string }>>([]);
 
   // Customer Unit state
   const [expandedUnitIds, setExpandedUnitIds] = useState<Set<string>>(new Set());
@@ -218,7 +224,12 @@ export default function CustomerToolScreen() {
       }
 
       if (Array.isArray(result?.data?.salespersons) && result.data.salespersons.length > 0) {
-        setServerSalespeople(result.data.salespersons);
+        if (typeof result.data.salespersons[0] === "object") {
+          setAvailableSalespersons(result.data.salespersons);
+          setServerSalespeople(result.data.salespersons.map((s: any) => s.name));
+        } else {
+          setServerSalespeople(result.data.salespersons);
+        }
       }
 
       if (tool === "cross-selling" && result?.data?.stats) {
@@ -505,28 +516,19 @@ export default function CustomerToolScreen() {
   const portfolioEntries = useMemo<PortfolioEntry[]>(() => {
     if (tool !== "team-customers") return [];
     const entries: PortfolioEntry[] = [];
-    const units = new Map<string, ToolRow[]>();
     for (const row of visibleRows) {
-      const unitId = row.unitId == null ? "" : String(row.unitId);
-      if (!unitId) entries.push({ kind: "customer", row });
-      else {
-        const members = units.get(unitId) || [];
-        members.push(row);
-        units.set(unitId, members);
+      if (row.is_unit) {
+        entries.push({
+          kind: "unit",
+          id: String(row.unit_id || row.id),
+          name: String(row.name || "Customer unit"),
+          members: Array.isArray(row.members) ? row.members : [],
+        });
+      } else {
+        entries.push({ kind: "customer", row });
       }
     }
-    const addedUnits = new Set<string>();
-    for (const row of visibleRows) {
-      const unitId = row.unitId == null ? "" : String(row.unitId);
-      if (!unitId || addedUnits.has(unitId)) continue;
-      addedUnits.add(unitId);
-      entries.push({ kind: "unit", id: unitId, name: String(row.unitName || row.name || "Customer unit"), members: units.get(unitId) || [] });
-    }
-    return entries.sort((a, b) => {
-      const nameA = a.kind === "unit" ? a.name : String(a.row.name || "");
-      const nameB = b.kind === "unit" ? b.name : String(b.row.name || "");
-      return nameA.localeCompare(nameB);
-    });
+    return entries;
   }, [tool, visibleRows]);
 
   const openCustomerDetail = (id: unknown, tab?: string) =>
@@ -546,7 +548,7 @@ export default function CustomerToolScreen() {
     const nextAction = currentStatus === "RAISED" ? "solve" : "raise";
     setActionInProgress(true);
     try {
-      await api.post(`/customers/${voucherStatusId}/payment-ticket/`, {
+      await api.post("/customers/workspace/payment-followups/", {
         action: nextAction,
         voucher_status_id: voucherStatusId,
       });
@@ -558,20 +560,46 @@ export default function CustomerToolScreen() {
     }
   };
 
-  // Add Remark Action
+  // Add Remark Action for payment follow-ups
   const submitRemark = async () => {
     if (!newRemarkModal || !newRemarkText.trim()) return;
     setActionInProgress(true);
     try {
-      await api.post(`/customers/${newRemarkModal.id}/remarks/`, {
+      const res = await api.post("/customers/workspace/payment-followups/", {
+        action: "remark",
+        voucher_status_id: newRemarkModal.voucher_status_id || newRemarkModal.id,
         remark: newRemarkText.trim(),
       });
-      setNewRemarkModal(null);
+      if (res.data?.status === "ok") {
+        setNewRemarkModal((prev) => prev ? {
+          ...prev,
+          remarks: [res.data, ...(prev.remarks || [])]
+        } : null);
+      }
       setNewRemarkText("");
-      Alert.alert("Remark Added", "Customer interaction logged successfully.");
+      Alert.alert("Remark Saved", "Payment follow-up remark recorded successfully.");
       await load();
     } catch {
       Alert.alert("Error", "Could not submit remark. Check permissions and try again.");
+    } finally {
+      setActionInProgress(false);
+    }
+  };
+
+  // Reassign Unassigned Customer
+  const reassignCustomer = async (salespersonId: number) => {
+    if (!assignModal) return;
+    setActionInProgress(true);
+    try {
+      await api.post("/customers/workspace/unassigned/", {
+        customer_id: assignModal.customerId,
+        salesperson_id: salespersonId,
+      });
+      setAssignModal(null);
+      Alert.alert("Customer Assigned", "The customer has been assigned to the salesperson.");
+      await load();
+    } catch {
+      Alert.alert("Error", "Could not reassign customer. Please try again.");
     } finally {
       setActionInProgress(false);
     }
@@ -888,11 +916,72 @@ export default function CustomerToolScreen() {
           </TouchableOpacity>
 
           <TouchableOpacity
-            onPress={() => setNewRemarkModal({ id: row.customer_id, customer: custName })}
+            onPress={() => setNewRemarkModal({
+              id: row.id,
+              voucher_status_id: row.voucher_status_id || row.id,
+              customer: custName,
+              remarks: row.remarks || [],
+              expected_dates: row.expected_dates || [],
+              ticket_status: ticketStatus,
+            })}
             style={[styles.pfActionBtn, { borderColor: card.borderColor }]}
           >
             <Ionicons name="chatbubble-outline" size={13} color="#159A7C" />
-            <Text style={[styles.pfActionText, { color: foreground }]}>Discussion</Text>
+            <Text style={[styles.pfActionText, { color: foreground }]}>
+              Discussion ({Array.isArray(row.remarks) ? row.remarks.length : 0})
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  };
+
+  // -------------------------------------------------------------
+  // RENDER: Unassigned Customer Card
+  // -------------------------------------------------------------
+  const renderUnassignedCard = (row: ToolRow, index: number) => {
+    const customerName = String(row.name || "Customer");
+    const initials = customerName.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
+    const location = [row.district, row.state].filter(Boolean).join(", ");
+
+    return (
+      <View key={`unassigned-${row.id || index}`} style={[styles.customerPortfolioCard, card]}>
+        <View style={styles.customerPortfolioHeader}>
+          <View style={[styles.customerAvatar, { backgroundColor: isDark ? "#2A1818" : "#FEE2E2" }]}>
+            <Text style={[styles.customerAvatarText, { color: "#EF4444" }]}>{initials || "U"}</Text>
+          </View>
+          <View style={styles.customerIdentity}>
+            <TouchableOpacity onPress={() => openCustomerDetail(row.id)}>
+              <Text style={[styles.rowTitle, { color: foreground }]} numberOfLines={2}>{customerName}</Text>
+            </TouchableOpacity>
+            {!!location && (
+              <Text style={[styles.detail, { color: muted }]}>
+                <Ionicons name="location-outline" size={12} color={muted} /> {location}
+              </Text>
+            )}
+            {!!row.phone && (
+              <Text style={[styles.detail, { color: muted }]}>
+                <Ionicons name="call-outline" size={12} color={muted} /> {String(row.phone)}
+              </Text>
+            )}
+            {!!row.address && (
+              <Text style={[styles.detail, { color: muted }]}>
+                <Ionicons name="home-outline" size={12} color={muted} /> {String(row.address)}
+              </Text>
+            )}
+          </View>
+          <View style={[styles.statusBadge, { backgroundColor: isDark ? "rgba(239, 68, 68, 0.15)" : "#FEE2E2" }]}>
+            <Text style={[styles.statusText, { color: "#EF4444" }]}>Unassigned</Text>
+          </View>
+        </View>
+
+        <View style={[styles.customerPortfolioFooter, { borderColor: card.borderColor, justifyContent: "flex-end" }]}>
+          <TouchableOpacity
+            style={[styles.portfolioAction, { borderColor: "#159A7C", backgroundColor: isDark ? "#183B32" : "#E2F7F1", paddingHorizontal: 14 }]}
+            onPress={() => setAssignModal({ customerId: row.id, customerName })}
+          >
+            <Ionicons name="person-add-outline" size={14} color="#159A7C" />
+            <Text style={[styles.portfolioActionText, { color: "#159A7C" }]}>Assign Salesperson</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -1377,6 +1466,8 @@ export default function CustomerToolScreen() {
           visibleRows.map((row, idx) => renderCrossSellingCard(row, idx))
         ) : tool === "payment-followups" ? (
           visibleRows.map((row, idx) => renderPaymentFollowupCard(row, idx))
+        ) : tool === "unassigned" ? (
+          visibleRows.map((row, idx) => renderUnassignedCard(row, idx))
         ) : tool === "monthly-sales" ? (
           visibleRows.map((row, idx) => renderMonthlySalesRow(row, idx))
         ) : (
@@ -1522,28 +1613,107 @@ export default function CustomerToolScreen() {
         )}
       </ScrollView>
 
-      {/* Remark Modal */}
+      {/* ── MODAL: PAYMENT DISCUSSION & REMARKS HISTORY ── */}
       <Modal visible={newRemarkModal !== null} transparent animationType="fade" onRequestClose={() => setNewRemarkModal(null)}>
         <View style={styles.modalBackdrop}>
-          <View style={[styles.modalCard, card]}>
-            <Text style={[styles.modalTitle, { color: foreground }]}>Add Interaction Remark</Text>
-            <Text style={[styles.detail, { color: muted }]}>Logging note for {newRemarkModal?.customer}</Text>
+          <View style={[styles.modalCard, card, { maxHeight: "80%" }]}>
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+              <Text style={[styles.modalTitle, { color: foreground }]}>Payment Discussion</Text>
+              <TouchableOpacity onPress={() => { setNewRemarkModal(null); setNewRemarkText(""); }}>
+                <Ionicons name="close" size={22} color={muted} />
+              </TouchableOpacity>
+            </View>
+            <Text style={[styles.detail, { color: muted, marginBottom: 8 }]}>Account: {newRemarkModal?.customer}</Text>
+
+            {/* Remarks History */}
+            <ScrollView style={{ maxHeight: 220, marginBottom: 12 }}>
+              {Array.isArray(newRemarkModal?.remarks) && newRemarkModal.remarks.length > 0 ? (
+                newRemarkModal.remarks.map((r: any, rIdx: number) => (
+                  <View key={`rem-${r.id || rIdx}`} style={{ backgroundColor: isDark ? "#121A16" : "#F4F7F5", borderRadius: 10, padding: 10, marginBottom: 8, borderWidth: 1, borderColor: card.borderColor }}>
+                    <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 4 }}>
+                      <Text style={{ fontFamily: Typography.semiBold, fontSize: 11, color: "#159A7C" }}>{r.user || "Staff"}</Text>
+                      <Text style={{ fontFamily: Typography.regular, fontSize: 10, color: muted }}>{r.time || ""}</Text>
+                    </View>
+                    <Text style={{ fontFamily: Typography.regular, fontSize: 12, color: foreground }}>{r.text || r.remark}</Text>
+                  </View>
+                ))
+              ) : (
+                <Text style={{ color: muted, fontSize: 12, fontStyle: "italic", textAlign: "center", paddingVertical: 12 }}>
+                  No previous payment discussion remarks.
+                </Text>
+              )}
+            </ScrollView>
+
             <TextInput
-              autoFocus
-              value={newRemarkText}
-              onChangeText={setNewRemarkText}
-              placeholder="Enter interaction or cross-selling gap details…"
+              style={[styles.modalInput, { borderColor: card.borderColor, color: foreground, minHeight: 60 }]}
+              placeholder="Log follow-up discussion remark..."
               placeholderTextColor={muted}
               multiline
-              numberOfLines={4}
-              style={[styles.modalInput, { color: foreground, backgroundColor: colors.background, borderColor: card.borderColor }]}
+              value={newRemarkText}
+              onChangeText={setNewRemarkText}
             />
+
             <View style={styles.modalButtons}>
-              <TouchableOpacity disabled={actionInProgress} onPress={() => setNewRemarkModal(null)} style={[styles.modalCancel, { borderColor: card.borderColor }]}>
-                <Text style={[styles.modalBtnText, { color: foreground }]}>Cancel</Text>
+              <TouchableOpacity
+                onPress={() => { setNewRemarkModal(null); setNewRemarkText(""); }}
+                style={[styles.modalCancel, { borderColor: card.borderColor }]}
+              >
+                <Text style={[styles.modalBtnText, { color: muted }]}>Close</Text>
               </TouchableOpacity>
-              <TouchableOpacity disabled={actionInProgress || !newRemarkText.trim()} onPress={() => void submitRemark()} style={[styles.modalSave, { backgroundColor: "#159A7C" }]}>
-                <Text style={[styles.modalBtnText, { color: "white" }]}>{actionInProgress ? "Saving…" : "Save Remark"}</Text>
+              <TouchableOpacity
+                onPress={() => void submitRemark()}
+                disabled={actionInProgress || !newRemarkText.trim()}
+                style={[styles.modalSave, { backgroundColor: "#159A7C" }]}
+              >
+                <Text style={[styles.modalBtnText, { color: "white" }]}>Post Remark</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── MODAL: ASSIGN SALESPERSON TO UNASSIGNED CUSTOMER ── */}
+      <Modal visible={assignModal !== null} transparent animationType="fade" onRequestClose={() => setAssignModal(null)}>
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modalCard, card, { maxHeight: "70%" }]}>
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+              <Text style={[styles.modalTitle, { color: foreground }]}>Assign Salesperson</Text>
+              <TouchableOpacity onPress={() => setAssignModal(null)}>
+                <Ionicons name="close" size={22} color={muted} />
+              </TouchableOpacity>
+            </View>
+            <Text style={[styles.detail, { color: muted, marginBottom: 8 }]}>Customer: {assignModal?.customerName}</Text>
+
+            <ScrollView style={{ maxHeight: 260 }}>
+              {availableSalespersons.map((sp) => (
+                <TouchableOpacity
+                  key={`sp-${sp.id}`}
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    paddingVertical: 12,
+                    paddingHorizontal: 12,
+                    borderRadius: 10,
+                    borderWidth: 1,
+                    borderColor: card.borderColor,
+                    marginBottom: 8,
+                    backgroundColor: isDark ? "#121A16" : "#F4F7F5",
+                  }}
+                  onPress={() => void reassignCustomer(sp.id)}
+                >
+                  <Text style={{ fontFamily: Typography.semiBold, fontSize: 13, color: foreground }}>{sp.name}</Text>
+                  <Ionicons name="arrow-forward" size={16} color="#159A7C" />
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                onPress={() => setAssignModal(null)}
+                style={[styles.modalCancel, { borderColor: card.borderColor }]}
+              >
+                <Text style={[styles.modalBtnText, { color: muted }]}>Cancel</Text>
               </TouchableOpacity>
             </View>
           </View>

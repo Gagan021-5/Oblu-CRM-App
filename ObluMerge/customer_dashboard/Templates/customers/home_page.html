@@ -77,7 +77,7 @@
             <span class="open-link">Open →</span>
         </a>
 
-        <!-- Analytics, Detailed Map & Unassigned: ADMIN (SUPERUSER) ONLY -->
+        <!-- Analytics & Detailed Map -->
         {% if request.user.is_superuser or 'admin' in user_roles or 'analytics.view' in permissions %}
         <a href="{% url 'customers:charts' %}" class="feature-card">
             <div class="icon-box"><i class="bi bi-bar-chart-line"></i></div>
@@ -91,6 +91,10 @@
             <p>Geographic customer distribution across India.</p>
             <span class="open-link">Open →</span>
         </a>
+        {% endif %}
+
+        <!-- Unassigned Customers: Authorized users -->
+        {% if request.user.is_superuser or 'admin' in user_roles or 'customer.view_all' in permissions or '*' in permissions %}
         <a href="{% url 'customers:unassigned' %}" class="feature-card">
             <div class="icon-box"><i class="bi bi-person-x"></i></div>
             <h5>Unassigned Customers</h5>
@@ -159,7 +163,7 @@
         </a>
         {% endif %}
 
-        {% if 'sales_head' in user_roles or 'business' in user_roles or request.user.is_superuser %}
+        {% if 'sales_head' in user_roles or 'business' in user_roles or 'admin' in user_roles or is_executive or request.user.is_superuser or '*' in permissions %}
         <a href="{% url 'incentive_calculator:sales_head_dashboard' %}" class="feature-card">
             <div class="icon-box"><i class="bi bi-diagram-3"></i></div>
             <h5>Sales Head Incentives</h5>
@@ -181,6 +185,23 @@
             <div class="icon-box"><i class="bi bi-grid-3x3-gap"></i></div>
             <h5>Cross-Selling Matrix</h5>
             <p>Identify product gap opportunities across customer accounts.</p>
+            <span class="open-link">Open →</span>
+        </a>
+    </div>
+</div>
+{% endif %}
+
+<!-- ============================================================
+     5. ADMINISTRATION
+============================================================= -->
+{% if request.user.is_superuser or 'admin' in user_roles or 'accounts_operations' in user_roles or 'sales_head' in user_roles or is_executive or 'customer.view_all' in permissions or '*' in permissions %}
+<div class="quick-section">
+    <div class="quick-section-title">Administration</div>
+    <div class="features-grid">
+        <a href="{% url 'customers:admin_voucher_claim_management' %}" class="feature-card">
+            <div class="icon-box"><i class="bi bi-check2-square"></i></div>
+            <h5>Voucher Approvals</h5>
+            <p>Review, verify, and approve pending salesperson voucher claims.</p>
             <span class="open-link">Open →</span>
         </a>
     </div>

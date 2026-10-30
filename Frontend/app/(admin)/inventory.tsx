@@ -18,7 +18,6 @@ import { SearchBar } from "@/components/ui/SearchBar";
 import { FilterChip } from "@/components/ui/FilterChip";
 import { MetricCard } from "@/components/employee/MetricCard";
 import { StatusPill } from "@/components/ui/StatusPill";
-import { FloatingTabBar } from "@/components/employee/FloatingTabBar";
 
 interface InventoryItem {
   id: string;
@@ -295,8 +294,7 @@ export default function InventoryScreen() {
         }
       />
 
-      <FloatingTabBar />
-    </View>
+          </View>
   );
 }
 

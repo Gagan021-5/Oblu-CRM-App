@@ -178,6 +178,41 @@ const FloatingTabBarComponent: React.FC<FloatingTabBarProps> = () => {
     },
   ];
 
+  const isMainTab = useMemo(() => {
+    const p = (pathname || "").toLowerCase();
+    // Do not show dock on sub-screens (they have dedicated headers, back buttons, and full layouts)
+    if (
+      p.includes("/tool") ||
+      p.includes("/customers/") ||
+      p.includes("/leads/") ||
+      p.includes("/hrms") ||
+      p.includes("/inventory") ||
+      p.includes("/proforma") ||
+      p.includes("/incentives") ||
+      p.includes("/security") ||
+      p.includes("/stats") ||
+      p.includes("/customer-dashboard") ||
+      p.includes("/consent")
+    ) {
+      return false;
+    }
+    return (
+      isHome ||
+      isStaffActive ||
+      p === "/(admin)/customers" ||
+      p === "/(employee)/customers" ||
+      p === "/(employee)/customers/" ||
+      p === "/(admin)/call-logs" ||
+      p === "/(user)/status" ||
+      p === "/(admin)/more" ||
+      p === "/(employee)/profile"
+    );
+  }, [pathname, isHome, isStaffActive]);
+
+  if (!isMainTab) {
+    return null;
+  }
+
   const currentNavItems = isHR ? hrNavItems : standardNavItems;
   const bottomOffset = Math.max(insets.bottom, 12);
 

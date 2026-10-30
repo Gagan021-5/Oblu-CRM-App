@@ -13,6 +13,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.pagination import PageNumberPagination
+from rest_framework.authentication import SessionAuthentication
+from rest_framework_simplejwt.authentication import JWTAuthentication
 from django.shortcuts import get_object_or_404
 
 from access_control.roles import (
@@ -260,6 +262,7 @@ class CustomerDetailView(generics.RetrieveAPIView):
 class CustomerMobileEditView(APIView):
     """JWT API bridge for the existing customer contact and credit forms."""
     permission_classes = [IsAuthenticated]
+    authentication_classes = [JWTAuthentication, SessionAuthentication]
 
     def _get_customer(self, request, pk):
         return _get_customer_for_user(request.user, pk, "customer.view", "customer.view_all")
@@ -299,7 +302,8 @@ class CustomerMobileEditView(APIView):
             raise PermissionDenied("Credit period editing is not enabled for this account.")
 
         with transaction.atomic():
-            customer = Customer.objects.select_for_update().select_related("salesperson", "credit_profile").get(pk=customer.pk)
+            # Use of=('self',) to avoid PostgreSQL error with outer joins on nullable fields
+            customer = Customer.objects.select_for_update(of=('self',)).select_related("salesperson", "credit_profile").get(pk=customer.pk)
             contact_form = None
             if edits_contact:
                 contact_data = {
@@ -310,8 +314,9 @@ class CustomerMobileEditView(APIView):
                 contact_form = CustomerReassignForm(contact_data, instance=customer)
 
             credit_form = None
+            profile = None
             if edits_credit:
-                profile = getattr(customer, "credit_profile", None) or CustomerCreditProfile(customer=customer)
+                profile, _ = CustomerCreditProfile.objects.get_or_create(customer=customer)
                 credit_form = CustomerCreditForm(
                     {"credit_period_days": request.data.get("credit_period_days")},
                     instance=profile,
@@ -328,7 +333,16 @@ class CustomerMobileEditView(APIView):
             if contact_form is not None:
                 customer = contact_form.save()
             if credit_form is not None:
-                credit_form.save()
+                profile = credit_form.save()
+                # Synchronize overdue status across unpaid vouchers
+                today = timezone.localdate()
+                new_days = profile.credit_period_days or 7
+                for vs in customer.voucher_statuses.filter(is_fully_paid=False).select_related("voucher"):
+                    if vs.voucher and vs.voucher.date:
+                        elapsed = (today - vs.voucher.date).days
+                        vs.credit_days_elapsed = elapsed
+                        vs.is_credit_period_crossed = elapsed > new_days
+                        vs.save(update_fields=["credit_days_elapsed", "is_credit_period_crossed"])
 
         customer.refresh_from_db()
         profile = CustomerCreditProfile.objects.filter(customer=customer).first()
@@ -715,57 +729,110 @@ class CustomerWorkspaceToolsView(APIView):
                     Q(state__icontains=q_search)
                 )
 
-            from decimal import Decimal
-            today = timezone.now().date()
-            cutoff_date = today - timezone.timedelta(days=90)
-            total_accounts = target_scope.count()
+            # Query all matching customers in target_scope with complete metrics
+            annotated_qs = _annotate_customer_list_activity(
+                _annotate_portfolio_metrics(target_scope)
+            ).select_related("salesperson", "unit_membership__unit", "credit_profile").order_by("name")
 
-            active_clients = target_scope.filter(
-                voucher_statuses__voucher_type__iexact="TAX INVOICE",
-                voucher_statuses__voucher_date__gte=cutoff_date,
-            ).distinct().count()
-            inactive_clients = max(0, total_accounts - active_clients)
+            raw_customers = list(annotated_qs)
+            serialized_members = CustomerListSerializer(raw_customers, many=True, context={"request": request}).data
+            member_dict = {row["id"]: row for row in serialized_members}
 
-            due_accounts = target_scope.filter(credit_profile__outstanding_balance__gt=0).count()
-            total_exposure = target_scope.filter(credit_profile__outstanding_balance__gt=0).aggregate(
-                total=Sum("credit_profile__outstanding_balance")
-            )["total"] or Decimal("0.00")
+            # Group into Units and Standalone accounts identical to website's AdminSalesPersonCustomersView
+            unit_map = {}
+            standalone_rows = []
+
+            for cust in raw_customers:
+                cust_data = member_dict.get(cust.id) or CustomerListSerializer(cust, context={"request": request}).data
+                membership = getattr(cust, "unit_membership", None)
+                if membership:
+                    uid = membership.unit_id
+                    if uid not in unit_map:
+                        unit_map[uid] = {
+                            "unit_obj": membership.unit,
+                            "members_models": [],
+                            "members": [],
+                        }
+                    unit_map[uid]["members_models"].append(cust)
+                    unit_map[uid]["members"].append(cust_data)
+                else:
+                    cust_data["is_unit"] = False
+                    standalone_rows.append(cust_data)
+
+            enriched_units = []
+            for uid, data in unit_map.items():
+                unit_obj = data["unit_obj"]
+                members_models = data["members_models"]
+                members = data["members"]
+
+                is_red_flag = all(getattr(m, "is_red_flag", not getattr(m, "api_has_recent_tax_invoice", False)) for m in members_models)
+                total_orders = sum(getattr(m, "portfolio_total_orders", 0) for m in members_models)
+                total_value = sum(float(getattr(m, "portfolio_total_order_value", 0) or 0) for m in members_models)
+                outstanding_sum = sum(
+                    float(m.credit_profile.outstanding_balance or 0)
+                    for m in members_models
+                    if getattr(m, "credit_profile", None) and (m.credit_profile.outstanding_balance or 0) > 0
+                )
+                last_order_dates = [getattr(m, "portfolio_last_order_date", None) for m in members_models if getattr(m, "portfolio_last_order_date", None)]
+                latest_order_date = max(last_order_dates).isoformat() if last_order_dates else None
+
+                sp_name = members_models[0].salesperson.name if members_models[0].salesperson else "Unassigned"
+
+                enriched_units.append({
+                    "id": f"unit-{uid}",
+                    "is_unit": True,
+                    "unit_id": uid,
+                    "name": unit_obj.name,
+                    "assignedSalesperson": sp_name,
+                    "members_count": len(members),
+                    "members": members,
+                    "is_red_flag": is_red_flag,
+                    "portfolioStatus": "Inactive" if is_red_flag else "Active",
+                    "status": "Inactive" if is_red_flag else "Active",
+                    "total_orders": total_orders,
+                    "totalOrders": total_orders,
+                    "total_order_value": total_value,
+                    "totalOrderValue": f"₹{total_value:,.2f}",
+                    "outstandingPayment": f"₹{outstanding_sum:,.2f}" if outstanding_sum > 0 else "₹0.00",
+                    "outstandingPaymentNum": outstanding_sum,
+                    "last_order_date": latest_order_date,
+                    "lastOrder": latest_order_date,
+                })
+
+            # Combined cards matching website
+            all_cards = enriched_units + standalone_rows
+            total_display = len(all_cards)
+
+            active_count = sum(1 for x in all_cards if x.get("portfolioStatus") == "Active" or x.get("status") == "Active")
+            inactive_count = sum(1 for x in all_cards if x.get("portfolioStatus") == "Inactive" or x.get("status") == "Inactive")
+            due_accounts = sum(1 for x in all_cards if (x.get("outstandingPaymentNum") or 0) > 0)
+            total_exposure = sum(float(x.get("outstandingPaymentNum") or 0) for x in all_cards)
 
             stats = {
-                "total_accounts": total_accounts,
-                "active_clients": active_clients,
-                "inactive_dormant": inactive_clients,
+                "total_accounts": total_display,
+                "raw_total_accounts": len(raw_customers),
+                "active_clients": active_count,
+                "inactive_dormant": inactive_count,
                 "due_accounts": due_accounts,
                 "total_exposure": float(total_exposure),
             }
 
-            page_param = request.query_params.get("page")
-            page_size_param = request.query_params.get("page_size")
-
-            page_size = int(page_size_param) if page_size_param and str(page_size_param).isdigit() else 50
-            page_num = int(page_param) if page_param and str(page_param).isdigit() else 1
+            page_size = int(request.query_params.get("page_size", 50)) if str(request.query_params.get("page_size", "")).isdigit() else 50
+            page_num = int(request.query_params.get("page", 1)) if str(request.query_params.get("page", "")).isdigit() else 1
             offset = (page_num - 1) * page_size
-
-            paged_ids = list(target_scope.order_by("name").values_list("id", flat=True)[offset : offset + page_size])
-            paged_qs = target_scope.filter(id__in=paged_ids)
-            qs = _annotate_customer_list_activity(
-                _annotate_portfolio_metrics(paged_qs)
-            ).select_related("salesperson", "unit_membership__unit", "credit_profile").order_by("name")
-
-            total_pages = (total_accounts + page_size - 1) // page_size if total_accounts > 0 else 1
-            has_next = page_num < total_pages
-            has_prev = page_num > 1
+            paged_cards = all_cards[offset : offset + page_size]
 
             return Response({
-                "rows": CustomerListSerializer(qs, many=True).data,
+                "rows": paged_cards,
+                "units_count": len(enriched_units),
+                "standalone_count": len(standalone_rows),
+                "total_display": total_display,
+                "total_count": total_display,
                 "salespersons": sp_names,
                 "stats": stats,
                 "page": page_num,
                 "page_size": page_size,
-                "total_count": total_accounts,
-                "total_pages": total_pages,
-                "has_next": has_next,
-                "has_prev": has_prev,
+                "total_pages": (total_display + page_size - 1) // page_size if total_display > 0 else 1,
             })
 
         if tool == "payment-followups":
@@ -774,17 +841,85 @@ class CustomerWorkspaceToolsView(APIView):
             qs = CustomerVoucherStatus.objects.filter(
                 Q(is_unpaid=True) | Q(is_partially_paid=True),
                 pk__in=_payment_scope(request.user, "payment.view").values("pk"),
-            ).select_related("customer", "voucher").order_by("customer__name", "voucher_date")
-            return Response([{
-                "id": row.id,
-                "customer": row.customer.name,
-                "customer_id": row.customer_id,
-                "invoice": row.voucher.voucher_number if row.voucher else "",
-                "date": row.voucher_date,
-                "amount": str(row.voucher_amount or 0),
-                "unpaid": str(row.unpaid_amount or 0),
-                "overdue": bool(row.is_credit_period_crossed),
-            } for row in qs[:300]])
+            ).select_related(
+                "customer", "customer__salesperson", "customer__credit_profile",
+                "voucher", "payment_thread",
+            ).prefetch_related(
+                "payment_thread__remarks__created_by",
+                "payment_thread__expected_date_history__set_by",
+                "payment_thread__ticket_events__performed_by",
+            ).order_by("customer__name", "voucher_date")
+
+            today = timezone.localdate()
+            rows = []
+            for row in qs[:300]:
+                thread = getattr(row, "payment_thread", None)
+                credit_days = (
+                    row.customer.credit_profile.credit_period_days
+                    if hasattr(row.customer, "credit_profile") and row.customer.credit_profile
+                    else 7
+                )
+                days_elapsed = row.credit_days_elapsed or 0
+                if row.is_credit_period_crossed:
+                    credit_status = f"Crossed by {days_elapsed} days"
+                else:
+                    credit_status = f"{max(credit_days - days_elapsed, 0)} days remaining"
+
+                remarks_list = []
+                expected_list = []
+                ticket_events = []
+                ticket_status = "OPEN"
+                if thread:
+                    ticket_status = thread.ticket_status or "OPEN"
+                    for r in thread.remarks.all().order_by("-created_at"):
+                        remarks_list.append({
+                            "id": r.id,
+                            "text": r.remark,
+                            "user": r.created_by.username if r.created_by else "Unknown",
+                            "time": r.created_at.strftime("%d %b %H:%M"),
+                        })
+                    for e in thread.expected_date_history.all().order_by("-created_at"):
+                        expected_list.append({
+                            "id": e.id,
+                            "date": str(e.expected_date),
+                            "user": e.set_by.username if e.set_by else "Unknown",
+                            "time": e.created_at.strftime("%d %b %Y %H:%M"),
+                        })
+                    for ev in thread.ticket_events.all().order_by("-created_at"):
+                        ticket_events.append({
+                            "id": ev.id,
+                            "event_type": ev.event_type,
+                            "user": ev.performed_by.username if ev.performed_by else "Unknown",
+                            "time": ev.created_at.strftime("%d %b %Y %H:%M"),
+                        })
+
+                rows.append({
+                    "id": row.id,
+                    "voucher_status_id": row.id,
+                    "customer": row.customer.name,
+                    "customer_id": row.customer_id,
+                    "salesperson": row.customer.salesperson.name if row.customer.salesperson else "Unassigned",
+                    "sp": row.customer.salesperson.name if row.customer.salesperson else "Unassigned",
+                    "invoice": row.voucher.voucher_number if row.voucher else "",
+                    "voucher": row.voucher.voucher_number if row.voucher else "",
+                    "date": row.voucher_date.strftime("%d-%m-%Y") if row.voucher_date else "",
+                    "amount": str(row.voucher_amount or 0),
+                    "total": row.voucher_amount or 0,
+                    "unpaid": str(row.unpaid_amount or 0),
+                    "pending": row.unpaid_amount or 0,
+                    "overdue": bool(row.is_credit_period_crossed),
+                    "is_credit_period_crossed": bool(row.is_credit_period_crossed),
+                    "credit_days_elapsed": days_elapsed,
+                    "credit_status": credit_status,
+                    "credit": credit_status,
+                    "ticket_status": ticket_status,
+                    "remarks": remarks_list,
+                    "remarks_count": len(remarks_list),
+                    "expected_dates": expected_list,
+                    "latest_expected_date": expected_list[0]["date"] if expected_list else None,
+                    "ticket_events": ticket_events,
+                })
+            return Response(rows)
 
         if tool == "monthly-sales":
             if not _has_customer_permission(request.user, "customer.view", "customer.view_all", "payment.view"):
@@ -1061,7 +1196,7 @@ class CustomerWorkspaceToolsView(APIView):
                 })
 
             elif tool == "sales-head-incentives":
-                if not allowed or not self._has_role(request.user, "sales_head", "business", "admin") and not (request.user.is_staff or request.user.is_superuser):
+                if not allowed or (not self._has_role(request.user, "sales_head", "business", "admin") and not (request.user.is_staff or request.user.is_superuser or is_admin(request.user) or can(request.user, "*"))):
                     return Response({"error": "Administrator access required."}, status=403)
 
                 # Keep mobile Sales Head Incentives in sync with the website. The
@@ -1102,9 +1237,39 @@ class CustomerWorkspaceToolsView(APIView):
                 })
             return Response([])
 
+        if tool == "unassigned":
+            if not _has_customer_permission(request.user, "customer.view_all"):
+                raise PermissionDenied("Unassigned customer access requires customer.view_all permission.")
+            unassigned_qs = Customer.objects.filter(salesperson__isnull=True).order_by("name")
+            q_search = request.query_params.get("search", "").strip()
+            if q_search:
+                unassigned_qs = unassigned_qs.filter(
+                    Q(name__icontains=q_search) |
+                    Q(state__icontains=q_search) |
+                    Q(district__icontains=q_search) |
+                    Q(phone__icontains=q_search)
+                )
+
+            salespersons = list(SalesPerson.objects.order_by("name").values("id", "name"))
+            rows = [{
+                "id": c.id,
+                "name": c.name,
+                "state": c.state or "",
+                "district": c.district or "",
+                "address": c.address or "",
+                "phone": c.phone or "",
+                "email": c.email or "",
+            } for c in unassigned_qs[:200]]
+
+            return Response({
+                "rows": rows,
+                "total_count": unassigned_qs.count(),
+                "salespersons": salespersons,
+            })
+
         if tool == "voucher-approvals":
-            if not (request.user.is_staff or request.user.is_superuser or is_admin(request.user) or self._has_role(request.user, "accounts_operations")):
-                return Response({"error": "Administrator access required."}, status=403)
+            if not (request.user.is_staff or request.user.is_superuser or is_admin(request.user) or self._has_role(request.user, "accounts_operations", "sales_head") or can(request.user, "customer.view_all")):
+                return Response({"error": "Administrator or Sales Head access required."}, status=403)
             qs = CustomerVoucherStatus.objects.filter(claim_status="PENDING").select_related("customer", "voucher", "claim_requested_by")
             return Response([{"id": row.id, "customer": row.customer.name,
                 "voucher": row.voucher.voucher_number if row.voucher else "",
@@ -1114,9 +1279,96 @@ class CustomerWorkspaceToolsView(APIView):
         return Response({"error": "Unknown customer workspace tool."}, status=404)
 
     def post(self, request, tool):
+        if tool == "payment-followups":
+            if not _has_customer_permission(request.user, "payment.view"):
+                raise PermissionDenied("Payment follow-up access is not enabled for this account.")
+            vs_id = request.data.get("voucher_status_id") or request.data.get("id")
+            if not vs_id:
+                return Response({"error": "voucher_status_id is required"}, status=400)
+
+            vs = get_object_or_404(CustomerVoucherStatus, id=vs_id)
+            thread, _ = PaymentDiscussionThread.objects.get_or_create(voucher_status=vs)
+            action = request.data.get("action", "remark")
+
+            if action == "remark":
+                remark_text = request.data.get("remark", "").strip()
+                if not remark_text:
+                    return Response({"error": "remark text is required"}, status=400)
+                obj = PaymentRemark.objects.create(
+                    thread=thread,
+                    remark=remark_text,
+                    created_by=request.user,
+                )
+                return Response({
+                    "status": "ok",
+                    "id": obj.id,
+                    "text": remark_text,
+                    "user": request.user.username,
+                    "time": obj.created_at.strftime("%d %b %H:%M"),
+                })
+
+            elif action == "expected":
+                exp_date = request.data.get("expected_date")
+                if not exp_date:
+                    return Response({"error": "expected_date is required"}, status=400)
+                obj = PaymentExpectedDateHistory.objects.create(
+                    thread=thread,
+                    expected_date=exp_date,
+                    set_by=request.user,
+                )
+                return Response({
+                    "status": "ok",
+                    "id": obj.id,
+                    "date": str(exp_date),
+                    "user": request.user.username,
+                })
+
+            elif action == "raise":
+                thread.ticket_status = "RAISED"
+                thread.raised_by = request.user
+                thread.raised_at = timezone.now()
+                thread.save()
+                PaymentTicketEvent.objects.create(
+                    thread=thread,
+                    event_type="RAISED",
+                    performed_by=request.user,
+                )
+                return Response({"status": "ok", "ticket_status": "RAISED"})
+
+            elif action == "solve":
+                thread.ticket_status = "SOLVED"
+                thread.solved_by = request.user
+                thread.solved_at = timezone.now()
+                thread.save()
+                PaymentTicketEvent.objects.create(
+                    thread=thread,
+                    event_type="SOLVED",
+                    performed_by=request.user,
+                )
+                return Response({"status": "ok", "ticket_status": "SOLVED"})
+
+            return Response({"error": "Unknown payment follow-up action."}, status=400)
+
+        if tool == "unassigned":
+            if not _has_customer_permission(request.user, "customer.view_all"):
+                raise PermissionDenied("Reassigning customers requires customer.view_all permission.")
+            customer_id = request.data.get("customer_id")
+            salesperson_id = request.data.get("salesperson_id")
+            if not customer_id or not salesperson_id:
+                return Response({"error": "customer_id and salesperson_id are required"}, status=400)
+            customer = get_object_or_404(Customer, id=customer_id)
+            salesperson = get_object_or_404(SalesPerson, id=salesperson_id)
+            customer.salesperson = salesperson
+            customer.save(update_fields=["salesperson"])
+            return Response({
+                "status": "ok",
+                "customer_id": customer.id,
+                "salesperson": salesperson.name,
+            })
+
         if tool == "voucher-approvals":
-            if not (request.user.is_staff or request.user.is_superuser or is_admin(request.user) or self._has_role(request.user, "accounts_operations")):
-                return Response({"error": "Administrator access required."}, status=403)
+            if not (request.user.is_staff or request.user.is_superuser or is_admin(request.user) or self._has_role(request.user, "accounts_operations", "sales_head") or can(request.user, "customer.view_all")):
+                return Response({"error": "Administrator or Sales Head access required."}, status=403)
             row = get_object_or_404(CustomerVoucherStatus, pk=request.data.get("id"), claim_status="PENDING")
             action = request.data.get("action")
             if action not in {"approve", "reject"}:

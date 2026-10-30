@@ -26,14 +26,15 @@ export function CustomerNavDrawer({ visible, onClose, isAdmin = false }: Props) 
   const canViewAnalyticsAndMap = canViewAllCustomers && !isBhavya && !isRsm;
   const canViewCustomers = isAdmin || hasPermission(permissionProfile, "customer.view");
   const canViewPayments = isAdmin || hasPermission(permissionProfile, "payment.view");
-  const canViewTeamIncentives = superuser || isRsm || isSalesHead;
-  const canViewSalesHeadIncentives = superuser || isSalesHead || isBusinessManager;
-  const canApproveVouchers = superuser || hasRole(permissionProfile, "admin") || hasRole(permissionProfile, "accounts_operations");
+  const canViewTeamIncentives = superuser || isRsm || isSalesHead || isAdmin;
+  const canViewSalesHeadIncentives = superuser || isSalesHead || isBusinessManager || isAdmin || hasRole(permissionProfile, "admin");
+  const canApproveVouchers = superuser || isAdmin || hasRole(permissionProfile, "admin") || hasRole(permissionProfile, "accounts_operations") || isSalesHead || canViewAllCustomers;
   const tool = (slug: string) => `/(employee)/customers/tool/${slug}`;
   const sections = [
     { title: "WORKSPACE", entries: [
       { title: "Dashboard", icon: "home-outline" as const, route: isAdmin ? "/(admin)/customer-dashboard" : "/(employee)/customers/dashboard" },
       ...(canViewAllCustomers ? [{ title: "Customer Directory", icon: "people-outline" as const, route: isAdmin ? "/(admin)/customers" : "/(employee)/customers" }] : []),
+      ...(canViewAllCustomers ? [{ title: "Unassigned Customers", icon: "person-remove-outline" as const, route: tool("unassigned") }] : []),
       ...(canViewAnalyticsAndMap ? [{ title: "Analytics", icon: "bar-chart-outline" as const, route: "/(employee)/customers/analytics" }] : []),
       ...(canViewAnalyticsAndMap ? [{ title: "Detailed Map", icon: "map-outline" as const, route: "/(employee)/customers/map" }] : []),
     ]},

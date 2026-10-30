@@ -18,7 +18,6 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Typography, FontSizes } from "@/constants/theme";
 import { SearchBar } from "@/components/ui/SearchBar";
 import { FilterChip } from "@/components/ui/FilterChip";
-import { FloatingTabBar } from "@/components/employee/FloatingTabBar";
 import {
   fetchHRMSDashboardApi,
   fetchHRMSEmployeesApi,
@@ -722,9 +721,7 @@ export default function HRMSScreen() {
         }}
       />
 
-      {/* ── Floating Dock Navigation Bar ── */}
-      <FloatingTabBar />
-
+      
       {/* ── HR Toolkit Info Modal ── */}
       {activeHRModal && (
         <Modal

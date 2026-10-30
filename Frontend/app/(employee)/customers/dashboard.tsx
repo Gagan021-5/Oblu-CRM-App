@@ -22,7 +22,8 @@ const links: QuickLink[] = [
   { title: "RSM Team Incentives", description: "Review team incentive performance", icon: "people-outline", route: "/(employee)/customers/tool/rsm-incentives", color: "#6366F1", roles: ["rsm", "sales_head", "admin", "accountant"] },
   { title: "Sales Head Incentives", description: "Review sales head incentive performance", icon: "git-network-outline", route: "/(employee)/customers/tool/sales-head-incentives", color: "#6366F1", roles: ["sales_head", "business", "admin"] },
   { title: "Cross-Selling Matrix", description: "Identify customer product gap opportunities", icon: "grid-outline", route: "/(employee)/customers/tool/cross-selling", color: "#159A7C", permission: "customer.view" },
-  { title: "Voucher Approvals", description: "Review pending voucher claims", icon: "checkbox-outline", route: "/(employee)/customers/tool/voucher-approvals", color: "#F59E0B", roles: ["admin", "accounts_operations"] },
+  { title: "Voucher Approvals", description: "Review pending voucher claims", icon: "checkbox-outline", route: "/(employee)/customers/tool/voucher-approvals", color: "#F59E0B", roles: ["admin", "accounts_operations", "sales_head"] },
+  { title: "Unassigned Customers", description: "Review and assign unattached accounts", icon: "person-remove-outline", route: "/(employee)/customers/tool/unassigned", color: "#EF4444", permission: "customer.view_all" },
 ];
 
 export default function CustomerWorkspaceScreen({ isAdmin = false }: { isAdmin?: boolean }) {

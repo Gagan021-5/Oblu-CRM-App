@@ -14,7 +14,6 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { Typography, FontSizes, Radius, Shadows } from "@/constants/theme";
 import { MetricCard } from "@/components/employee/MetricCard";
-import { FloatingTabBar } from "@/components/employee/FloatingTabBar";
 
 export default function IncentivesScreen() {
   const insets = useSafeAreaInsets();
@@ -168,8 +167,7 @@ export default function IncentivesScreen() {
         ))}
       </ScrollView>
 
-      <FloatingTabBar />
-    </View>
+          </View>
   );
 }
 

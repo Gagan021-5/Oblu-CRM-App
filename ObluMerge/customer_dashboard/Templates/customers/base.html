@@ -154,7 +154,7 @@
         </a>
         {% endif %}
 
-        <!-- Analytics, Detailed Map & Unassigned: ADMIN (SUPERUSER) ONLY -->
+        <!-- Analytics & Detailed Map -->
         {% if request.user.is_superuser or 'admin' in user_roles or 'analytics.view' in permissions %}
         <a href="{% url 'customers:charts' %}" class="nav-link {% if request.resolver_match.url_name == 'charts' %}active{% endif %}">
             <i class="bi bi-bar-chart-line"></i>
@@ -165,7 +165,10 @@
             <i class="bi bi-geo-alt"></i>
             <span>Detailed Map</span>
         </a>
+        {% endif %}
 
+        <!-- Unassigned Customers: Visible to authorized users (Admin, Sales Head, Manager with customer.view_all) -->
+        {% if request.user.is_superuser or 'admin' in user_roles or 'customer.view_all' in permissions or '*' in permissions %}
         <a href="{% url 'customers:unassigned' %}" class="nav-link {% if request.resolver_match.url_name == 'unassigned' %}active{% endif %}">
             <i class="bi bi-person-x"></i>
             <span>Unassigned Customers</span>
@@ -222,8 +225,8 @@
         </a>
         {% endif %}
 
-        <!-- Sales Head Incentives (ONLY Sales Head, Business Manager, Superuser) -->
-        {% if 'sales_head' in user_roles or 'business' in user_roles or request.user.is_superuser %}
+        <!-- Sales Head Incentives (Sales Head, Business Manager, Admin, Executive, Superuser) -->
+        {% if 'sales_head' in user_roles or 'business' in user_roles or 'admin' in user_roles or is_executive or request.user.is_superuser or '*' in permissions %}
         <a href="{% url 'incentive_calculator:sales_head_dashboard' %}" class="nav-link {% if request.resolver_match.url_name == 'sales_head_dashboard' %}active{% endif %}">
             <i class="bi bi-diagram-3"></i>
             <span>Sales Head Incentives</span>
@@ -245,7 +248,7 @@
         <!-- ========================================================
              5. ADMINISTRATION
         ========================================================= -->
-        {% if request.user.is_superuser or 'admin' in user_roles or 'accounts_operations' in user_roles %}
+        {% if request.user.is_superuser or 'admin' in user_roles or 'accounts_operations' in user_roles or 'sales_head' in user_roles or is_executive or 'customer.view_all' in permissions or '*' in permissions %}
         <div class="nav-section-title">Administration</div>
 
         <a href="{% url 'customers:admin_voucher_claim_management' %}" class="nav-link {% if request.resolver_match.url_name == 'admin_voucher_claim_management' %}active{% endif %}">

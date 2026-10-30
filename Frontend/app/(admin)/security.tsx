@@ -14,7 +14,6 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { Typography, FontSizes, Radius, Shadows } from "@/constants/theme";
 import { MetricCard } from "@/components/employee/MetricCard";
-import { FloatingTabBar } from "@/components/employee/FloatingTabBar";
 
 interface DeviceItem {
   id: string;
@@ -164,8 +163,7 @@ export default function SecurityScreen() {
         }}
       />
 
-      <FloatingTabBar />
-    </View>
+          </View>
   );
 }
 
