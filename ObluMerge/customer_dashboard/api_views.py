@@ -753,22 +753,78 @@ class CustomerWorkspaceToolsView(APIView):
             from .views import (
                 CROSS_SELLING_CATEGORIES, get_cross_selling_dataset,
                 get_cross_selling_user_permissions, filter_cross_selling_customers,
+                compute_cross_selling_stats,
             )
             category_names = {item["id"]: item["name"] for item in CROSS_SELLING_CATEGORIES}
             rows = []
             permissions = get_cross_selling_user_permissions(request.user)
-            _, visible_items = filter_cross_selling_customers(
-                get_cross_selling_dataset()["customers"], permissions,
+            dataset = get_cross_selling_dataset()
+            base_accessible, visible_items = filter_cross_selling_customers(
+                dataset["customers"], permissions,
                 request.query_params.get("salesperson", ""),
             )
+            stats = compute_cross_selling_stats(base_accessible)
+
             for item in visible_items:
                 customer = item.get("customer")
                 if customer:
-                    rows.append({"customer": customer.name, "customer_id": customer.pk,
+                    checklist_data = []
+                    for chk in item.get("checklist_items", []):
+                        checklist_data.append({
+                            "category_id": chk.get("category_id"),
+                            "category_name": chk.get("category_name"),
+                            "bought": bool(chk.get("bought")),
+                            "product_name": chk.get("product_name", ""),
+                            "total_qty": chk.get("total_qty", 0),
+                            "total_amt": chk.get("total_amt", 0),
+                        })
+
+                    vouchers_data = []
+                    for v in item.get("vouchers", []):
+                        vouchers_data.append({
+                            "id": v.get("id"),
+                            "number": v.get("number"),
+                            "date": v.get("date").isoformat() if hasattr(v.get("date"), "isoformat") else str(v.get("date", "")),
+                            "is_recent": bool(v.get("is_recent")),
+                            "is_overdue": bool(v.get("is_overdue")),
+                        })
+
+                    remarks_data = []
+                    for r in item.get("remarks", []):
+                        remarks_data.append({
+                            "id": r.id,
+                            "salesperson": r.salesperson.name if r.salesperson else "System",
+                            "text": r.remark_text,
+                            "created_at": r.created_at.strftime("%d %b %Y, %I:%M %p") if r.created_at else "",
+                        })
+
+                    rows.append({
+                        "id": customer.pk,
+                        "customer": customer.name,
+                        "customer_id": customer.pk,
+                        "city": customer.district or customer.city or "",
+                        "state": customer.state or "",
+                        "phone": customer.phone or "",
                         "salesperson": customer.salesperson.name if customer.salesperson else "Unassigned",
+                        "is_active": bool(item.get("is_active")),
                         "bought": item.get("bought_count", 0),
-                        "missing": [category_names.get(key, key) for key in item.get("missing_cat_ids", [])]})
-            return Response(rows)
+                        "bought_count": item.get("bought_count", 0),
+                        "missing": [category_names.get(key, key) for key in item.get("missing_cat_ids", [])],
+                        "missing_cat_ids": item.get("missing_cat_ids", []),
+                        "checklist": checklist_data,
+                        "vouchers": vouchers_data,
+                        "remarks": remarks_data,
+                    })
+
+            sp_names = sorted(list(set(
+                p.name for p in permissions.get("allowed_salespersons", []) if p and p.name
+            )))
+
+            return Response({
+                "rows": rows,
+                "stats": stats,
+                "salespersons": sp_names,
+            })
 
         if tool in {"my-incentives", "rsm-incentives", "sales-head-incentives"}:
             from datetime import date

@@ -719,6 +719,55 @@ export default function CustomerToolScreen() {
           })}
         </View>
 
+        {/* Vouchers Row (Column 3 on Web) */}
+        {Array.isArray(row.vouchers) && row.vouchers.length > 0 && (
+          <View style={{ gap: 4, marginTop: 2 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+              <Ionicons name="receipt-outline" size={12} color="#159A7C" />
+              <Text style={{ fontFamily: Typography.bold, fontSize: 9.5, color: muted, letterSpacing: 0.5 }}>RECENT VOUCHERS</Text>
+            </View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingVertical: 2 }}>
+              {row.vouchers.map((v: any, vIdx: number) => (
+                <View
+                  key={`v-${v.id || vIdx}`}
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 4,
+                    paddingHorizontal: 8,
+                    paddingVertical: 3.5,
+                    borderRadius: 8,
+                    borderWidth: 1,
+                    backgroundColor: v.is_overdue ? (isDark ? "#2A0E13" : "#FEE2E2") : (isDark ? "#062817" : "#DCFCE7"),
+                    borderColor: v.is_overdue ? "#FCA5A5" : "#86EFAC",
+                  }}
+                >
+                  <Ionicons name={v.is_overdue ? "alert-circle" : "document-text"} size={11} color={v.is_overdue ? "#DC2626" : "#15803D"} />
+                  <Text style={{ fontFamily: Typography.semiBold, fontSize: 10, color: v.is_overdue ? (isDark ? "#FECDD3" : "#991B1B") : (isDark ? "#86EFAC" : "#166534") }}>
+                    {v.number} {v.date ? `· ${v.date.slice(0, 10)}` : ""}
+                  </Text>
+                </View>
+              ))}
+            </ScrollView>
+          </View>
+        )}
+
+        {/* Gap Remarks Feed (Column 4 on Web) */}
+        {Array.isArray(row.remarks) && row.remarks.length > 0 && (
+          <View style={{ gap: 5, padding: 8, borderRadius: 10, borderWidth: 1, backgroundColor: isDark ? "#0A1410" : "#F8FAF9", borderColor: card.borderColor }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+              <Ionicons name="chatbubbles-outline" size={12} color="#159A7C" />
+              <Text style={{ fontFamily: Typography.bold, fontSize: 9.5, color: muted, letterSpacing: 0.5 }}>GAP REMARKS ({row.remarks.length})</Text>
+            </View>
+            {row.remarks.slice(-2).map((rmk: any, rIdx: number) => (
+              <View key={`rmk-${rmk.id || rIdx}`} style={{ padding: 6, borderRadius: 8, borderWidth: StyleSheet.hairlineWidth, backgroundColor: card.backgroundColor, borderColor: card.borderColor }}>
+                <Text style={{ fontFamily: Typography.regular, fontSize: 11, color: foreground }}>{rmk.text}</Text>
+                <Text style={{ fontFamily: Typography.regular, fontSize: 9.5, color: muted, marginTop: 2 }}>{rmk.salesperson} · {rmk.created_at}</Text>
+              </View>
+            ))}
+          </View>
+        )}
+
         {/* Quick Action Buttons */}
         <View style={[styles.csActions, { borderTopColor: card.borderColor }]}>
           <TouchableOpacity onPress={() => openCustomerDetail(row.customer_id, "purchases")} style={[styles.csActionBtn, { borderColor: card.borderColor }]}>
