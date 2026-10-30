@@ -221,7 +221,9 @@
             z-index: 1100;
             display: flex;
             flex-direction: column;
-            transition: transform .28s cubic-bezier(0.4, 0, 0.2, 1), box-shadow .28s ease;
+            /* Keep the drawer on the compositor so toggling does not repaint its contents. */
+            will-change: transform;
+            transition: transform .18s cubic-bezier(0.22, 1, 0.36, 1);
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             overflow: hidden;
         }
@@ -388,7 +390,8 @@
 
             margin-left: var(--sidebar-width);
 
-            transition: margin-left .28s cubic-bezier(0.4, 0, 0.2, 1), width .28s cubic-bezier(0.4, 0, 0.2, 1);
+            /* Avoid animating width: it forces the dashboard's charts and cards to reflow each frame. */
+            transition: margin-left .18s cubic-bezier(0.22, 1, 0.36, 1);
         }
 
 
@@ -511,11 +514,11 @@
            ========================================================= */
 
         #sidebar-wrapper {
-            transition: transform .28s cubic-bezier(0.4, 0, 0.2, 1), box-shadow .28s ease;
+            transition: transform .18s cubic-bezier(0.22, 1, 0.36, 1);
         }
 
         #page-content-wrapper {
-            transition: margin-left .28s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: margin-left .18s cubic-bezier(0.22, 1, 0.36, 1);
         }
 
         /* Desktop Collapsed Full View State */
@@ -607,12 +610,11 @@
             position: fixed;
             inset: 0;
             background: rgba(15, 23, 42, 0.45);
-            backdrop-filter: blur(3px);
-            -webkit-backdrop-filter: blur(3px);
+            /* Backdrop blur repaints the full page while the drawer moves. */
             z-index: 1040;
             opacity: 0;
             pointer-events: none;
-            transition: opacity 0.25s ease;
+            transition: opacity .16s ease;
         }
 
         .sidebar-backdrop.active {
