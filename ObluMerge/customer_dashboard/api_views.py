@@ -28,6 +28,7 @@ from .models import (
     CustomerRemark,
     CustomerFollowUp,
     CustomerVoucherStatus,
+    CrossSellingRemark,
     PaymentDiscussionThread,
     PaymentRemark,
     PaymentExpectedDateHistory,
@@ -836,21 +837,82 @@ class CustomerWorkspaceToolsView(APIView):
             if not _has_customer_permission(request.user, "customer.view"):
                 raise PermissionDenied("Cross-Selling Matrix access is not enabled for this account.")
             from .views import (
-                CROSS_SELLING_CATEGORIES, get_cross_selling_dataset,
+                CROSS_SELLING_CATEGORIES, get_cross_selling_mobile_dataset,
                 get_cross_selling_user_permissions, filter_cross_selling_customers,
                 compute_cross_selling_stats,
             )
             category_names = {item["id"]: item["name"] for item in CROSS_SELLING_CATEGORIES}
-            rows = []
             permissions = get_cross_selling_user_permissions(request.user)
-            dataset = get_cross_selling_dataset()
-            base_accessible, visible_items = filter_cross_selling_customers(
-                dataset["customers"], permissions,
-                request.query_params.get("salesperson", ""),
-            )
+            dataset = get_cross_selling_mobile_dataset()
+            base_accessible, visible_items = filter_cross_selling_customers(dataset["customers"], permissions)
             stats = compute_cross_selling_stats(base_accessible)
 
-            for item in visible_items:
+            salesperson_filter = request.query_params.get("salesperson", "").strip().casefold()
+            if salesperson_filter and salesperson_filter != "all salespeople":
+                visible_items = [
+                    item for item in visible_items
+                    if (item["customer"].salesperson.name if item["customer"].salesperson else "Unassigned").casefold()
+                    == salesperson_filter
+                ]
+
+            search_query = request.query_params.get("q", "").strip().casefold()
+            if search_query:
+                visible_items = [
+                    item for item in visible_items
+                    if any(search_query in str(value or "").casefold() for value in (
+                        item["customer"].name,
+                        item["customer"].phone,
+                        item["customer"].state,
+                        item["customer"].district,
+                        item["customer"].city,
+                        item["customer"].salesperson.name if item["customer"].salesperson else "Unassigned",
+                    ))
+                ]
+
+            missing_filter = request.query_params.get("missing_cat", "").strip().casefold()
+            if missing_filter and missing_filter != "all missing categories":
+                missing_id = next(
+                    (key for key, name in category_names.items() if key == missing_filter or name.casefold() == missing_filter),
+                    missing_filter,
+                )
+                visible_items = [item for item in visible_items if missing_id in item["missing_cat_ids"]]
+
+            score_filter = request.query_params.get("score", "").strip()
+            if score_filter.isdigit():
+                score = int(score_filter)
+                visible_items = [item for item in visible_items if item["bought_count"] == score]
+
+            try:
+                page_size = max(1, min(50, int(request.query_params.get("page_size", 25))))
+            except (TypeError, ValueError):
+                page_size = 25
+            paginator = PageNumberPagination()
+            paginator.page_size = page_size
+            paginator.page_size_query_param = None
+            paged_items = paginator.paginate_queryset(visible_items, request, view=self)
+            customer_ids = [item["customer"].pk for item in paged_items]
+
+            remark_counts = {
+                entry["customer_id"]: entry["total"]
+                for entry in CrossSellingRemark.objects.filter(customer_id__in=customer_ids)
+                .values("customer_id")
+                .annotate(total=Count("id"))
+            }
+            remarks_by_customer = {}
+            for remark in CrossSellingRemark.objects.filter(customer_id__in=customer_ids).select_related(
+                "salesperson"
+            ).order_by("customer_id", "-created_at"):
+                customer_remarks = remarks_by_customer.setdefault(remark.customer_id, [])
+                if len(customer_remarks) < 2:
+                    customer_remarks.append({
+                        "id": remark.pk,
+                        "salesperson": remark.salesperson.name if remark.salesperson else "System",
+                        "text": remark.remark,
+                        "created_at": remark.created_at.strftime("%d %b %Y, %I:%M %p") if remark.created_at else "",
+                    })
+
+            rows = []
+            for item in paged_items:
                 customer = item.get("customer")
                 if customer:
                     checklist_data = []
@@ -864,24 +926,16 @@ class CustomerWorkspaceToolsView(APIView):
                             "total_amt": chk.get("total_amt", 0),
                         })
 
-                    vouchers_data = []
-                    for v in item.get("vouchers", []):
-                        vouchers_data.append({
-                            "id": v.get("id"),
-                            "number": v.get("number"),
-                            "date": v.get("date").isoformat() if hasattr(v.get("date"), "isoformat") else str(v.get("date", "")),
-                            "is_recent": bool(v.get("is_recent")),
-                            "is_overdue": bool(v.get("is_overdue")),
-                        })
-
-                    remarks_data = []
-                    for r in item.get("remarks", []):
-                        remarks_data.append({
-                            "id": r.id,
-                            "salesperson": r.salesperson.name if r.salesperson else "System",
-                            "text": r.remark_text,
-                            "created_at": r.created_at.strftime("%d %b %Y, %I:%M %p") if r.created_at else "",
-                        })
+                    vouchers_data = [
+                        {
+                            "id": voucher.get("id"),
+                            "number": voucher.get("number"),
+                            "date": voucher.get("date").isoformat() if hasattr(voucher.get("date"), "isoformat") else str(voucher.get("date", "")),
+                            "is_recent": bool(voucher.get("is_recent")),
+                            "is_overdue": bool(voucher.get("is_overdue")),
+                        }
+                        for voucher in item.get("vouchers", [])
+                    ]
 
                     rows.append({
                         "id": customer.pk,
@@ -898,7 +952,8 @@ class CustomerWorkspaceToolsView(APIView):
                         "missing_cat_ids": item.get("missing_cat_ids", []),
                         "checklist": checklist_data,
                         "vouchers": vouchers_data,
-                        "remarks": remarks_data,
+                        "remarks": remarks_by_customer.get(customer.pk, []),
+                        "remark_count": remark_counts.get(customer.pk, 0),
                     })
 
             sp_names = sorted(list(set(
@@ -909,6 +964,12 @@ class CustomerWorkspaceToolsView(APIView):
                 "rows": rows,
                 "stats": stats,
                 "salespersons": sp_names,
+                "page": paginator.page.number,
+                "page_size": page_size,
+                "total_count": paginator.page.paginator.count,
+                "total_pages": paginator.page.paginator.num_pages,
+                "has_next": paginator.page.has_next(),
+                "has_prev": paginator.page.has_previous(),
             })
 
         if tool in {"my-incentives", "rsm-incentives", "sales-head-incentives"}:

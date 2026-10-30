@@ -384,18 +384,15 @@
            ========================================================= */
 
         #page-content-wrapper {
+            flex: 1 1 0%;
+            width: 0;
+            max-width: 100%;
             min-width: 0;
             min-height: 100vh;
             margin-left: var(--sidebar-width);
             box-sizing: border-box;
-            will-change: margin-left;
-            transition: margin-left 0.16s cubic-bezier(0, 0, 0.2, 1);
-        }
-
-        /* Suppress all internal child transitions during sidebar toggle to prevent lag & slow crawling */
-        html.sidebar-animating #page-content-wrapper *,
-        body.sidebar-animating #page-content-wrapper * {
-            transition: none !important;
+            /* Reflow the dashboard once; animate only the compositor-friendly drawer transform. */
+            transition: none;
         }
 
 
@@ -1406,12 +1403,15 @@ document.addEventListener(
            PROFESSIONAL SIDEBAR CONTROLLER (DESKTOP & MOBILE)
            ===================================================== */
 
-        const sidebarToggle = document.getElementById("sidebarToggle");
-        const sidebarCollapseInside = document.getElementById("sidebarCollapseInside");
-        const sidebar = document.getElementById("sidebar-wrapper");
-        const sidebarBackdrop = document.getElementById("sidebarBackdrop");
-
         const BREAKPOINT = 992;
+
+        function getSidebar() {
+            return document.getElementById("sidebar-wrapper");
+        }
+
+        function getSidebarBackdrop() {
+            return document.getElementById("sidebarBackdrop");
+        }
 
         function isMobile() {
             return window.innerWidth <= BREAKPOINT;
@@ -1424,6 +1424,9 @@ document.addEventListener(
 
         function updateToggleIcon() {
             const mobile = isMobile();
+            const sidebarToggle = document.getElementById("sidebarToggle");
+            const sidebarCollapseInside = document.getElementById("sidebarCollapseInside");
+            const sidebar = getSidebar();
             if (sidebarToggle) {
                 const icon = sidebarToggle.querySelector("i");
                 if (icon) {
@@ -1458,6 +1461,8 @@ document.addEventListener(
         }
 
         function openMobileDrawer() {
+            const sidebar = getSidebar();
+            const sidebarBackdrop = getSidebarBackdrop();
             if (!sidebar) return;
             sidebar.classList.add("mobile-open");
             if (sidebarBackdrop) sidebarBackdrop.classList.add("active");
@@ -1466,6 +1471,8 @@ document.addEventListener(
         }
 
         function closeMobileDrawer() {
+            const sidebar = getSidebar();
+            const sidebarBackdrop = getSidebarBackdrop();
             if (!sidebar) return;
             sidebar.classList.remove("mobile-open");
             if (sidebarBackdrop) sidebarBackdrop.classList.remove("active");
@@ -1474,6 +1481,7 @@ document.addEventListener(
         }
 
         function toggleSidebar() {
+            const sidebar = getSidebar();
             if (isMobile()) {
                 if (sidebar && sidebar.classList.contains("mobile-open")) {
                     closeMobileDrawer();
@@ -1481,31 +1489,11 @@ document.addEventListener(
                     openMobileDrawer();
                 }
             } else {
-                // Freeze heavy internal child transitions during the 160ms slide
-                document.documentElement.classList.add("sidebar-animating");
-                document.body.classList.add("sidebar-animating");
-
                 const willCollapse = !isCollapsed();
-                if (willCollapse) {
-                    document.documentElement.classList.add("sidebar-collapsed");
-                    document.body.classList.add("sidebar-collapsed");
-                    try { localStorage.setItem("oblu_sidebar_collapsed", "true"); } catch (e) {}
-                } else {
-                    document.documentElement.classList.remove("sidebar-collapsed");
-                    document.body.classList.remove("sidebar-collapsed");
-                    try { localStorage.setItem("oblu_sidebar_collapsed", "false"); } catch (e) {}
-                }
+                document.documentElement.classList.toggle("sidebar-collapsed", willCollapse);
+                document.body.classList.toggle("sidebar-collapsed", willCollapse);
+                try { localStorage.setItem("oblu_sidebar_collapsed", String(willCollapse)); } catch (e) {}
                 updateToggleIcon();
-
-                // Restore transitions and update Chart.js once layout is settled (170ms)
-                setTimeout(function() {
-                    document.documentElement.classList.remove("sidebar-animating");
-                    document.body.classList.remove("sidebar-animating");
-                    if (window.velocityChart && typeof window.velocityChart.resize === "function") {
-                        window.velocityChart.resize();
-                    }
-                    window.dispatchEvent(new Event("resize"));
-                }, 170);
             }
         }
 
@@ -1571,20 +1559,6 @@ document.addEventListener(
             });
         }
 
-        // Auto-close mobile drawer when any link or action inside sidebar is tapped
-        function attachSidebarLinkListeners() {
-            if (!sidebar) return;
-            sidebar.querySelectorAll("a, button[type='submit']").forEach(link => {
-                // Avoid overriding dropdown buttons
-                if (link.classList.contains("sidebar-dropdown-btn")) return;
-                link.addEventListener("click", function() {
-                    if (isMobile()) {
-                        closeMobileDrawer();
-                    }
-                });
-            });
-        }
-
         // Initialize state
         if (!isMobile() && localStorage.getItem("oblu_sidebar_collapsed") === "true") {
             document.body.classList.add("sidebar-collapsed");
@@ -1593,27 +1567,6 @@ document.addEventListener(
         updateToggleIcon();
         initSidebarDropdowns();
         updateActiveSidebarLink();
-        attachSidebarLinkListeners();
-
-        // Direct fast-path click listeners for instant response
-        if (sidebarToggle) {
-            sidebarToggle.addEventListener("click", function(e) {
-                e.preventDefault();
-                e.stopPropagation();
-                toggleSidebar();
-            });
-        }
-        if (sidebarCollapseInside) {
-            sidebarCollapseInside.addEventListener("click", function(e) {
-                e.preventDefault();
-                e.stopPropagation();
-                if (isMobile()) {
-                    closeMobileDrawer();
-                } else {
-                    toggleSidebar();
-                }
-            });
-        }
 
         // Robust Delegated Click Listener (Survives Turbo page transitions & DOM replacements)
         document.addEventListener("click", function(e) {
@@ -1642,9 +1595,15 @@ document.addEventListener(
                 return;
             }
 
+            const sidebarAction = e.target.closest("#sidebar-wrapper a, #sidebar-wrapper button[type='submit']");
+            if (isMobile() && sidebarAction && !sidebarAction.classList.contains("sidebar-dropdown-btn")) {
+                closeMobileDrawer();
+                return;
+            }
+
             // Close mobile drawer if clicked outside
             if (isMobile()) {
-                const sb = document.getElementById("sidebar-wrapper");
+                const sb = getSidebar();
                 if (sb && sb.classList.contains("mobile-open")) {
                     if (!sb.contains(e.target) && !e.target.closest("#sidebarToggle, .sidebar-toggle-btn")) {
                         closeMobileDrawer();
@@ -1659,7 +1618,7 @@ document.addEventListener(
                 e.preventDefault();
                 toggleSidebar();
             } else if (e.key === "Escape" && isMobile()) {
-                const sb = document.getElementById("sidebar-wrapper");
+                const sb = getSidebar();
                 if (sb && sb.classList.contains("mobile-open")) {
                     closeMobileDrawer();
                 }
@@ -1669,8 +1628,8 @@ document.addEventListener(
         // Close mobile drawer on resize to desktop
         window.addEventListener("resize", function() {
             if (!isMobile()) {
-                const sb = document.getElementById("sidebar-wrapper");
-                const bd = document.getElementById("sidebarBackdrop");
+                const sb = getSidebar();
+                const bd = getSidebarBackdrop();
                 if (sb) sb.classList.remove("mobile-open");
                 if (bd) bd.classList.remove("active");
                 document.body.style.overflow = "";
@@ -1683,7 +1642,6 @@ document.addEventListener(
             updateToggleIcon();
             initSidebarDropdowns();
             updateActiveSidebarLink();
-            attachSidebarLinkListeners();
             if (isMobile()) {
                 closeMobileDrawer();
             }

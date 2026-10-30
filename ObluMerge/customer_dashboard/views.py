@@ -2751,6 +2751,165 @@ def get_cross_selling_dataset():
         "stats": stats,
     }
 
+
+def get_cross_selling_mobile_dataset():
+    """Return the compact, cacheable data needed by the paginated mobile matrix."""
+    from django.core.cache import cache
+
+    cache_key = "customer_dashboard.cross_selling_mobile.v1"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    customers = list(
+        Customer.objects.select_related("salesperson").only(
+            "id", "name", "district", "city", "state", "phone",
+            "salesperson_id", "salesperson__id", "salesperson__name",
+        )
+    )
+    customer_by_name = {}
+    customer_by_id = {}
+    for customer in customers:
+        normalized_name = (customer.name or "").strip().lower()
+        if normalized_name:
+            customer_by_name[normalized_name] = customer
+            customer_by_id[customer.pk] = customer
+
+    purchases_by_customer = {}
+
+    stock_rows = (
+        VoucherStockItem.objects.filter(
+            Q(voucher__voucher_type__iexact="TAX INVOICE")
+            | Q(voucher__voucher_type__iexact="sale")
+        )
+        .values(
+            "voucher_id",
+            "voucher__party_name",
+            "voucher__date",
+            "voucher__voucher_number",
+            "item__name",
+            "item__category__name",
+            "item_name_text",
+            "quantity",
+        )
+        .iterator(chunk_size=2000)
+    )
+
+    for row in stock_rows:
+        normalized_name = (row["voucher__party_name"] or "").strip().lower()
+        customer = customer_by_name.get(normalized_name)
+        if not customer:
+            continue
+
+        category_id = classify_cross_selling_category(
+            row["item__name"] or row["item_name_text"] or "",
+            row["item__category__name"] or "",
+        )
+        if not category_id:
+            continue
+
+        customer_data = purchases_by_customer.get(customer.pk)
+        if customer_data is None:
+            customer_data = {
+                "categories": {
+                    category["id"]: {"bought": False, "total_qty": 0.0}
+                    for category in CROSS_SELLING_CATEGORIES
+                },
+                "last_order_date": None,
+                "latest_vouchers": {},
+            }
+            purchases_by_customer[customer.pk] = customer_data
+
+        category_data = customer_data["categories"][category_id]
+        category_data["bought"] = True
+        category_data["total_qty"] += float(row["quantity"] or 0)
+
+        voucher_date = row["voucher__date"]
+        if voucher_date and (
+            not customer_data["last_order_date"]
+            or voucher_date > customer_data["last_order_date"]
+        ):
+            customer_data["last_order_date"] = voucher_date
+
+        voucher_id = row["voucher_id"]
+        latest_vouchers = customer_data["latest_vouchers"]
+        if voucher_id not in latest_vouchers and voucher_id is not None:
+            voucher = {
+                "id": voucher_id,
+                "number": row["voucher__voucher_number"] or "",
+                "date": voucher_date,
+            }
+            if len(latest_vouchers) < 5:
+                latest_vouchers[voucher_id] = voucher
+            else:
+                oldest_id = min(
+                    latest_vouchers,
+                    key=lambda key: latest_vouchers[key]["date"] or date.min,
+                )
+                oldest_date = latest_vouchers[oldest_id]["date"] or date.min
+                if voucher_date and voucher_date > oldest_date:
+                    del latest_vouchers[oldest_id]
+                    latest_vouchers[voucher_id] = voucher
+
+    today = date.today()
+    cutoff_date = today - timedelta(days=90)
+    analysis_rows = []
+    for customer_id, customer_data in purchases_by_customer.items():
+        customer = customer_by_id.get(customer_id)
+        if not customer:
+            continue
+
+        category_state = customer_data["categories"]
+        bought_count = sum(1 for value in category_state.values() if value["bought"])
+        if not bought_count:
+            continue
+
+        missing_ids = [
+            category["id"] for category in CROSS_SELLING_CATEGORIES
+            if not category_state[category["id"]]["bought"]
+        ]
+        checklist_items = [
+            {
+                "category_id": category["id"],
+                "category_name": category["name"],
+                "bought": category_state[category["id"]]["bought"],
+                "total_qty": round(category_state[category["id"]]["total_qty"], 2),
+            }
+            for category in CROSS_SELLING_CATEGORIES
+        ]
+        latest_date = customer_data["last_order_date"]
+        vouchers = sorted(
+            customer_data["latest_vouchers"].values(),
+            key=lambda voucher: voucher["date"] or date.min,
+            reverse=True,
+        )
+        analysis_rows.append({
+            "customer": customer,
+            "is_active": bool(latest_date and latest_date >= cutoff_date),
+            "bought_count": bought_count,
+            "missing_cat_ids": missing_ids,
+            "checklist_items": checklist_items,
+            "last_order_date": latest_date,
+            "vouchers": [
+                {
+                    **voucher,
+                    "is_recent": bool(voucher["date"] and voucher["date"] >= cutoff_date),
+                    "is_overdue": False,
+                }
+                for voucher in vouchers
+            ],
+        })
+
+    analysis_rows.sort(
+        key=lambda row: (-row["bought_count"], str(row["last_order_date"] or ""))
+    )
+    dataset = {
+        "customers": analysis_rows,
+        "stats": compute_cross_selling_stats(analysis_rows),
+    }
+    cache.set(cache_key, dataset, timeout=120)
+    return dataset
+
 def _clean_string_tokens(s):
     if not s:
         return []

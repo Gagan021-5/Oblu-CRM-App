@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -19,6 +19,7 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { hasPermission, hasRole } from "@/services/permissionService";
 import { Typography } from "@/constants/theme";
+import { MetricCard } from "@/components/employee/MetricCard";
 
 type ToolRow = Record<string, any>;
 type RsmOption = { id: number | string; name: string };
@@ -107,6 +108,12 @@ export default function CustomerToolScreen() {
   const [csMissingCat, setCsMissingCat] = useState("All Missing Categories");
   const [csScore, setCsScore] = useState("All Scores");
   const [crossSellingStats, setCrossSellingStats] = useState<any>(null);
+  const [crossSellingPage, setCrossSellingPage] = useState(1);
+  const [crossSellingTotal, setCrossSellingTotal] = useState(0);
+  const [crossSellingHasNext, setCrossSellingHasNext] = useState(false);
+  const [debouncedCustomerSearch, setDebouncedCustomerSearch] = useState("");
+  const hasLoadedTool = useRef(false);
+  const crossSellingRequestSequence = useRef(0);
 
   // Payment follow-up specific state
   const [paymentStatusFilter, setPaymentStatusFilter] = useState("All Payments");
@@ -145,9 +152,11 @@ export default function CustomerToolScreen() {
 
   const load = useCallback(async (pageToLoad = 1, append = false) => {
     if (!canOpen) return;
+    const requestSequence = tool === "cross-selling" ? ++crossSellingRequestSequence.current : 0;
     setError("");
     if (pageToLoad === 1 && !append) {
-      setLoading(true);
+      if (hasLoadedTool.current) setRefreshing(true);
+      else setLoading(true);
     } else {
       setLoadingMore(true);
     }
@@ -165,12 +174,24 @@ export default function CustomerToolScreen() {
         if (!result?.data || (Array.isArray(result.data) && result.data.length === 0)) {
           result = await api.get("/customers/", { params: { page: pageToLoad, page_size: 50, ...params } });
         }
+      } else if (tool === "cross-selling") {
+        const params: Record<string, string | number> = { page: pageToLoad, page_size: 25 };
+        if (customerSalesperson !== "All Salespeople") params.salesperson = customerSalesperson;
+        if (debouncedCustomerSearch.trim()) params.q = debouncedCustomerSearch.trim();
+        if (csMissingCat !== "All Missing Categories") {
+          const category = CROSS_SELLING_CATS.find((item) => item.name === csMissingCat);
+          if (category) params.missing_cat = category.id;
+        }
+        if (csScore !== "All Scores") params.score = Number.parseInt(csScore, 10) || 0;
+        result = await api.get(`/customers/workspace/${tool}/`, { params });
       } else {
         const reportParams = tool === "monthly-sales" ? { month: monthKey } : isMonthlyReport ? { month_picker: monthKey } : {};
         result = await api.get(`/customers/workspace/${tool}/`, {
           params: { ...reportParams, ...(tool === "rsm-incentives" && selectedRsm ? { rsm: selectedRsm } : {}) },
         });
       }
+
+      if (tool === "cross-selling" && requestSequence !== crossSellingRequestSequence.current) return;
 
       const rawRows = Array.isArray(result?.data) ? result.data : (result?.data?.rows || result?.data?.results || []);
       if (append) {
@@ -188,6 +209,12 @@ export default function CustomerToolScreen() {
         if (result.data.stats) {
           setServerStats(result.data.stats);
         }
+      }
+
+      if (tool === "cross-selling" && result?.data) {
+        setCrossSellingPage(Number(result.data.page || pageToLoad));
+        setCrossSellingTotal(Number(result.data.total_count || 0));
+        setCrossSellingHasNext(Boolean(result.data.has_next));
       }
 
       if (Array.isArray(result?.data?.salespersons) && result.data.salespersons.length > 0) {
@@ -220,6 +247,7 @@ export default function CustomerToolScreen() {
         setSummary("");
       }
     } catch (e: any) {
+      if (tool === "cross-selling" && requestSequence !== crossSellingRequestSequence.current) return;
       const status = e?.response?.status;
       console.warn(`[CustomerTool:${tool}] API request failed:`, status ? `HTTP ${status}` : e?.message || "Network error");
       if (!append) {
@@ -234,11 +262,29 @@ export default function CustomerToolScreen() {
         );
       }
     } finally {
+      if (tool === "cross-selling" && requestSequence !== crossSellingRequestSequence.current) return;
+      hasLoadedTool.current = true;
       setLoading(false);
       setLoadingMore(false);
       setRefreshing(false);
     }
-  }, [canOpen, customerSalesperson, isMonthlyReport, monthKey, selectedRsm, tool]);
+  }, [canOpen, customerSalesperson, csMissingCat, csScore, debouncedCustomerSearch, isMonthlyReport, monthKey, selectedRsm, tool]);
+
+  useEffect(() => {
+    crossSellingRequestSequence.current += 1;
+    hasLoadedTool.current = false;
+    setRows([]);
+    setError("");
+    setCrossSellingPage(1);
+    setCrossSellingHasNext(false);
+    setCrossSellingTotal(0);
+  }, [tool]);
+
+  useEffect(() => {
+    if (tool !== "cross-selling") return;
+    const timer = setTimeout(() => setDebouncedCustomerSearch(customerSearch), 300);
+    return () => clearTimeout(timer);
+  }, [customerSearch, tool]);
 
   useEffect(() => {
     if (!canOpen) {
@@ -753,11 +799,11 @@ export default function CustomerToolScreen() {
         )}
 
         {/* Gap Remarks Feed (Column 4 on Web) */}
-        {Array.isArray(row.remarks) && row.remarks.length > 0 && (
+          {Array.isArray(row.remarks) && row.remarks.length > 0 && (
           <View style={{ gap: 5, padding: 8, borderRadius: 10, borderWidth: 1, backgroundColor: isDark ? "#0A1410" : "#F8FAF9", borderColor: card.borderColor }}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
               <Ionicons name="chatbubbles-outline" size={12} color="#159A7C" />
-              <Text style={{ fontFamily: Typography.bold, fontSize: 9.5, color: muted, letterSpacing: 0.5 }}>GAP REMARKS ({row.remarks.length})</Text>
+                <Text style={{ fontFamily: Typography.bold, fontSize: 9.5, color: muted, letterSpacing: 0.5 }}>GAP REMARKS ({row.remark_count || row.remarks.length})</Text>
             </View>
             {row.remarks.slice(-2).map((rmk: any, rIdx: number) => (
               <View key={`rmk-${rmk.id || rIdx}`} style={{ padding: 6, borderRadius: 8, borderWidth: StyleSheet.hairlineWidth, backgroundColor: card.backgroundColor, borderColor: card.borderColor }}>
@@ -1050,44 +1096,41 @@ export default function CustomerToolScreen() {
         )}
 
         {/* ── TOOL: CROSS-SELLING MATRIX KPI CARDS & FILTERS ── */}
-        {tool === "cross-selling" && !loading && (
-          <View style={{ gap: 12, marginBottom: 4 }}>
-            {/* 4 KPI Summary Cards (Exact match to cross_selling_matrix.html) */}
-            <View style={styles.overviewGrid}>
-              <View style={[styles.overviewMetric, card, { borderLeftColor: "#0F172A", borderLeftWidth: 4 }]}>
-                <Text style={[styles.metricLabel, { color: muted }]}>QUALIFYING CUSTOMERS</Text>
-                <Text style={[styles.overviewValue, { color: foreground }]}>
-                  {crossSellingStats?.total_qualifying ?? visibleRows.length}
-                </Text>
-                <Text style={[styles.detail, { color: muted, fontSize: 10 }]}>
-                  🟢 {crossSellingStats?.active_count ?? visibleRows.filter((r) => r.is_active).length} Active · 🔴 {crossSellingStats?.inactive_count ?? visibleRows.filter((r) => !r.is_active).length} Inactive
-                </Text>
+        {tool === "cross-selling" && (
+          <View style={{ gap: 12, marginBottom: 4, flexDirection: "column-reverse" }}>
+            {/* KPI cards reuse the shared staff dashboard card styling. */}
+            <View style={{ gap: 8 }}>
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                <MetricCard
+                  label="Qualifying Customers"
+                  value={crossSellingStats?.total_qualifying ?? (loading ? "…" : visibleRows.length)}
+                  subValue={loading && !crossSellingStats ? "Loading summary…" : `${crossSellingStats?.active_count ?? visibleRows.filter((r) => r.is_active).length} Active · ${crossSellingStats?.inactive_count ?? visibleRows.filter((r) => !r.is_active).length} Inactive`}
+                  icon="people-outline"
+                  isHighlight
+                />
+                <MetricCard
+                  label="Fully Converted"
+                  value={crossSellingStats?.fully_converted ?? (loading ? "…" : visibleRows.filter((r) => (r.bought_count || r.bought) === 5).length)}
+                  subValue="Bought all 5 categories"
+                  icon="checkmark-circle-outline"
+                  isHighlight
+                />
               </View>
-
-              <View style={[styles.overviewMetric, card, { borderLeftColor: "#15803D", borderLeftWidth: 4 }]}>
-                <Text style={[styles.metricLabel, { color: "#15803D" }]}>FULLY CONVERTED</Text>
-                <Text style={[styles.overviewValue, { color: "#15803D" }]}>
-                  {crossSellingStats?.fully_converted ?? visibleRows.filter((r) => (r.bought_count || r.bought) === 5).length}
-                </Text>
-                <Text style={[styles.detail, { color: muted, fontSize: 10 }]}>Bought all 5 categories</Text>
-              </View>
-
-              <View style={[styles.overviewMetric, card, { borderLeftColor: "#D97706", borderLeftWidth: 4 }]}>
-                <Text style={[styles.metricLabel, { color: "#D97706" }]}>CROSS-SELL GAPS</Text>
-                <Text style={[styles.overviewValue, { color: "#D97706" }]}>
-                  {crossSellingStats?.cross_sell_opportunities ?? visibleRows.filter((r) => (r.bought_count || r.bought) < 5).length}
-                </Text>
-                <Text style={[styles.detail, { color: muted, fontSize: 10 }]}>1-4 categories bought</Text>
-              </View>
-
-              <View style={[styles.overviewMetric, card, { borderLeftColor: "#0EA5E9", borderLeftWidth: 4 }]}>
-                <Text style={[styles.metricLabel, { color: "#0EA5E9" }]}>CONVERSION RATE</Text>
-                <Text style={[styles.overviewValue, { color: "#0EA5E9" }]}>
-                  {crossSellingStats?.total_qualifying
-                    ? `${Math.round(((crossSellingStats.fully_converted || 0) / crossSellingStats.total_qualifying) * 100)}%`
-                    : "18%"}
-                </Text>
-                <Text style={[styles.detail, { color: muted, fontSize: 10 }]}>Portfolio coverage</Text>
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                <MetricCard
+                  label="Cross-Sell Gaps"
+                  value={crossSellingStats?.cross_sell_opportunities ?? (loading ? "…" : visibleRows.filter((r) => (r.bought_count || r.bought) < 5).length)}
+                  subValue="1–4 categories bought"
+                  icon="cart-outline"
+                  isHighlight
+                />
+                <MetricCard
+                  label="Conversion Rate"
+                  value={loading && !crossSellingStats ? "…" : crossSellingStats?.total_qualifying ? `${Math.round(((crossSellingStats.fully_converted || 0) / crossSellingStats.total_qualifying) * 100)}%` : "18%"}
+                  subValue="Portfolio coverage"
+                  icon="trending-up-outline"
+                  isHighlight
+                />
               </View>
             </View>
 
@@ -1183,7 +1226,7 @@ export default function CustomerToolScreen() {
               )}
 
               <View style={styles.filterResults}>
-                <Text style={[styles.detail, { color: muted }]}>Showing {visibleRows.length} accounts</Text>
+                <Text style={[styles.detail, { color: muted }]}>Showing {visibleRows.length} of {crossSellingTotal} accounts</Text>
                 <TouchableOpacity onPress={() => { setCustomerSearch(""); setCustomerSalesperson("All Salespeople"); setCustomerStatus("All Statuses"); setCsMissingCat("All Missing Categories"); setCsScore("All Scores"); setFilterMenu(null); }}>
                   <Text style={styles.resetFilters}>Reset filters</Text>
                 </TouchableOpacity>
@@ -1368,6 +1411,27 @@ export default function CustomerToolScreen() {
         )}
 
         {/* ── PAGINATION CONTROLS FOR TEAM CUSTOMERS ── */}
+        {tool === "cross-selling" && !loading && crossSellingHasNext && (
+          <TouchableOpacity
+            onPress={() => void load(crossSellingPage + 1, true)}
+            disabled={loadingMore}
+            activeOpacity={0.75}
+            style={[styles.loadMoreButton, { backgroundColor: isDark ? "#183B32" : "#E2F7F1", borderColor: "#159A7C" }]}
+          >
+            {loadingMore ? (
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <ActivityIndicator size="small" color="#159A7C" />
+                <Text style={[styles.loadMoreText, { color: "#159A7C" }]}>Loading customers…</Text>
+              </View>
+            ) : (
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Ionicons name="arrow-down-circle" size={20} color="#159A7C" />
+                <Text style={[styles.loadMoreText, { color: "#159A7C" }]}>Load next 25 customers ({Math.max(0, crossSellingTotal - rows.length)} remaining)</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        )}
+
         {tool === "team-customers" && !loading && totalAccountCount > 0 && (
           <View style={styles.paginationContainer}>
             <Text style={[styles.paginationInfo, { color: muted }]}>
