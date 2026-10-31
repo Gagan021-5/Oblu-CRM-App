@@ -20,9 +20,19 @@ import { SkeletonCard } from "@/components/ui/SkeletonCard";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { CustomerCard } from "@/components/employee/CustomerCard";
 import { Customer } from "@/data/customerTypes";
-import { DashboardStats, fetchCustomerPageFromApi, fetchDashboardStatsApi } from "@/services/customerService";
+import {
+  DashboardStats,
+  fetchCustomerPageFromApi,
+  fetchCustomersFromApi,
+  fetchDashboardStatsApi,
+} from "@/services/customerService";
 import { CustomerNavDrawer } from "@/components/CustomerNavDrawer";
-import { CustomerBalanceFilter, CustomerFilterSheet, CustomerPaymentFilter, CustomerSortOption } from "@/components/ui/CustomerFilterSheet";
+import {
+  CustomerBalanceFilter,
+  CustomerFilterSheet,
+  CustomerPaymentFilter,
+  CustomerSortOption,
+} from "@/components/ui/CustomerFilterSheet";
 
 type FilterTab = "all" | "followup_due" | "payment_pending" | "recently_contacted";
 
@@ -53,9 +63,9 @@ const CustomerListItem = React.memo(
   }
 );
 
-
 export default function CustomerDashboardScreen() {
   const scrollRef = useRef<any>(null);
+  const reqIdRef = useRef(0);
   const routeParams = useLocalSearchParams<{ filter?: string }>();
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useTheme();
@@ -68,6 +78,7 @@ export default function CustomerDashboardScreen() {
   }, [user]);
 
   const [loading, setLoading] = useState(true);
+  const [pageLoading, setPageLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -91,11 +102,14 @@ export default function CustomerDashboardScreen() {
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      setDebouncedSearch(searchQuery.trim());
-      setCurrentPage(1);
+      const trimmed = searchQuery.trim();
+      if (trimmed !== debouncedSearch) {
+        setDebouncedSearch(trimmed);
+        setCurrentPage(1);
+      }
     }, 300);
     return () => clearTimeout(timer);
-  }, [searchQuery]);
+  }, [searchQuery, debouncedSearch]);
 
   const [drawerVisible, setDrawerVisible] = useState(false);
   const [filterVisible, setFilterVisible] = useState(false);
@@ -107,40 +121,89 @@ export default function CustomerDashboardScreen() {
     try {
       const stats = await fetchDashboardStatsApi();
       setDashboardStats(stats);
+      if (stats?.totalCustomers) {
+        setTotalCustomerCount((prev) => (prev > 0 ? prev : stats.totalCustomers));
+      }
     } catch {
       setDashboardStats(null);
     }
   }, []);
 
-  useEffect(() => { void loadDashboardStats(); }, [loadDashboardStats]);
+  useEffect(() => {
+    void loadDashboardStats();
+  }, [loadDashboardStats]);
 
-  const loadData = useCallback(async (isPullToRefresh = false, page = 1) => {
-    if (page === 1 && !isPullToRefresh) setLoading(true);
-    if (page === 1) setLoadError("");
-    try {
-      const result = await fetchCustomerPageFromApi({
-        search: debouncedSearch || undefined,
-        filter: activeFilter !== "all" ? activeFilter : undefined,
-        payment_status: paymentFilter !== "all" ? paymentFilter : undefined,
-        has_outstanding: balanceFilter === "outstanding",
-        ordering: sortOption !== "default" ? sortOption : undefined,
-        page,
-        page_size: 25,
-      });
-      const customerList = result?.customers || [];
-      setCustomers(customerList);
-      setTotalCustomerCount(Number(result?.count) || customerList.length);
-      setCurrentPage(page);
-    } catch (error: any) {
-      setCustomers([]);
-      if (page === 1) setLoadError(error?.response?.status === 403
-        ? "Your account does not have permission to view these customers."
-        : "Could not load customer records from the server. Check your connection and access, then retry.");
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [debouncedSearch, activeFilter, paymentFilter, balanceFilter, sortOption]);
+  const loadData = useCallback(
+    async (isPullToRefresh = false, page = 1) => {
+      const reqId = ++reqIdRef.current;
+      if (page === 1 && !isPullToRefresh) {
+        setLoading(true);
+      } else {
+        setPageLoading(true);
+      }
+      if (page === 1) setLoadError("");
+
+      try {
+        const result = await fetchCustomerPageFromApi({
+          search: debouncedSearch || undefined,
+          filter: activeFilter !== "all" ? activeFilter : undefined,
+          payment_status: paymentFilter !== "all" ? paymentFilter : undefined,
+          has_outstanding: balanceFilter === "outstanding",
+          ordering: sortOption !== "default" ? sortOption : undefined,
+          page,
+          page_size: 25,
+        });
+
+        if (reqId !== reqIdRef.current) return;
+
+        let customerList = result?.customers || [];
+        let count = typeof result?.count === "number" ? result.count : customerList.length;
+
+        // Fallback safety net: if page-specific result gave 0 customers when no text search is active
+        if (
+          customerList.length === 0 &&
+          !debouncedSearch &&
+          page === 1 &&
+          activeFilter === "all" &&
+          paymentFilter === "all" &&
+          balanceFilter === "all"
+        ) {
+          try {
+            const fallbackCustomers = await fetchCustomersFromApi({
+              page: 1,
+              page_size: 25,
+            });
+            if (reqId === reqIdRef.current && fallbackCustomers.length > 0) {
+              customerList = fallbackCustomers;
+              count = Math.max(count, dashboardStats?.totalCustomers ?? fallbackCustomers.length);
+            }
+          } catch {}
+        }
+
+        if (reqId !== reqIdRef.current) return;
+
+        setCustomers(customerList);
+        setTotalCustomerCount(count > 0 ? count : (dashboardStats?.totalCustomers ?? customerList.length));
+      } catch (error: any) {
+        if (reqId !== reqIdRef.current) return;
+        setCustomers([]);
+        if (page === 1) {
+          setLoadError(
+            error?.response?.status === 403
+              ? "Your account does not have permission to view these customers."
+              : "Could not load customer records from the server. Check your connection and access, then retry."
+          );
+        }
+      } finally {
+        if (reqId === reqIdRef.current) {
+          setLoading(false);
+          setPageLoading(false);
+          setRefreshing(false);
+        }
+      }
+    },
+    [debouncedSearch, activeFilter, paymentFilter, balanceFilter, sortOption, dashboardStats?.totalCustomers]
+  );
 
   useEffect(() => {
     void loadData(false, currentPage);
@@ -152,16 +215,21 @@ export default function CustomerDashboardScreen() {
     void loadDashboardStats();
   };
 
-  const totalPages = Math.max(1, Math.ceil(totalCustomerCount / 25));
+  const effectiveTotalCount =
+    totalCustomerCount > 0 ? totalCustomerCount : (dashboardStats?.totalCustomers ?? customers.length);
+  const totalPages = Math.max(1, Math.ceil(effectiveTotalCount / 25));
 
-  const handlePageChange = useCallback((newPage: number) => {
-    if (newPage < 1 || newPage > totalPages || loading) return;
-    setCurrentPage(newPage);
-    void loadData(false, newPage);
-    scrollRef.current?.scrollToOffset?.({ offset: 0, animated: true });
-  }, [totalPages, loading, loadData]);
+  const handlePageChange = useCallback(
+    (newPage: number) => {
+      if (newPage < 1 || newPage > totalPages || loading || pageLoading) return;
+      setCurrentPage(newPage);
+      scrollRef.current?.scrollToOffset?.({ offset: 0, animated: true });
+    },
+    [totalPages, loading, pageLoading]
+  );
 
-  const filtersActive = activeFilter !== "all" || paymentFilter !== "all" || balanceFilter !== "all" || sortOption !== "default";
+  const filtersActive =
+    activeFilter !== "all" || paymentFilter !== "all" || balanceFilter !== "all" || sortOption !== "default";
 
   const resetDirectoryFilters = useCallback(() => {
     setActiveFilter("all");
@@ -171,221 +239,150 @@ export default function CustomerDashboardScreen() {
     setSearchQuery("");
     setDebouncedSearch("");
     setCurrentPage(1);
-  }, []);
+    void loadData(true, 1);
+  }, [loadData]);
 
-  const rangeStart = totalCustomerCount > 0 ? (currentPage - 1) * 25 + 1 : 0;
-  const rangeEnd = Math.min(currentPage * 25, totalCustomerCount);
+  const rangeStart = effectiveTotalCount > 0 ? (currentPage - 1) * 25 + 1 : 0;
+  const rangeEnd = Math.min(currentPage * 25, effectiveTotalCount);
 
-  const listHeaderComponent = useMemo(() => (
-    <View>
-      {/* Top Workspace Bar */}
-      <View style={styles.navRow}>
-        <TouchableOpacity
+  const listHeaderComponent = useMemo(
+    () => (
+      <View>
+        {/* Top Workspace Bar */}
+        <View style={styles.navRow}>
+          <TouchableOpacity
+            style={[
+              styles.backButton,
+              {
+                backgroundColor: isDark ? "#121F1B" : "#FFFFFF",
+                borderColor: isDark ? "#294039" : "#D8E0DC",
+              },
+            ]}
+            onPress={() => setDrawerVisible(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Open customer navigation"
+            activeOpacity={0.7}
+          >
+            <Ionicons name="menu" size={18} color={isDark ? "#F1F7F4" : "#101513"} />
+          </TouchableOpacity>
+
+          <View style={styles.titleColumn}>
+            <Text style={[styles.screenTitle, { color: isDark ? "#F1F7F4" : "#101513" }]}>
+              {isBusinessManager ? "Enterprise Accounts" : "Customers"}
+            </Text>
+            <Text style={[styles.screenSubtitle, { color: isDark ? "#8FA09A" : "#5E6964" }]}>
+              {effectiveTotalCount}{" "}
+              {isBusinessManager || user?.hierarchy_scope?.can_view_all_salespersons
+                ? "enterprise relationships"
+                : "assigned accounts"}
+            </Text>
+          </View>
+        </View>
+
+        {/* Summary Bento Card */}
+        <View
           style={[
-            styles.backButton,
+            styles.summaryCard,
             {
-              backgroundColor: isDark ? "#121F1B" : "#FFFFFF",
+              backgroundColor: isDark ? "#0E1714" : "#FFFFFF",
               borderColor: isDark ? "#294039" : "#D8E0DC",
             },
           ]}
-          onPress={() => setDrawerVisible(true)}
-          accessibilityRole="button"
-          accessibilityLabel="Open customer navigation"
-          activeOpacity={0.7}
         >
-          <Ionicons
-            name="menu"
-            size={18}
-            color={isDark ? "#F1F7F4" : "#101513"}
-          />
-        </TouchableOpacity>
+          <Text style={[styles.summaryTitle, { color: isDark ? "#8FA09A" : "#5E6964" }]}>
+            PORTFOLIO SUMMARY
+          </Text>
+          <View style={styles.summaryMetricsRow}>
+            <View style={styles.summaryItem}>
+              <Text style={[styles.summaryVal, { color: isDark ? "#F1F7F4" : "#101513" }]}>
+                {dashboardStats?.totalCustomers ?? effectiveTotalCount}
+              </Text>
+              <Text style={[styles.summaryLbl, { color: isDark ? "#8FA09A" : "#5E6964" }]}>Total</Text>
+            </View>
+            <View style={[styles.summaryDivider, { backgroundColor: isDark ? "#1C2D26" : "#E8EFEB" }]} />
+            <View style={styles.summaryItem}>
+              <Text style={[styles.summaryVal, { color: isDark ? "#35D6A0" : "#00A879" }]}>
+                {dashboardStats?.activeCustomersCount ?? 0}
+              </Text>
+              <Text style={[styles.summaryLbl, { color: isDark ? "#8FA09A" : "#5E6964" }]}>Active</Text>
+            </View>
+            <View style={[styles.summaryDivider, { backgroundColor: isDark ? "#1C2D26" : "#E8EFEB" }]} />
+            <View style={styles.summaryItem}>
+              <Text style={[styles.summaryVal, { color: isDark ? "#B7F34A" : "#2E7D32" }]}>
+                {dashboardStats?.followUpsDueCount ?? 0}
+              </Text>
+              <Text style={[styles.summaryLbl, { color: isDark ? "#8FA09A" : "#5E6964" }]}>Follow-ups</Text>
+            </View>
+            <View style={[styles.summaryDivider, { backgroundColor: isDark ? "#1C2D26" : "#E8EFEB" }]} />
+            <View style={styles.summaryItem}>
+              <Text style={[styles.summaryVal, { color: isDark ? "#F2B84B" : "#C97A1E" }]}>
+                {dashboardStats?.pendingPaymentsCount ?? 0}
+              </Text>
+              <Text style={[styles.summaryLbl, { color: isDark ? "#8FA09A" : "#5E6964" }]}>Pending</Text>
+            </View>
+          </View>
+        </View>
 
-        <View style={styles.titleColumn}>
-          <Text
+        {/* Search with filters beside it */}
+        <View style={styles.searchFilterRow}>
+          <View style={styles.searchInputWrap}>
+            <SearchBar
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              placeholder="Search by company, contact person, city..."
+            />
+          </View>
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel="Filter and sort customers"
+            accessibilityState={{ selected: filtersActive }}
+            onPress={() => setFilterVisible(true)}
+            activeOpacity={0.75}
             style={[
-              styles.screenTitle,
-              { color: isDark ? "#F1F7F4" : "#101513" },
+              styles.filterButton,
+              {
+                backgroundColor: isDark ? "#121F1B" : "#FFFFFF",
+                borderColor: filtersActive ? (isDark ? "#35D6A0" : "#00A879") : isDark ? "#294039" : "#D8E0DC",
+              },
             ]}
           >
-            {isBusinessManager ? "Enterprise Accounts" : "Customers"}
+            <Ionicons
+              name="options-outline"
+              size={20}
+              color={filtersActive ? (isDark ? "#35D6A0" : "#00A879") : isDark ? "#F1F7F4" : "#101513"}
+            />
+          </TouchableOpacity>
+        </View>
+
+        {/* List Header Count */}
+        <View style={styles.listHeaderRow}>
+          <Text style={[styles.listCountText, { color: isDark ? "#8FA09A" : "#5E6964" }]}>
+            Showing {customers.length > 0 ? `${rangeStart}–${rangeEnd}` : "0"} of {effectiveTotalCount} customer
+            {effectiveTotalCount === 1 ? "" : "s"}
           </Text>
-          <Text
-            style={[
-              styles.screenSubtitle,
-              { color: isDark ? "#8FA09A" : "#5E6964" },
-            ]}
-          >
-            {(dashboardStats?.totalCustomers ?? totalCustomerCount)} {isBusinessManager || user?.hierarchy_scope?.can_view_all_salespersons ? "enterprise relationships" : "assigned accounts"}
-          </Text>
-        </View>
-
-      </View>
-
-      {/* Summary Bento Card */}
-      <View
-        style={[
-          styles.summaryCard,
-          {
-            backgroundColor: isDark ? "#0E1714" : "#FFFFFF",
-            borderColor: isDark ? "#294039" : "#D8E0DC",
-          },
-        ]}
-      >
-        <Text
-          style={[
-            styles.summaryTitle,
-            { color: isDark ? "#8FA09A" : "#5E6964" },
-          ]}
-        >
-          PORTFOLIO SUMMARY
-        </Text>
-        <View style={styles.summaryMetricsRow}>
-          <View style={styles.summaryItem}>
-            <Text
-              style={[
-                styles.summaryVal,
-                { color: isDark ? "#F1F7F4" : "#101513" },
-              ]}
-            >
-              {dashboardStats?.totalCustomers ?? 0}
-            </Text>
-            <Text
-              style={[
-                styles.summaryLbl,
-                { color: isDark ? "#8FA09A" : "#5E6964" },
-              ]}
-            >
-              Total
-            </Text>
-          </View>
-          <View
-            style={[
-              styles.summaryDivider,
-              { backgroundColor: isDark ? "#1C2D26" : "#E8EFEB" },
-            ]}
-          />
-          <View style={styles.summaryItem}>
-            <Text
-              style={[
-                styles.summaryVal,
-                { color: isDark ? "#35D6A0" : "#00A879" },
-              ]}
-            >
-              {dashboardStats?.activeCustomersCount ?? 0}
-            </Text>
-            <Text
-              style={[
-                styles.summaryLbl,
-                { color: isDark ? "#8FA09A" : "#5E6964" },
-              ]}
-            >
-              Active
-            </Text>
-          </View>
-          <View
-            style={[
-              styles.summaryDivider,
-              { backgroundColor: isDark ? "#1C2D26" : "#E8EFEB" },
-            ]}
-          />
-          <View style={styles.summaryItem}>
-            <Text
-              style={[
-                styles.summaryVal,
-                { color: isDark ? "#B7F34A" : "#2E7D32" },
-              ]}
-            >
-              {dashboardStats?.followUpsDueCount ?? 0}
-            </Text>
-            <Text
-              style={[
-                styles.summaryLbl,
-                { color: isDark ? "#8FA09A" : "#5E6964" },
-              ]}
-            >
-              Follow-ups
-            </Text>
-          </View>
-          <View
-            style={[
-              styles.summaryDivider,
-              { backgroundColor: isDark ? "#1C2D26" : "#E8EFEB" },
-            ]}
-          />
-          <View style={styles.summaryItem}>
-            <Text
-              style={[
-                styles.summaryVal,
-                { color: isDark ? "#F2B84B" : "#C97A1E" },
-              ]}
-            >
-              {dashboardStats?.pendingPaymentsCount ?? 0}
-            </Text>
-            <Text
-              style={[
-                styles.summaryLbl,
-                { color: isDark ? "#8FA09A" : "#5E6964" },
-              ]}
-            >
-              Pending
-            </Text>
-          </View>
         </View>
       </View>
-
-      {/* Search with filters beside it */}
-      <View style={styles.searchFilterRow}>
-        <View style={styles.searchInputWrap}>
-          <SearchBar
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            placeholder="Search by company, contact person, city..."
-          />
-        </View>
-        <TouchableOpacity
-          accessibilityRole="button"
-          accessibilityLabel="Filter and sort customers"
-          accessibilityState={{ selected: filtersActive }}
-          onPress={() => setFilterVisible(true)}
-          activeOpacity={0.75}
-          style={[styles.filterButton, { backgroundColor: isDark ? "#121F1B" : "#FFFFFF", borderColor: filtersActive ? (isDark ? "#35D6A0" : "#00A879") : (isDark ? "#294039" : "#D8E0DC") }]}
-        >
-          <Ionicons name="options-outline" size={20} color={filtersActive ? (isDark ? "#35D6A0" : "#00A879") : (isDark ? "#F1F7F4" : "#101513")} />
-        </TouchableOpacity>
-      </View>
-
-      {/* List Header Count */}
-      <View style={styles.listHeaderRow}>
-        <Text
-          style={[
-            styles.listCountText,
-            { color: isDark ? "#8FA09A" : "#5E6964" },
-          ]}
-        >
-          Showing {totalCustomerCount > 0 ? `${rangeStart}–${rangeEnd}` : "0"} of {totalCustomerCount} customer{totalCustomerCount === 1 ? "" : "s"}
-        </Text>
-      </View>
-    </View>
-  ), [
-    isDark,
-    isBusinessManager,
-    searchQuery,
-    filtersActive,
-    dashboardStats,
-    totalCustomerCount,
-    rangeStart,
-    rangeEnd,
-    user?.hierarchy_scope?.can_view_all_salespersons,
-  ]);
+    ),
+    [
+      isDark,
+      isBusinessManager,
+      searchQuery,
+      filtersActive,
+      dashboardStats,
+      effectiveTotalCount,
+      customers.length,
+      rangeStart,
+      rangeEnd,
+      user?.hierarchy_scope?.can_view_all_salespersons,
+    ]
+  );
 
   const handleCustomerPress = useCallback((id: string | number) => {
     router.push(`/(employee)/customers/${id}` as any);
   }, []);
 
   const renderItem = useCallback(
-    ({ item }: { item: Customer }) => (
-      <CustomerListItem item={item} onPress={handleCustomerPress} />
-    ),
+    ({ item }: { item: Customer }) => <CustomerListItem item={item} onPress={handleCustomerPress} />,
     [handleCustomerPress]
   );
 
@@ -395,14 +392,36 @@ export default function CustomerDashboardScreen() {
     () => (
       <EmptyState
         icon={loadError ? "cloud-offline-outline" : "search-outline"}
-        title={loadError ? "Customer data unavailable" : (filtersActive || searchQuery ? "No matching customers" : "No customers found")}
-        description={loadError || (searchQuery || filtersActive || activeFilter !== "all"
-          ? "No customers matched your current search or filter criteria. Tap below to clear filters and view all accounts."
-          : "No customer accounts are currently loaded. Tap below to refresh.")}
-        actionLabel={loadError ? "Retry" : (filtersActive || searchQuery || activeFilter !== "all" ? "Reset Filters" : "Refresh List")}
+        title={
+          loadError
+            ? "Customer data unavailable"
+            : filtersActive || searchQuery
+            ? "No matching customers"
+            : "No customers found"
+        }
+        description={
+          loadError ||
+          (searchQuery || filtersActive || activeFilter !== "all"
+            ? "No customers matched your current search or filter criteria. Tap below to clear filters and view all accounts."
+            : "No customer accounts are currently loaded. Tap below to refresh.")
+        }
+        actionLabel={
+          loadError
+            ? "Retry"
+            : filtersActive || searchQuery || activeFilter !== "all"
+            ? "Reset Filters"
+            : "Refresh List"
+        }
         onAction={() => {
-          if (loadError) { void loadData(true, currentPage); return; }
-          resetDirectoryFilters();
+          if (loadError) {
+            void loadData(true, currentPage);
+            return;
+          }
+          if (filtersActive || searchQuery || activeFilter !== "all") {
+            resetDirectoryFilters();
+          } else {
+            void loadData(true, 1);
+          }
         }}
       />
     ),
@@ -420,21 +439,21 @@ export default function CustomerDashboardScreen() {
               borderColor: isDark ? "#294039" : "#DDE5E1",
               backgroundColor: isDark ? "#121F1B" : "#FFFFFF",
             },
-            currentPage <= 1 && styles.pageBtnDisabled,
+            (currentPage <= 1 || pageLoading) && styles.pageBtnDisabled,
           ]}
           onPress={() => handlePageChange(currentPage - 1)}
-          disabled={currentPage <= 1 || loading}
+          disabled={currentPage <= 1 || loading || pageLoading}
           activeOpacity={0.7}
         >
           <Ionicons
             name="chevron-back"
             size={16}
-            color={currentPage <= 1 ? (isDark ? "#435750" : "#A6B5AF") : (isDark ? "#35D6A0" : "#00A879")}
+            color={currentPage <= 1 ? (isDark ? "#435750" : "#A6B5AF") : isDark ? "#35D6A0" : "#00A879"}
           />
           <Text
             style={[
               styles.pageBtnText,
-              { color: currentPage <= 1 ? (isDark ? "#435750" : "#A6B5AF") : (isDark ? "#35D6A0" : "#00A879") },
+              { color: currentPage <= 1 ? (isDark ? "#435750" : "#A6B5AF") : isDark ? "#35D6A0" : "#00A879" },
             ]}
           >
             Previous
@@ -450,9 +469,13 @@ export default function CustomerDashboardScreen() {
             },
           ]}
         >
-          <Text style={[styles.pageIndicatorText, { color: isDark ? "#35D6A0" : "#00A879" }]}>
-            Page {currentPage} of {totalPages}
-          </Text>
+          {pageLoading ? (
+            <ActivityIndicator size="small" color={isDark ? "#35D6A0" : "#00A879"} />
+          ) : (
+            <Text style={[styles.pageIndicatorText, { color: isDark ? "#35D6A0" : "#00A879" }]}>
+              Page {currentPage} of {totalPages}
+            </Text>
+          )}
         </View>
 
         <TouchableOpacity
@@ -462,16 +485,18 @@ export default function CustomerDashboardScreen() {
               borderColor: isDark ? "#294039" : "#DDE5E1",
               backgroundColor: isDark ? "#121F1B" : "#FFFFFF",
             },
-            currentPage >= totalPages && styles.pageBtnDisabled,
+            (currentPage >= totalPages || pageLoading) && styles.pageBtnDisabled,
           ]}
           onPress={() => handlePageChange(currentPage + 1)}
-          disabled={currentPage >= totalPages || loading}
+          disabled={currentPage >= totalPages || loading || pageLoading}
           activeOpacity={0.7}
         >
           <Text
             style={[
               styles.pageBtnText,
-              { color: currentPage >= totalPages ? (isDark ? "#435750" : "#A6B5AF") : (isDark ? "#35D6A0" : "#00A879") },
+              {
+                color: currentPage >= totalPages ? (isDark ? "#435750" : "#A6B5AF") : isDark ? "#35D6A0" : "#00A879",
+              },
             ]}
           >
             Next
@@ -479,12 +504,12 @@ export default function CustomerDashboardScreen() {
           <Ionicons
             name="chevron-forward"
             size={16}
-            color={currentPage >= totalPages ? (isDark ? "#435750" : "#A6B5AF") : (isDark ? "#35D6A0" : "#00A879")}
+            color={currentPage >= totalPages ? (isDark ? "#435750" : "#A6B5AF") : isDark ? "#35D6A0" : "#00A879"}
           />
         </TouchableOpacity>
       </View>
     );
-  }, [totalPages, currentPage, isDark, handlePageChange, loading]);
+  }, [totalPages, currentPage, isDark, handlePageChange, loading, pageLoading]);
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background, paddingTop: insets.top }]}>
@@ -504,10 +529,7 @@ export default function CustomerDashboardScreen() {
           ListFooterComponent={listFooterComponent}
           ListHeaderComponent={listHeaderComponent}
           ListEmptyComponent={emptyComponent}
-          contentContainerStyle={[
-            styles.listContent,
-            { paddingBottom: insets.bottom + 96 },
-          ]}
+          contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + 96 }]}
           showsVerticalScrollIndicator={false}
           initialNumToRender={8}
           maxToRenderPerBatch={10}
@@ -668,6 +690,9 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 12,
     borderWidth: 1,
+    minWidth: 110,
+    alignItems: "center",
+    justifyContent: "center",
   },
   pageIndicatorText: {
     fontSize: FontSizes.bodySmall,

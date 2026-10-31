@@ -185,7 +185,7 @@ export async function fetchCustomerPageFromApi(params?: {
   return {
     customers,
     nextPage,
-    count: Number(data?.count) || customers.length,
+    count: typeof data?.count === "number" ? data.count : (Number(data?.count) || customers.length),
   };
 }
 
