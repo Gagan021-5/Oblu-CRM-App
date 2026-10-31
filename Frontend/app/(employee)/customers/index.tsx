@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   View,
   Text,
@@ -23,12 +23,6 @@ import { Customer } from "@/data/customerTypes";
 import { DashboardStats, fetchCustomerPageFromApi, fetchDashboardStatsApi } from "@/services/customerService";
 import { CustomerNavDrawer } from "@/components/CustomerNavDrawer";
 import { CustomerBalanceFilter, CustomerFilterSheet, CustomerPaymentFilter, CustomerSortOption } from "@/components/ui/CustomerFilterSheet";
-
-function getOutstandingAmount(value: string): number {
-  const normalized = (value || "").replace(/[^0-9.-]/g, "");
-  const amount = Number(normalized);
-  return Number.isFinite(amount) ? amount : 0;
-}
 
 type FilterTab = "all" | "followup_due" | "payment_pending" | "recently_contacted";
 
@@ -61,6 +55,7 @@ const CustomerListItem = React.memo(
 
 
 export default function CustomerDashboardScreen() {
+  const scrollRef = useRef<any>(null);
   const routeParams = useLocalSearchParams<{ filter?: string }>();
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useTheme();
@@ -76,9 +71,8 @@ export default function CustomerDashboardScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [customers, setCustomers] = useState<Customer[]>([]);
-  const [nextPage, setNextPage] = useState<number | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
   const [totalCustomerCount, setTotalCustomerCount] = useState(0);
-  const [loadingMore, setLoadingMore] = useState(false);
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -89,12 +83,20 @@ export default function CustomerDashboardScreen() {
 
   useEffect(() => {
     const value = routeParams.filter;
-    setActiveFilter(value === "followup_due" || value === "payment_pending" || value === "recently_contacted" ? value : "all");
+    if (value === "followup_due" || value === "payment_pending" || value === "recently_contacted") {
+      setActiveFilter(value);
+      setCurrentPage(1);
+    }
   }, [routeParams.filter]);
+
   useEffect(() => {
-    const timer = setTimeout(() => setDebouncedSearch(searchQuery.trim()), 300);
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchQuery.trim());
+      setCurrentPage(1);
+    }, 300);
     return () => clearTimeout(timer);
   }, [searchQuery]);
+
   const [drawerVisible, setDrawerVisible] = useState(false);
   const [filterVisible, setFilterVisible] = useState(false);
   const [paymentFilter, setPaymentFilter] = useState<CustomerPaymentFilter>("all");
@@ -112,109 +114,52 @@ export default function CustomerDashboardScreen() {
 
   useEffect(() => { void loadDashboardStats(); }, [loadDashboardStats]);
 
-  const loadData = useCallback(async (isPullToRefresh = false, page = 1, append = false) => {
+  const loadData = useCallback(async (isPullToRefresh = false, page = 1) => {
     if (page === 1 && !isPullToRefresh) setLoading(true);
-    if (page > 1) setLoadingMore(true);
     if (page === 1) setLoadError("");
     try {
       const result = await fetchCustomerPageFromApi({
-        search: debouncedSearch,
-        filter: activeFilter,
-        payment_status: paymentFilter,
+        search: debouncedSearch || undefined,
+        filter: activeFilter !== "all" ? activeFilter : undefined,
+        payment_status: paymentFilter !== "all" ? paymentFilter : undefined,
         has_outstanding: balanceFilter === "outstanding",
-        ordering: sortOption,
+        ordering: sortOption !== "default" ? sortOption : undefined,
         page,
         page_size: 25,
       });
       const customerList = result?.customers || [];
-      setCustomers((previous) => append ? [...previous, ...customerList] : customerList);
-      setNextPage(result?.nextPage ?? null);
-      setTotalCustomerCount(result?.count ?? customerList.length);
+      setCustomers(customerList);
+      setTotalCustomerCount(Number(result?.count) || customerList.length);
+      setCurrentPage(page);
     } catch (error: any) {
-      if (!append) setCustomers([]);
+      setCustomers([]);
       if (page === 1) setLoadError(error?.response?.status === 403
         ? "Your account does not have permission to view these customers."
         : "Could not load customer records from the server. Check your connection and access, then retry.");
     } finally {
-      if (page === 1) setLoading(false);
-      if (page > 1) setLoadingMore(false);
+      setLoading(false);
       setRefreshing(false);
     }
   }, [debouncedSearch, activeFilter, paymentFilter, balanceFilter, sortOption]);
 
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    void loadData(false, currentPage);
+  }, [loadData, currentPage]);
 
   const onRefresh = () => {
     setRefreshing(true);
-    void loadData(true);
+    void loadData(true, currentPage);
     void loadDashboardStats();
   };
 
-  const loadNextPage = useCallback(() => {
-    if (nextPage && !loadingMore && !loading && !loadError) {
-      void loadData(false, nextPage, true);
-    }
-  }, [nextPage, loadingMore, loading, loadError, loadData]);
+  const totalPages = Math.max(1, Math.ceil(totalCustomerCount / 25));
 
-  // Filter and search logic
-  const filteredCustomers = useMemo(() => {
-    let list = [...customers];
-
-    // Search filter
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      list = list.filter(
-        (c) =>
-          c.name.toLowerCase().includes(q) ||
-          c.contactPerson.toLowerCase().includes(q) ||
-          c.city.toLowerCase().includes(q) ||
-          c.phone.includes(q)
-      );
-    }
-
-    // Tab filter
-    switch (activeFilter) {
-      case "followup_due":
-        list = list.filter((c) => (c.followupsDue || 0) > 0);
-        break;
-      case "payment_pending":
-        list = list.filter(
-          (c) => c.paymentStatus === "pending" || c.paymentStatus === "overdue"
-        );
-        break;
-      case "recently_contacted":
-        list = list.filter(
-          (c) =>
-            (c.lastContactTime || "").toLowerCase().includes("today") ||
-            (c.lastContactTime || "").toLowerCase().includes("yesterday")
-        );
-        break;
-      case "all":
-      default:
-        break;
-    }
-
-    if (paymentFilter !== "all") {
-      list = list.filter((customer) => customer.paymentStatus === paymentFilter);
-    }
-    if (balanceFilter === "outstanding") {
-      list = list.filter((customer) => getOutstandingAmount(customer.outstandingPayment) > 0);
-    }
-
-    if (sortOption === "name_asc") {
-      list.sort((a, b) => a.name.localeCompare(b.name));
-    } else if (sortOption === "name_desc") {
-      list.sort((a, b) => b.name.localeCompare(a.name));
-    } else if (sortOption === "outstanding_high") {
-      list.sort((a, b) => getOutstandingAmount(b.outstandingPayment) - getOutstandingAmount(a.outstandingPayment));
-    } else if (sortOption === "outstanding_low") {
-      list.sort((a, b) => getOutstandingAmount(a.outstandingPayment) - getOutstandingAmount(b.outstandingPayment));
-    }
-
-    return list;
-  }, [customers, searchQuery, activeFilter, paymentFilter, balanceFilter, sortOption]);
+  const handlePageChange = useCallback((newPage: number) => {
+    if (newPage < 1 || newPage > totalPages || loading) return;
+    setCurrentPage(newPage);
+    void loadData(false, newPage);
+    scrollRef.current?.scrollToOffset?.({ offset: 0, animated: true });
+  }, [totalPages, loading, loadData]);
 
   const filtersActive = activeFilter !== "all" || paymentFilter !== "all" || balanceFilter !== "all" || sortOption !== "default";
 
@@ -223,7 +168,13 @@ export default function CustomerDashboardScreen() {
     setPaymentFilter("all");
     setBalanceFilter("all");
     setSortOption("default");
+    setSearchQuery("");
+    setDebouncedSearch("");
+    setCurrentPage(1);
   }, []);
+
+  const rangeStart = totalCustomerCount > 0 ? (currentPage - 1) * 25 + 1 : 0;
+  const rangeEnd = Math.min(currentPage * 25, totalCustomerCount);
 
   const listHeaderComponent = useMemo(() => (
     <View>
@@ -411,7 +362,7 @@ export default function CustomerDashboardScreen() {
             { color: isDark ? "#8FA09A" : "#5E6964" },
           ]}
         >
-          Showing {filteredCustomers.length} of {totalCustomerCount} customer{totalCustomerCount === 1 ? "" : "s"}
+          Showing {totalCustomerCount > 0 ? `${rangeStart}–${rangeEnd}` : "0"} of {totalCustomerCount} customer{totalCustomerCount === 1 ? "" : "s"}
         </Text>
       </View>
     </View>
@@ -419,13 +370,12 @@ export default function CustomerDashboardScreen() {
     isDark,
     isBusinessManager,
     searchQuery,
-    activeFilter,
     filtersActive,
-    loadError,
-    customers.length,
-    filteredCustomers.length,
     dashboardStats,
     totalCustomerCount,
+    rangeStart,
+    rangeEnd,
+    user?.hierarchy_scope?.can_view_all_salespersons,
   ]);
 
   const handleCustomerPress = useCallback((id: string | number) => {
@@ -445,20 +395,96 @@ export default function CustomerDashboardScreen() {
     () => (
       <EmptyState
         icon={loadError ? "cloud-offline-outline" : "search-outline"}
-        title={loadError ? "Customer data unavailable" : "No customers found"}
+        title={loadError ? "Customer data unavailable" : (filtersActive || searchQuery ? "No matching customers" : "No customers found")}
         description={loadError || (searchQuery || filtersActive || activeFilter !== "all"
-          ? "No customer matched your search or filters. Try changing the search keywords or filter options."
-          : "No customers matching this filter criteria.")}
-        actionLabel={loadError ? "Retry" : "Reset Filters"}
+          ? "No customers matched your current search or filter criteria. Tap below to clear filters and view all accounts."
+          : "No customer accounts are currently loaded. Tap below to refresh.")}
+        actionLabel={loadError ? "Retry" : (filtersActive || searchQuery || activeFilter !== "all" ? "Reset Filters" : "Refresh List")}
         onAction={() => {
-          if (loadError) { void loadData(); return; }
-          setSearchQuery("");
+          if (loadError) { void loadData(true, currentPage); return; }
           resetDirectoryFilters();
         }}
       />
     ),
-    [searchQuery, filtersActive, activeFilter, resetDirectoryFilters, loadError, loadData]
+    [searchQuery, filtersActive, activeFilter, resetDirectoryFilters, loadError, loadData, currentPage]
   );
+
+  const listFooterComponent = useMemo(() => {
+    if (totalPages <= 1) return undefined;
+    return (
+      <View style={styles.paginationRow}>
+        <TouchableOpacity
+          style={[
+            styles.pageBtn,
+            {
+              borderColor: isDark ? "#294039" : "#DDE5E1",
+              backgroundColor: isDark ? "#121F1B" : "#FFFFFF",
+            },
+            currentPage <= 1 && styles.pageBtnDisabled,
+          ]}
+          onPress={() => handlePageChange(currentPage - 1)}
+          disabled={currentPage <= 1 || loading}
+          activeOpacity={0.7}
+        >
+          <Ionicons
+            name="chevron-back"
+            size={16}
+            color={currentPage <= 1 ? (isDark ? "#435750" : "#A6B5AF") : (isDark ? "#35D6A0" : "#00A879")}
+          />
+          <Text
+            style={[
+              styles.pageBtnText,
+              { color: currentPage <= 1 ? (isDark ? "#435750" : "#A6B5AF") : (isDark ? "#35D6A0" : "#00A879") },
+            ]}
+          >
+            Previous
+          </Text>
+        </TouchableOpacity>
+
+        <View
+          style={[
+            styles.pageIndicator,
+            {
+              backgroundColor: isDark ? "#152420" : "#EAF8F4",
+              borderColor: isDark ? "#233D35" : "#BDE7D8",
+            },
+          ]}
+        >
+          <Text style={[styles.pageIndicatorText, { color: isDark ? "#35D6A0" : "#00A879" }]}>
+            Page {currentPage} of {totalPages}
+          </Text>
+        </View>
+
+        <TouchableOpacity
+          style={[
+            styles.pageBtn,
+            {
+              borderColor: isDark ? "#294039" : "#DDE5E1",
+              backgroundColor: isDark ? "#121F1B" : "#FFFFFF",
+            },
+            currentPage >= totalPages && styles.pageBtnDisabled,
+          ]}
+          onPress={() => handlePageChange(currentPage + 1)}
+          disabled={currentPage >= totalPages || loading}
+          activeOpacity={0.7}
+        >
+          <Text
+            style={[
+              styles.pageBtnText,
+              { color: currentPage >= totalPages ? (isDark ? "#435750" : "#A6B5AF") : (isDark ? "#35D6A0" : "#00A879") },
+            ]}
+          >
+            Next
+          </Text>
+          <Ionicons
+            name="chevron-forward"
+            size={16}
+            color={currentPage >= totalPages ? (isDark ? "#435750" : "#A6B5AF") : (isDark ? "#35D6A0" : "#00A879")}
+          />
+        </TouchableOpacity>
+      </View>
+    );
+  }, [totalPages, currentPage, isDark, handlePageChange, loading]);
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background, paddingTop: insets.top }]}>
@@ -471,12 +497,11 @@ export default function CustomerDashboardScreen() {
         </View>
       ) : (
         <FlatList
-          data={filteredCustomers}
+          ref={scrollRef}
+          data={customers}
           keyExtractor={keyExtractor}
           renderItem={renderItem}
-          onEndReached={loadNextPage}
-          onEndReachedThreshold={0.5}
-          ListFooterComponent={loadingMore ? <ActivityIndicator style={{ padding: 16 }} color={isDark ? "#35D6A0" : "#00A879"} /> : undefined}
+          ListFooterComponent={listFooterComponent}
           ListHeaderComponent={listHeaderComponent}
           ListEmptyComponent={emptyComponent}
           contentContainerStyle={[
@@ -613,5 +638,39 @@ const styles = StyleSheet.create({
   listCountText: {
     fontSize: FontSizes.caption,
     fontFamily: Typography.medium,
+  },
+  paginationRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+    paddingVertical: 20,
+    marginTop: 6,
+  },
+  pageBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  pageBtnDisabled: {
+    opacity: 0.45,
+  },
+  pageBtnText: {
+    fontSize: FontSizes.bodySmall,
+    fontFamily: Typography.semiBold,
+  },
+  pageIndicator: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  pageIndicatorText: {
+    fontSize: FontSizes.bodySmall,
+    fontFamily: Typography.bold,
   },
 });
