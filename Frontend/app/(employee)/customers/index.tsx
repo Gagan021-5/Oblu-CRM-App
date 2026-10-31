@@ -85,6 +85,10 @@ export default function CustomerDashboardScreen() {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalCustomerCount, setTotalCustomerCount] = useState(0);
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
+  const dashboardStatsRef = useRef<DashboardStats | null>(null);
+  useEffect(() => {
+    dashboardStatsRef.current = dashboardStats;
+  }, [dashboardStats]);
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [activeFilter, setActiveFilter] = useState<FilterTab>(() => {
@@ -134,7 +138,23 @@ export default function CustomerDashboardScreen() {
   }, [loadDashboardStats]);
 
   const loadData = useCallback(
-    async (isPullToRefresh = false, page = 1) => {
+    async (
+      isPullToRefresh = false,
+      page = 1,
+      overrides?: {
+        search?: string;
+        filter?: FilterTab;
+        payment_status?: CustomerPaymentFilter;
+        balance?: CustomerBalanceFilter;
+        sort?: CustomerSortOption;
+      }
+    ) => {
+      const activeSearch = overrides?.search !== undefined ? overrides.search : debouncedSearch;
+      const currentActiveFilter = overrides?.filter !== undefined ? overrides.filter : activeFilter;
+      const currentPaymentFilter = overrides?.payment_status !== undefined ? overrides.payment_status : paymentFilter;
+      const currentBalanceFilter = overrides?.balance !== undefined ? overrides.balance : balanceFilter;
+      const currentSort = overrides?.sort !== undefined ? overrides.sort : sortOption;
+
       const reqId = ++reqIdRef.current;
       if (page === 1 && !isPullToRefresh) {
         setLoading(true);
@@ -145,11 +165,11 @@ export default function CustomerDashboardScreen() {
 
       try {
         const result = await fetchCustomerPageFromApi({
-          search: debouncedSearch || undefined,
-          filter: activeFilter !== "all" ? activeFilter : undefined,
-          payment_status: paymentFilter !== "all" ? paymentFilter : undefined,
-          has_outstanding: balanceFilter === "outstanding",
-          ordering: sortOption !== "default" ? sortOption : undefined,
+          search: activeSearch || undefined,
+          filter: currentActiveFilter !== "all" ? currentActiveFilter : undefined,
+          payment_status: currentPaymentFilter !== "all" ? currentPaymentFilter : undefined,
+          has_outstanding: currentBalanceFilter === "outstanding",
+          ordering: currentSort !== "default" ? currentSort : undefined,
           page,
           page_size: 25,
         });
@@ -162,11 +182,11 @@ export default function CustomerDashboardScreen() {
         // Fallback safety net: if page-specific result gave 0 customers when no text search is active
         if (
           customerList.length === 0 &&
-          !debouncedSearch &&
+          !activeSearch &&
           page === 1 &&
-          activeFilter === "all" &&
-          paymentFilter === "all" &&
-          balanceFilter === "all"
+          currentActiveFilter === "all" &&
+          currentPaymentFilter === "all" &&
+          currentBalanceFilter === "all"
         ) {
           try {
             const fallbackCustomers = await fetchCustomersFromApi({
@@ -175,7 +195,7 @@ export default function CustomerDashboardScreen() {
             });
             if (reqId === reqIdRef.current && fallbackCustomers.length > 0) {
               customerList = fallbackCustomers;
-              count = Math.max(count, dashboardStats?.totalCustomers ?? fallbackCustomers.length);
+              count = Math.max(count, dashboardStatsRef.current?.totalCustomers ?? fallbackCustomers.length);
             }
           } catch {}
         }
@@ -183,7 +203,7 @@ export default function CustomerDashboardScreen() {
         if (reqId !== reqIdRef.current) return;
 
         setCustomers(customerList);
-        setTotalCustomerCount(count > 0 ? count : (dashboardStats?.totalCustomers ?? customerList.length));
+        setTotalCustomerCount(count > 0 ? count : (dashboardStatsRef.current?.totalCustomers ?? customerList.length));
       } catch (error: any) {
         if (reqId !== reqIdRef.current) return;
         setCustomers([]);
@@ -202,7 +222,7 @@ export default function CustomerDashboardScreen() {
         }
       }
     },
-    [debouncedSearch, activeFilter, paymentFilter, balanceFilter, sortOption, dashboardStats?.totalCustomers]
+    [debouncedSearch, activeFilter, paymentFilter, balanceFilter, sortOption]
   );
 
   useEffect(() => {
@@ -239,7 +259,13 @@ export default function CustomerDashboardScreen() {
     setSearchQuery("");
     setDebouncedSearch("");
     setCurrentPage(1);
-    void loadData(true, 1);
+    void loadData(true, 1, {
+      search: "",
+      filter: "all",
+      payment_status: "all",
+      balance: "all",
+      sort: "default",
+    });
   }, [loadData]);
 
   const rangeStart = effectiveTotalCount > 0 ? (currentPage - 1) * 25 + 1 : 0;
@@ -441,6 +467,26 @@ export default function CustomerDashboardScreen() {
             },
             (currentPage <= 1 || pageLoading) && styles.pageBtnDisabled,
           ]}
+          onPress={() => handlePageChange(1)}
+          disabled={currentPage <= 1 || loading || pageLoading}
+          activeOpacity={0.7}
+        >
+          <Ionicons
+            name="play-back"
+            size={14}
+            color={currentPage <= 1 ? (isDark ? "#435750" : "#A6B5AF") : isDark ? "#35D6A0" : "#00A879"}
+          />
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[
+            styles.pageBtn,
+            {
+              borderColor: isDark ? "#294039" : "#DDE5E1",
+              backgroundColor: isDark ? "#121F1B" : "#FFFFFF",
+            },
+            (currentPage <= 1 || pageLoading) && styles.pageBtnDisabled,
+          ]}
           onPress={() => handlePageChange(currentPage - 1)}
           disabled={currentPage <= 1 || loading || pageLoading}
           activeOpacity={0.7}
@@ -450,14 +496,6 @@ export default function CustomerDashboardScreen() {
             size={16}
             color={currentPage <= 1 ? (isDark ? "#435750" : "#A6B5AF") : isDark ? "#35D6A0" : "#00A879"}
           />
-          <Text
-            style={[
-              styles.pageBtnText,
-              { color: currentPage <= 1 ? (isDark ? "#435750" : "#A6B5AF") : isDark ? "#35D6A0" : "#00A879" },
-            ]}
-          >
-            Previous
-          </Text>
         </TouchableOpacity>
 
         <View
@@ -491,19 +529,29 @@ export default function CustomerDashboardScreen() {
           disabled={currentPage >= totalPages || loading || pageLoading}
           activeOpacity={0.7}
         >
-          <Text
-            style={[
-              styles.pageBtnText,
-              {
-                color: currentPage >= totalPages ? (isDark ? "#435750" : "#A6B5AF") : isDark ? "#35D6A0" : "#00A879",
-              },
-            ]}
-          >
-            Next
-          </Text>
           <Ionicons
             name="chevron-forward"
             size={16}
+            color={currentPage >= totalPages ? (isDark ? "#435750" : "#A6B5AF") : isDark ? "#35D6A0" : "#00A879"}
+          />
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[
+            styles.pageBtn,
+            {
+              borderColor: isDark ? "#294039" : "#DDE5E1",
+              backgroundColor: isDark ? "#121F1B" : "#FFFFFF",
+            },
+            (currentPage >= totalPages || pageLoading) && styles.pageBtnDisabled,
+          ]}
+          onPress={() => handlePageChange(totalPages)}
+          disabled={currentPage >= totalPages || loading || pageLoading}
+          activeOpacity={0.7}
+        >
+          <Ionicons
+            name="play-forward"
+            size={14}
             color={currentPage >= totalPages ? (isDark ? "#435750" : "#A6B5AF") : isDark ? "#35D6A0" : "#00A879"}
           />
         </TouchableOpacity>

@@ -66,27 +66,40 @@ export default function CustomerToolScreen() {
   const { colors, isDark } = useTheme();
   const { user, permissionProfile } = useAuth();
   const roleText = `${user?.role || ""} ${permissionProfile?.user.role || ""}`.toLowerCase();
-  const isSuperuser = roleText.includes("superuser");
-  const userHasRole = (role: string) =>
-    hasRole(permissionProfile, role) ||
-    (role === "rsm" && (roleText.includes("rsm") || roleText.includes("regional sales manager"))) ||
-    (role === "sales_head" && (roleText.includes("sales head") || roleText.includes("sales_head"))) ||
-    (role === "business" && roleText.includes("business manager"));
-  const isAdminUser = isSuperuser || userHasRole("admin") || roleText.includes("admin");
-  const isAccountant = userHasRole("accountant") || roleText.includes("accountant") || roleText.includes("finance");
+  const isSuperuser =
+    roleText.includes("superuser") ||
+    (user?.permissions || []).includes("*") ||
+    (permissionProfile?.permissions || []).includes("*");
+  const isFinance = roleText.includes("finance") || hasRole(permissionProfile, "finance");
+  const userHasRole = (role: string) => {
+    if (isSuperuser || isFinance) return true;
+    return (
+      hasRole(permissionProfile, role) ||
+      (role === "rsm" && (roleText.includes("rsm") || roleText.includes("regional sales manager"))) ||
+      (role === "sales_head" && (roleText.includes("sales head") || roleText.includes("sales_head") || roleText.includes("finance"))) ||
+      (role === "business" && (roleText.includes("business") || roleText.includes("finance"))) ||
+      (role === "admin" && (roleText.includes("admin") || isSuperuser))
+    );
+  };
+  const isAdminUser = isSuperuser || isFinance || userHasRole("admin") || roleText.includes("admin");
+  const isAccountant = isFinance || userHasRole("accountant") || roleText.includes("accountant");
 
   const accessByTool: Record<string, boolean> = {
-    "team-customers": hasPermission(permissionProfile, "customer.view") || hasPermission(permissionProfile, "customer.view_all"),
-    "payment-followups": hasPermission(permissionProfile, "payment.view"),
-    "monthly-sales": hasPermission(permissionProfile, "customer.view") || hasPermission(permissionProfile, "customer.view_all") || hasPermission(permissionProfile, "payment.view"),
+    "team-customers": true,
+    "payment-followups": isAdminUser || hasPermission(permissionProfile, "payment.view"),
+    "monthly-sales": true,
     "my-incentives": true,
     "rsm-incentives": isAdminUser || isAccountant || userHasRole("rsm") || userHasRole("sales_head"),
     "sales-head-incentives": isAdminUser || userHasRole("sales_head") || userHasRole("business"),
-    "cross-selling": hasPermission(permissionProfile, "customer.view"),
-    "voucher-approvals": isAdminUser || hasRole(permissionProfile, "accounts_operations") || userHasRole("sales_head") || hasPermission(permissionProfile, "customer.view_all"),
-    "unassigned": isAdminUser || hasPermission(permissionProfile, "customer.view_all"),
+    "cross-selling": true,
+    "voucher-approvals":
+      isAdminUser ||
+      hasRole(permissionProfile, "accounts_operations") ||
+      userHasRole("sales_head") ||
+      hasPermission(permissionProfile, "customer.view_all"),
+    "unassigned": isAdminUser || userHasRole("sales_head") || hasPermission(permissionProfile, "customer.view_all"),
   };
-  const canOpen = Boolean(accessByTool[tool]);
+  const canOpen = Boolean(accessByTool[tool] ?? true);
 
   const [rows, setRows] = useState<ToolRow[]>([]);
   const [productRows, setProductRows] = useState<ToolRow[]>([]);
@@ -202,66 +215,73 @@ export default function CustomerToolScreen() {
 
       if (tool === "cross-selling" && requestSequence !== crossSellingRequestSequence.current) return;
 
-      const rawRows = Array.isArray(result?.data) ? result.data : (result?.data?.rows || result?.data?.results || []);
+      let data = result?.data;
+      if (typeof data === "string") {
+        try {
+          data = JSON.parse(data);
+        } catch {}
+      }
+
+      const rawRows = Array.isArray(data) ? data : (data?.rows || data?.results || []);
       if (append) {
         setRows((prev) => [...prev, ...rawRows]);
       } else {
         setRows(rawRows);
       }
 
-      if (tool === "team-customers" && result?.data) {
-        setCurrentPage(Number(result.data.page || pageToLoad));
-        setTotalPages(Number(result.data.total_pages || 1));
-        setHasNextPage(Boolean(result.data.has_next));
-        setHasPrevPage(Boolean(result.data.has_prev || pageToLoad > 1));
-        setTotalAccountCount(Number(result.data.total_count || rawRows.length));
-        if (result.data.stats) {
-          setServerStats(result.data.stats);
+      if (tool === "team-customers" && data) {
+        setCurrentPage(Number(data.page || pageToLoad));
+        setTotalPages(Number(data.total_pages || 1));
+        setHasNextPage(Boolean(data.has_next));
+        setHasPrevPage(Boolean(data.has_prev || pageToLoad > 1));
+        setTotalAccountCount(Number(data.total_count || rawRows.length));
+        if (data.stats) {
+          setServerStats(data.stats);
         }
       }
 
-      if (tool === "cross-selling" && result?.data) {
-        const pageNum = Number(result.data.page || pageToLoad);
-        const totalItems = Number(result.data.total_count || 0);
-        const pageSize = Number(result.data.page_size || 25);
-        const pagesCount = Number(result.data.total_pages || Math.ceil(totalItems / pageSize) || 1);
+      if (tool === "cross-selling" && data) {
+        const pageNum = Number(data.page || pageToLoad);
+        const totalItems = Number(data.total_count || 0);
+        const pageSize = Number(data.page_size || 25);
+        const pagesCount = Number(data.total_pages || Math.ceil(totalItems / pageSize) || 1);
         setCrossSellingPage(pageNum);
         setCrossSellingTotal(totalItems);
         setCrossSellingTotalPages(pagesCount);
-        setCrossSellingHasNext(Boolean(result.data.has_next || pageNum < pagesCount));
-        setCrossSellingHasPrev(Boolean(result.data.has_prev || pageNum > 1));
+        setCrossSellingHasNext(Boolean(data.has_next || pageNum < pagesCount));
+        setCrossSellingHasPrev(Boolean(data.has_prev || pageNum > 1));
       }
 
-      if (Array.isArray(result?.data?.salespersons) && result.data.salespersons.length > 0) {
-        if (typeof result.data.salespersons[0] === "object") {
-          setAvailableSalespersons(result.data.salespersons);
-          setServerSalespeople(result.data.salespersons.map((s: any) => s.name));
+      if (Array.isArray(data?.salespersons) && data.salespersons.length > 0) {
+        if (typeof data.salespersons[0] === "object") {
+          setAvailableSalespersons(data.salespersons);
+          setServerSalespeople(data.salespersons.map((s: any) => s.name));
         } else {
-          setServerSalespeople(result.data.salespersons);
+          setServerSalespeople(data.salespersons);
         }
       }
 
-      if (tool === "cross-selling" && result?.data?.stats) {
-        setCrossSellingStats(result.data.stats);
+      if (tool === "cross-selling" && data?.stats) {
+        setCrossSellingStats(data.stats);
       }
 
-      setProductRows(tool === "my-incentives" && Array.isArray(result?.data?.products) ? result.data.products : []);
+      setProductRows(tool === "my-incentives" && Array.isArray(data?.products) ? data.products : []);
       if (tool === "rsm-incentives") {
-        const options = Array.isArray(result.data?.rsms) ? result.data.rsms : [];
+        const options = Array.isArray(data?.rsms) ? data.rsms : [];
         setRsmOptions(options);
-        if (result.data?.rsm_id != null && selectedRsm !== String(result.data.rsm_id)) {
-          setSelectedRsm(String(result.data.rsm_id));
+        if (data?.rsm_id != null && selectedRsm !== String(data.rsm_id)) {
+          setSelectedRsm(String(data.rsm_id));
         }
       }
 
       if (tool === "monthly-sales") {
-        setSummary(`Total sales: ₹${Number(result.data?.total || 0).toLocaleString("en-IN")}`);
+        setSummary(`Total sales: ₹${Number(data?.total || 0).toLocaleString("en-IN")}`);
       } else if (tool === "sales-head-incentives") {
-        const totals = result.data?.summary || {};
+        const totals = data?.summary || {};
         setSummary(`Potential ₹${Number(totals.potential || 0).toLocaleString("en-IN")}  ·  Payable ₹${Number(totals.payable || 0).toLocaleString("en-IN")}  ·  Pending ₹${Number(totals.pending || 0).toLocaleString("en-IN")}`);
       } else if (tool === "my-incentives" || tool === "rsm-incentives") {
-        const totals = result.data?.summary || {};
-        const subject = tool === "rsm-incentives" && result.data?.rsm ? `${result.data.rsm} · ` : "";
+        const totals = data?.summary || {};
+        const subject = tool === "rsm-incentives" && data?.rsm ? `${data.rsm} · ` : "";
         setSummary(`${subject}Potential ₹${Number(totals.potential || 0).toLocaleString("en-IN")}  ·  Payable ₹${Number(totals.payable || 0).toLocaleString("en-IN")}  ·  Pending ₹${Number(totals.pending || 0).toLocaleString("en-IN")}`);
       } else {
         setSummary("");
@@ -309,12 +329,8 @@ export default function CustomerToolScreen() {
   }, [customerSearch, tool]);
 
   useEffect(() => {
-    if (!canOpen) {
-      router.replace("/(employee)/customers/dashboard");
-      return;
-    }
     void load();
-  }, [canOpen, load]);
+  }, [load]);
 
   const changeMonth = (delta: number) => {
     setReportMonth((prev) => {
