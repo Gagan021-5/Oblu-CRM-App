@@ -885,12 +885,12 @@ class CustomerWorkspaceToolsView(APIView):
                             "user": e.set_by.username if e.set_by else "Unknown",
                             "time": e.created_at.strftime("%d %b %Y %H:%M"),
                         })
-                    for ev in thread.ticket_events.all().order_by("-created_at"):
+                    for ev in thread.ticket_events.all().order_by("-performed_at"):
                         ticket_events.append({
                             "id": ev.id,
                             "event_type": ev.event_type,
                             "user": ev.performed_by.username if ev.performed_by else "Unknown",
-                            "time": ev.created_at.strftime("%d %b %Y %H:%M"),
+                            "time": ev.performed_at.strftime("%d %b %Y %H:%M") if ev.performed_at else "",
                         })
 
                 rows.append({
