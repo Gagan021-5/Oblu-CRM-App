@@ -397,17 +397,17 @@ export default function CustomerMapScreen() {
             </View>
           ) : (
             <View style={styles.canvasWrapper}>
-              {Platform.OS === "web" || !WebViewComponent ? (
-                // Web/Fallback rendering via iframe
+              {Platform.OS === "web" ? (
+                // Web rendering via standard DOM iframe
                 <View style={{ width: "100%", height: 380, overflow: "hidden" }}>
-                  <iframe
-                    srcDoc={mapHtml}
-                    title="Customer Map"
-                    style={{ width: "100%", height: "100%", border: "none" }}
-                  />
+                  {React.createElement("iframe", {
+                    srcDoc: mapHtml,
+                    title: "Customer Map",
+                    style: { width: "100%", height: "100%", border: "none" },
+                  })}
                 </View>
-              ) : (
-                // Native iOS/Android WebView
+              ) : WebViewComponent ? (
+                // Native iOS/Android WebView (when native module is linked)
                 <View style={{ width: "100%", height: 380, overflow: "hidden" }}>
                   <WebViewComponent
                     originWhitelist={["*"]}
@@ -418,6 +418,72 @@ export default function CustomerMapScreen() {
                     domStorageEnabled={true}
                     scrollEnabled={false}
                   />
+                </View>
+              ) : (
+                // Native Fallback for Expo Go (safe, native React Native views with zero crashes)
+                <View style={[styles.nativeMapCanvas, { backgroundColor: isDark ? "#0E1815" : "#F0FAF7" }]}>
+                  <View style={styles.nativeMapIconWrap}>
+                    <Ionicons name="map" size={32} color="#159A7C" />
+                  </View>
+                  <Text style={[styles.nativeMapTitle, { color: foreground }]}>
+                    Interactive District Clusters
+                  </Text>
+                  <Text style={[styles.nativeMapSub, { color: muted }]}>
+                    {filteredClusters.length} district clusters mapped across India. Select any district below to inspect accounts.
+                  </Text>
+
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.clusterPillRow}
+                  >
+                    {filteredClusters.slice(0, 12).map((c: DistrictCluster) => {
+                      const isSelected = selectedCluster?.district === c.district;
+                      return (
+                        <TouchableOpacity
+                          key={`pill-${c.district}`}
+                          style={[
+                            styles.clusterPill,
+                            {
+                              backgroundColor: isSelected ? "#159A7C" : isDark ? "#142820" : "#E2F7F1",
+                              borderColor: isSelected ? "#159A7C" : isDark ? "#1F3B32" : "#BFE7DD",
+                            },
+                          ]}
+                          onPress={() => setSelectedCluster(c)}
+                          activeOpacity={0.7}
+                        >
+                          <Text
+                            style={[
+                              styles.clusterPillText,
+                              { color: isSelected ? "#FFFFFF" : isDark ? "#35D6A0" : "#159A7C" },
+                            ]}
+                          >
+                            {c.district} ({c.count})
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+
+                  {selectedCluster ? (
+                    <TouchableOpacity
+                      style={styles.nativeLaunchBtn}
+                      onPress={() => openMapApp(selectedCluster.lat, selectedCluster.lon)}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="navigate-outline" size={14} color="#FFFFFF" />
+                      <Text style={styles.nativeLaunchBtnText}>Open {selectedCluster.district} in Google Maps</Text>
+                    </TouchableOpacity>
+                  ) : filteredClusters.length > 0 ? (
+                    <TouchableOpacity
+                      style={styles.nativeLaunchBtn}
+                      onPress={() => setSelectedCluster(filteredClusters[0])}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="location-outline" size={14} color="#FFFFFF" />
+                      <Text style={styles.nativeLaunchBtnText}>Select Top District ({filteredClusters[0].district})</Text>
+                    </TouchableOpacity>
+                  ) : null}
                 </View>
               )}
             </View>
@@ -580,4 +646,67 @@ const styles = StyleSheet.create({
   badgeCount: { width: 34, height: 34, borderRadius: 10, alignItems: "center", justifyContent: "center" },
   distName: { fontFamily: Typography.semiBold, fontSize: 13 },
   distState: { fontFamily: Typography.regular, fontSize: 11, marginTop: 2 },
+  nativeMapCanvas: {
+    height: 380,
+    padding: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  nativeMapIconWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: 18,
+    backgroundColor: "rgba(32, 185, 154, 0.15)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 8,
+  },
+  nativeMapTitle: {
+    fontFamily: Typography.headingSemi,
+    fontSize: 16,
+    textAlign: "center",
+  },
+  nativeMapSub: {
+    fontFamily: Typography.regular,
+    fontSize: 12,
+    textAlign: "center",
+    marginTop: 4,
+    marginBottom: 14,
+    maxWidth: 290,
+    lineHeight: 16,
+  },
+  clusterPillRow: {
+    flexDirection: "row",
+    gap: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    marginBottom: 14,
+    maxHeight: 44,
+  },
+  clusterPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  clusterPillText: {
+    fontFamily: Typography.semiBold,
+    fontSize: 12,
+  },
+  nativeLaunchBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#159A7C",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 12,
+  },
+  nativeLaunchBtnText: {
+    color: "#FFFFFF",
+    fontFamily: Typography.semiBold,
+    fontSize: 12,
+  },
 });

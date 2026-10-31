@@ -302,7 +302,6 @@ export default function CustomerToolScreen() {
         );
       }
     } finally {
-      if (tool === "cross-selling" && requestSequence !== crossSellingRequestSequence.current) return;
       hasLoadedTool.current = true;
       setLoading(false);
       setLoadingMore(false);
@@ -324,9 +323,10 @@ export default function CustomerToolScreen() {
 
   useEffect(() => {
     if (tool !== "cross-selling") return;
+    if (customerSearch === debouncedCustomerSearch) return;
     const timer = setTimeout(() => setDebouncedCustomerSearch(customerSearch), 300);
     return () => clearTimeout(timer);
-  }, [customerSearch, tool]);
+  }, [customerSearch, debouncedCustomerSearch, tool]);
 
   useEffect(() => {
     void load();
@@ -414,33 +414,9 @@ export default function CustomerToolScreen() {
     }
 
     if (tool === "cross-selling") {
-      return rows.filter((row) => {
-        const matchesSP =
-          customerSalesperson === "All Salespeople" ||
-          String(row.salesperson || "Unassigned") === customerSalesperson;
-        const matchesSearch =
-          !search ||
-          [row.customer, row.city, row.state, row.phone, row.salesperson]
-            .some((val) => String(val || "").toLowerCase().includes(search));
-
-        const status = String(row.customer_status || (row.is_active ? "active" : "inactive")).toLowerCase();
-        const matchesStatus =
-          customerStatus === "All Statuses" ||
-          status === customerStatus.toLowerCase();
-
-        const matchesScore =
-          csScore === "All Scores" ||
-          String(row.bought_count || row.bought || 0) === csScore.charAt(0);
-
-        const missingArr: string[] = Array.isArray(row.missing) ? row.missing : [];
-        const missingIds: string[] = Array.isArray(row.missing_cat_ids) ? row.missing_cat_ids : [];
-        const matchesMissing =
-          csMissingCat === "All Missing Categories" ||
-          missingArr.some((m) => m.toLowerCase().includes(csMissingCat.toLowerCase())) ||
-          missingIds.includes(csMissingCat.toLowerCase());
-
-        return matchesSP && matchesSearch && matchesStatus && matchesScore && matchesMissing;
-      });
+      // The server (/api/customers/workspace/cross-selling/) already filters by salesperson,
+      // q (search), missing_cat, and score before pagination. Return rows directly to prevent dropouts.
+      return rows;
     }
 
     if (tool === "payment-followups") {
@@ -1243,7 +1219,7 @@ export default function CustomerToolScreen() {
                 />
                 <MetricCard
                   label="Conversion Rate"
-                  value={loading && !crossSellingStats ? "…" : crossSellingStats?.total_qualifying ? `${Math.round(((crossSellingStats.fully_converted || 0) / crossSellingStats.total_qualifying) * 100)}%` : "18%"}
+                  value={loading && !crossSellingStats ? "…" : crossSellingStats?.total_qualifying ? `${Math.round(((crossSellingStats.fully_converted || 0) / crossSellingStats.total_qualifying) * 100)}%` : "0%"}
                   subValue="Portfolio coverage"
                   icon="trending-up-outline"
                   isHighlight
@@ -1645,6 +1621,31 @@ export default function CustomerToolScreen() {
             <Ionicons name={ICONS[tool] || "document-text-outline"} size={32} color="#159A7C" />
             <Text style={[styles.emptyTitle, { color: foreground }]}>No records match these filters</Text>
             <Text style={[styles.detail, { color: muted }]}>Try resetting filters or searching for another term.</Text>
+            <TouchableOpacity
+              onPress={() => {
+                if (tool === "cross-selling") {
+                  setCustomerSalesperson("All Salespeople");
+                  setCustomerSearch("");
+                  setDebouncedCustomerSearch("");
+                  setCsMissingCat("All Missing Categories");
+                  setCsScore("All Scores");
+                }
+                setLoading(true);
+                void load(1);
+              }}
+              style={{
+                marginTop: 12,
+                backgroundColor: "#159A7C",
+                paddingHorizontal: 16,
+                paddingVertical: 9,
+                borderRadius: 10,
+              }}
+              activeOpacity={0.8}
+            >
+              <Text style={{ color: "#FFFFFF", fontFamily: Typography.semiBold, fontSize: 12 }}>
+                Reset Filters & Refresh
+              </Text>
+            </TouchableOpacity>
           </View>
         )}
       </ScrollView>

@@ -101,6 +101,8 @@ export default function CustomerDashboardScreen() {
     if (value === "followup_due" || value === "payment_pending" || value === "recently_contacted") {
       setActiveFilter(value);
       setCurrentPage(1);
+    } else if (!value) {
+      setActiveFilter("all");
     }
   }, [routeParams.filter]);
 
@@ -252,6 +254,7 @@ export default function CustomerDashboardScreen() {
     activeFilter !== "all" || paymentFilter !== "all" || balanceFilter !== "all" || sortOption !== "default";
 
   const resetDirectoryFilters = useCallback(() => {
+    router.setParams({ filter: undefined });
     setActiveFilter("all");
     setPaymentFilter("all");
     setBalanceFilter("all");
