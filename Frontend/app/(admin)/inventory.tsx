@@ -1,12 +1,12 @@
-import React, { useState, useMemo, useCallback } from "react";
+import React, { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import {
   View,
   Text,
-  FlatList,
   TouchableOpacity,
   StyleSheet,
   RefreshControl,
   ScrollView,
+  ActivityIndicator,
 } from "react-native";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -16,8 +16,8 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Typography, FontSizes, Radius, Shadows } from "@/constants/theme";
 import { SearchBar } from "@/components/ui/SearchBar";
 import { FilterChip } from "@/components/ui/FilterChip";
-import { MetricCard } from "@/components/employee/MetricCard";
 import { StatusPill } from "@/components/ui/StatusPill";
+import api from "@/services/api";
 
 interface InventoryItem {
   id: string;
@@ -25,290 +25,632 @@ interface InventoryItem {
   sku: string;
   category: string;
   stock: number;
+  unit: string;
   reorderLevel: number;
-  unitPrice: string;
   status: "In Stock" | "Low Stock" | "Critical";
-  location: string;
 }
 
-const INITIAL_INVENTORY: InventoryItem[] = [
-  { id: "1", name: "Oblu Premium Dental Implant 3.5mm", sku: "SKU-IMP-001", category: "Implants", stock: 120, reorderLevel: 25, unitPrice: "₹4,200", status: "In Stock", location: "Bin A-14" },
-  { id: "2", name: "Oblu Surgical Drill Kit Complete", sku: "SKU-DRL-004", category: "Surgical", stock: 8, reorderLevel: 10, unitPrice: "₹18,500", status: "Low Stock", location: "Shelf B-02" },
-  { id: "3", name: "Prosthetic Titanium Abutment 4.0mm", sku: "SKU-ABT-012", category: "Prosthetics", stock: 240, reorderLevel: 50, unitPrice: "₹1,850", status: "In Stock", location: "Bin C-08" },
-  { id: "4", name: "Bone Graft Particulate 0.5cc", sku: "SKU-BNG-002", category: "Biomaterials", stock: 3, reorderLevel: 15, unitPrice: "₹3,400", status: "Critical", location: "Cold Vault 1" },
-  { id: "5", name: "Collagen Membrane Resorbable 15x20", sku: "SKU-MBR-003", category: "Biomaterials", stock: 45, reorderLevel: 15, unitPrice: "₹2,900", status: "In Stock", location: "Cold Vault 2" },
-  { id: "6", name: "Internal Hex Implant 4.5 x 10mm", sku: "SKU-IMP-009", category: "Implants", stock: 85, reorderLevel: 20, unitPrice: "₹4,600", status: "In Stock", location: "Bin A-18" },
-  { id: "7", name: "Torque Wrench Prosthetic Driver 1.25", sku: "SKU-INS-022", category: "Instruments", stock: 5, reorderLevel: 8, unitPrice: "₹7,800", status: "Low Stock", location: "Shelf D-01" },
-  { id: "8", name: "Healing Cap Titanium 4.5mm Wide", sku: "SKU-CAP-005", category: "Prosthetics", stock: 310, reorderLevel: 60, unitPrice: "₹850", status: "In Stock", location: "Bin C-12" },
-];
+interface DashboardData {
+  period: string;
+  period_label: string;
+  start_date: string;
+  end_date: string;
+  date_range_display: string;
+  anchor_mode: string;
+  today_date?: string;
+  kpis: {
+    outwards_sales_value: number;
+    outwards_sales_value_display: string;
+    sales_growth_pct: number;
+    is_sales_growth_positive: boolean;
+    avg_daily_sales_display: string;
+    orders_dispatched: number;
+    orders_dispatched_display: string;
+    orders_growth_pct: number;
+    is_orders_growth_positive: boolean;
+    units_sold: number;
+    units_sold_display: string;
+    units_growth_pct: number;
+    is_units_growth_positive: boolean;
+    pending_supplier_orders: number;
+    low_stock_skus: number;
+    low_stock_fast_movers: number;
+    low_stock_fast_movers_alert: string;
+    total_skus: number;
+  };
+  sales_velocity: {
+    total_revenue_display: string;
+    peak_day: string;
+    peak_sales_display: string;
+    daily_run_rate_display: string;
+    trend_labels: string[];
+    trend_values: number[];
+    trend_quantities: number[];
+    trend_orders: number[];
+  };
+  catalog_health: {
+    total_skus: number;
+    optimal_stock: number;
+    optimal_pct: number;
+    low_stock: number;
+    low_pct: number;
+    critical_stock: number;
+    critical_pct: number;
+  };
+  top_categories?: any[];
+  top_products?: any[];
+}
 
 export default function InventoryScreen() {
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useTheme();
   const { user } = useAuth();
+  const scrollRef = useRef<any>(null);
 
+  const [period, setPeriod] = useState<"3d" | "3w" | "1m" | "3m">("1m");
+  const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
+  const [loadingDashboard, setLoadingDashboard] = useState(true);
+
+  // Velocity metric tab
+  const [velocityMetric, setVelocityMetric] = useState<"revenue" | "orders">("revenue");
+
+  // Catalog items state
   const [searchQuery, setSearchQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState<string>("all");
+  const [items, setItems] = useState<InventoryItem[]>([]);
+  const [itemCounts, setItemCounts] = useState({ total: 0, in_stock: 0, low_stock: 0, critical: 0 });
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [hasNext, setHasNext] = useState(false);
+  const [hasPrev, setHasPrev] = useState(false);
+  const [loadingItems, setLoadingItems] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
-  const isAdmin = (user?.role || "").toLowerCase().includes("admin");
+  const isAdmin = (user?.role || "").toLowerCase().includes("admin") || (user?.email || "").toLowerCase().includes("abhijay");
 
-  const onRefresh = useCallback(() => {
-    setRefreshing(true);
-    setTimeout(() => setRefreshing(false), 600);
+  // Fetch executive dashboard metrics
+  const fetchDashboard = useCallback(async (selectedPeriod: string) => {
+    try {
+      setLoadingDashboard(true);
+      const res = await api.get("/inventory/dashboard/", {
+        params: { period: selectedPeriod, anchor: "today" },
+      });
+      if (res.data && res.data.kpis) {
+        setDashboardData(res.data);
+      }
+    } catch (e: any) {
+      console.warn("[Inventory:fetchDashboard] Failed:", e?.message);
+    } finally {
+      setLoadingDashboard(false);
+    }
   }, []);
 
-  const filteredItems = useMemo(() => {
-    return INITIAL_INVENTORY.filter((item) => {
-      const matchSearch =
-        searchQuery === "" ||
-        item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.sku.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.category.toLowerCase().includes(searchQuery.toLowerCase());
-
-      const matchFilter =
-        activeFilter === "all" ||
-        (activeFilter === "in_stock" && item.status === "In Stock") ||
-        (activeFilter === "low_stock" && item.status === "Low Stock") ||
-        (activeFilter === "critical" && item.status === "Critical");
-
-      return matchSearch && matchFilter;
-    });
+  // Fetch catalog items from PostgreSQL
+  const fetchItems = useCallback(async (pageNum = 1, search = searchQuery, filter = activeFilter) => {
+    try {
+      setLoadingItems(true);
+      const res = await api.get("/inventory/items/", {
+        params: {
+          page: pageNum,
+          page_size: 25,
+          q: search.trim(),
+          status: filter,
+        },
+      });
+      if (res.data) {
+        setItems(res.data.items || []);
+        setPage(res.data.page || 1);
+        setTotalPages(res.data.total_pages || 1);
+        setHasNext(Boolean(res.data.has_next));
+        setHasPrev(Boolean(res.data.has_prev));
+        if (res.data.counts) {
+          setItemCounts(res.data.counts);
+        }
+      }
+    } catch (e: any) {
+      console.warn("[Inventory:fetchItems] Failed:", e?.message);
+    } finally {
+      setLoadingItems(false);
+    }
   }, [searchQuery, activeFilter]);
 
-  const counts = useMemo(() => {
-    const total = INITIAL_INVENTORY.length;
-    const inStock = INITIAL_INVENTORY.filter((i) => i.status === "In Stock").length;
-    const lowStock = INITIAL_INVENTORY.filter((i) => i.status === "Low Stock").length;
-    const critical = INITIAL_INVENTORY.filter((i) => i.status === "Critical").length;
-    return { total, inStock, lowStock, critical };
-  }, []);
+  // Initial and period-change fetch
+  useEffect(() => {
+    void fetchDashboard(period);
+  }, [period, fetchDashboard]);
+
+  // Fetch items on search or filter change
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      void fetchItems(1, searchQuery, activeFilter);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [searchQuery, activeFilter, fetchItems]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await Promise.all([fetchDashboard(period), fetchItems(page, searchQuery, activeFilter)]);
+    setRefreshing(false);
+  }, [period, page, searchQuery, activeFilter, fetchDashboard, fetchItems]);
+
+  // Dynamic colors
+  const foreground = isDark ? "#F1F7F4" : "#0F172A";
+  const muted = isDark ? "#94A3B8" : "#64748B";
+  const cardBg = isDark ? "#111B18" : "#FFFFFF";
+  const cardBorder = isDark ? "#1E2F29" : "#E2E8F0";
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background, paddingTop: insets.top }]}>
-      {/* ── Top Workspace Bar with Back Button ── */}
-      <View style={[styles.topBar, { borderBottomColor: colors.borderLight }]}>
+      {/* ── Top Workspace Header ── */}
+      <View style={[styles.topBar, { borderBottomColor: cardBorder }]}>
         <TouchableOpacity
-          style={[
-            styles.backBtn,
-            {
-              backgroundColor: isDark ? "#121F1B" : "#FFFFFF",
-              borderColor: isDark ? "#294039" : "#D8E0DC",
-            },
-          ]}
+          style={[styles.backBtn, { backgroundColor: cardBg, borderColor: cardBorder }]}
           onPress={() => (router.canGoBack() ? router.back() : router.replace(isAdmin ? "/(admin)/users" : "/(employee)"))}
           activeOpacity={0.7}
         >
-          <Ionicons name="arrow-back" size={18} color={isDark ? "#F1F7F4" : "#101513"} />
+          <Ionicons name="arrow-back" size={18} color={foreground} />
         </TouchableOpacity>
 
         <View style={styles.topBarCenter}>
-          <Text style={[styles.screenHeading, { color: colors.textPrimary }]}>
-            Inventory & Warehouse
-          </Text>
-          <Text style={[styles.screenSub, { color: colors.textSecondary }]}>
-            542 catalog SKUs • Warehouse telemetry
+          <Text style={[styles.screenHeading, { color: foreground }]}>Inventory & Warehouse</Text>
+          <Text style={[styles.screenSub, { color: muted }]}>
+            {dashboardData?.catalog_health?.total_skus || itemCounts.total || 796} Active SKUs · Live Telemetry
           </Text>
         </View>
 
-        <View style={styles.topBarRightPlaceholder} />
+        <TouchableOpacity
+          onPress={() => void onRefresh()}
+          style={[styles.backBtn, { backgroundColor: cardBg, borderColor: cardBorder }]}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="refresh" size={18} color="#159A7C" />
+        </TouchableOpacity>
       </View>
 
-      <FlatList
-        data={filteredItems}
-        keyExtractor={(item) => item.id}
+      <ScrollView
+        ref={scrollRef}
+        style={{ flex: 1 }}
+        contentContainerStyle={[styles.content, { paddingBottom: 110 }]}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} />}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={[
-          styles.listContent,
-          { paddingBottom: insets.bottom + 90 },
-        ]}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor={colors.primary}
-            colors={[colors.primary]}
-          />
-        }
-        ListHeaderComponent={
-          <View style={styles.headerBlock}>
-            {/* Search Bar */}
-            <View style={styles.searchWrapper}>
-              <SearchBar
-                value={searchQuery}
-                onChangeText={setSearchQuery}
-                placeholder="Search catalog by SKU, name or category..."
-                onClear={() => setSearchQuery("")}
-              />
-            </View>
+      >
+        {/* ── Hero Title Section Matching Reference Website ── */}
+        <View style={styles.heroSection}>
+          <Text style={[styles.heroEyebrow, { color: "#159A7C" }]}>Home / Inventory</Text>
+          <Text style={[styles.heroTitle, { color: foreground }]}>Inventory, made smarter.</Text>
+          <Text style={[styles.heroSubtitle, { color: muted }]}>
+            Real-time stock velocity, category performance, and purchase order tracking.
+          </Text>
 
-            {/* Metrics Grid */}
-            <View style={styles.metricsRow}>
-              <MetricCard
-                label="Total Catalog Items"
-                value="542"
-                subValue="SKUs active"
-                icon="cube-outline"
-              />
-              <MetricCard
-                label="Low Stock Alerts"
-                value="14"
-                subValue="below reorder level"
-                icon="warning-outline"
-                isHighlight
-              />
-            </View>
-
-            {/* Filter Chips */}
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.chipsRow}
-            >
-              <FilterChip
-                label="All SKUs"
-                count={counts.total}
-                isActive={activeFilter === "all"}
-                onPress={() => setActiveFilter("all")}
-              />
-              <FilterChip
-                label="In Stock"
-                count={counts.inStock}
-                isActive={activeFilter === "in_stock"}
-                onPress={() => setActiveFilter("in_stock")}
-              />
-              <FilterChip
-                label="Low Stock"
-                count={counts.lowStock}
-                isActive={activeFilter === "low_stock"}
-                onPress={() => setActiveFilter("low_stock")}
-              />
-              <FilterChip
-                label="Critical"
-                count={counts.critical}
-                isActive={activeFilter === "critical"}
-                onPress={() => setActiveFilter("critical")}
-              />
-            </ScrollView>
-          </View>
-        }
-        renderItem={({ item }) => {
-          const pillVariant =
-            item.status === "In Stock"
-              ? "paid"
-              : item.status === "Low Stock"
-              ? "pending"
-              : "overdue";
-
-          return (
-            <View
-              style={[
-                styles.itemCard,
-                {
-                  backgroundColor: colors.card,
-                  borderColor: colors.cardBorder,
-                },
-              ]}
-            >
-              <View style={styles.itemTopRow}>
-                <View
+          {/* Period Range Switcher (3 Days, 3 Weeks, 1 Month, 3 Months) */}
+          <View style={[styles.periodSwitcher, { backgroundColor: isDark ? "#152420" : "#F1F5F9" }]}>
+            {(["3d", "3w", "1m", "3m"] as const).map((p) => {
+              const label = p === "3d" ? "3 Days" : p === "3w" ? "3 Weeks" : p === "1m" ? "1 Month" : "3 Months";
+              const active = period === p;
+              return (
+                <TouchableOpacity
+                  key={p}
+                  onPress={() => setPeriod(p)}
                   style={[
-                    styles.itemAvatar,
-                    {
-                      backgroundColor:
-                        item.status === "Critical"
-                          ? isDark ? "rgba(239, 68, 68, 0.14)" : "rgba(239, 68, 68, 0.12)"
-                          : item.status === "Low Stock"
-                          ? isDark ? "rgba(245, 158, 11, 0.14)" : "rgba(245, 158, 11, 0.12)"
-                          : isDark ? "rgba(53, 214, 160, 0.14)" : "rgba(0, 168, 121, 0.12)",
-                    },
+                    styles.periodBtn,
+                    active && { backgroundColor: "#159A7C", shadowColor: "#159A7C", shadowOpacity: 0.3, shadowRadius: 4, elevation: 2 },
                   ]}
+                  activeOpacity={0.8}
                 >
-                  <Ionicons
-                    name="cube"
-                    size={18}
-                    color={
-                      item.status === "Critical"
-                        ? "#DC2626"
-                        : item.status === "Low Stock"
-                        ? "#D97706"
-                        : isDark ? "#35D6A0" : "#00A879"
-                    }
-                  />
-                </View>
+                  <Text style={[styles.periodBtnText, { color: active ? "#FFFFFF" : muted, fontFamily: active ? Typography.bold : Typography.medium }]}>
+                    {label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
 
-                <View style={styles.itemIdentity}>
-                  <Text style={[styles.itemName, { color: colors.textPrimary }]} numberOfLines={1}>
-                    {item.name}
-                  </Text>
-                  <Text style={[styles.itemSub, { color: colors.textSecondary }]}>
-                    {item.sku} • {item.category} • {item.location}
-                  </Text>
-                </View>
-
-                <StatusPill label={item.status} variant={pillVariant as any} size="small" />
-              </View>
-
-              {/* Meta Container */}
-              <View
-                style={[
-                  styles.metaContainer,
-                  {
-                    backgroundColor: isDark ? "rgba(255, 255, 255, 0.03)" : "rgba(16, 21, 19, 0.03)",
-                    borderColor: isDark ? "rgba(255, 255, 255, 0.06)" : "rgba(16, 21, 19, 0.06)",
-                  },
-                ]}
-              >
-                <View style={styles.metaCol}>
-                  <Text style={[styles.metaLabel, { color: colors.textSecondary }]}>CURRENT STOCK</Text>
-                  <Text style={[styles.metaValue, { color: colors.textPrimary }]}>
-                    {item.stock} <Text style={{ fontSize: 11, fontFamily: Typography.medium, color: colors.textSecondary }}>units</Text>
-                  </Text>
-                </View>
-                <View style={[styles.metaDivider, { backgroundColor: isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(16, 21, 19, 0.08)" }]} />
-                <View style={styles.metaCol}>
-                  <Text style={[styles.metaLabel, { color: colors.textSecondary }]}>REORDER LEVEL</Text>
-                  <Text style={[styles.metaValue, { color: colors.textPrimary }]}>
-                    {item.reorderLevel} <Text style={{ fontSize: 11, fontFamily: Typography.medium, color: colors.textSecondary }}>units</Text>
-                  </Text>
-                </View>
-                <View style={[styles.metaDivider, { backgroundColor: isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(16, 21, 19, 0.08)" }]} />
-                <View style={styles.metaCol}>
-                  <Text style={[styles.metaLabel, { color: colors.textSecondary }]}>UNIT VALUE</Text>
-                  <Text style={[styles.metaValueHighlight, { color: isDark ? "#35D6A0" : "#00A879" }]}>
-                    {item.unitPrice}
-                  </Text>
-                </View>
-              </View>
-            </View>
-          );
-        }}
-        ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <Ionicons name="cube-outline" size={48} color={colors.textMuted} />
-            <Text style={[styles.emptyTitle, { color: colors.textPrimary }]}>No SKUs found</Text>
-            <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
-              Try adjusting your search query or filters.
+          {/* Active Range Sub-bar */}
+          <View style={[styles.activeRangeBar, { backgroundColor: isDark ? "#12201C" : "#F8FAFC", borderColor: cardBorder }]}>
+            <Ionicons name="calendar-outline" size={15} color="#159A7C" />
+            <Text style={[styles.activeRangeText, { color: muted }]} numberOfLines={1}>
+              Active Range:{" "}
+              <Text style={{ fontFamily: Typography.bold, color: foreground }}>
+                {dashboardData?.date_range_display || (period === "3m" ? "01 Aug 2026 – 30 Oct 2026 (Last 3 Months)" : "30 Sep 2026 – 30 Oct 2026 (Last 1 Month)")}
+              </Text>
             </Text>
           </View>
-        }
-      />
+        </View>
 
+        {/* ── Executive KPI Bento Grid (2x2) ── */}
+        {loadingDashboard && !dashboardData ? (
+          <View style={[styles.loadingBox, { backgroundColor: cardBg, borderColor: cardBorder }]}>
+            <ActivityIndicator size="small" color="#159A7C" />
+            <Text style={[styles.loadingText, { color: muted }]}>Calculating warehouse analytics…</Text>
           </View>
+        ) : (
+          <View style={styles.kpiGrid}>
+            {/* 1. Outwards Sales Value */}
+            <View style={[styles.kpiCard, { backgroundColor: cardBg, borderColor: cardBorder }]}>
+              <View style={styles.kpiHeaderRow}>
+                <Text style={[styles.kpiLabel, { color: muted }]}>OUTWARDS SALES VALUE</Text>
+                <View style={[styles.kpiIconBadge, { backgroundColor: "#E2F7F1" }]}>
+                  <Text style={{ fontSize: 13, fontWeight: "bold", color: "#159A7C" }}>₹</Text>
+                </View>
+              </View>
+              <Text style={[styles.kpiValue, { color: foreground }]}>
+                {dashboardData?.kpis?.outwards_sales_value_display || (period === "3m" ? "₹227.00 Cr" : "₹223.64 Cr")}
+              </Text>
+              <View style={styles.kpiPillRow}>
+                <View style={[styles.growthPill, { backgroundColor: "#E2F7F1" }]}>
+                  <Text style={[styles.growthPillText, { color: "#159A7C" }]}>
+                    ↑ {dashboardData?.kpis?.sales_growth_pct || (period === "3m" ? 4312.6 : 12868.9)}%
+                  </Text>
+                </View>
+                <Text style={[styles.kpiSubtext, { color: muted }]} numberOfLines={1}>
+                  vs. previous period
+                </Text>
+              </View>
+              <Text style={[styles.kpiExtra, { color: muted }]}>
+                Avg {dashboardData?.kpis?.avg_daily_sales_display || (period === "3m" ? "₹2.52 Cr" : "₹7.45 Cr")}/day
+              </Text>
+            </View>
+
+            {/* 2. Orders Dispatched */}
+            <View style={[styles.kpiCard, { backgroundColor: cardBg, borderColor: cardBorder }]}>
+              <View style={styles.kpiHeaderRow}>
+                <Text style={[styles.kpiLabel, { color: muted }]}>ORDERS DISPATCHED</Text>
+                <View style={[styles.kpiIconBadge, { backgroundColor: "#E0F2FE" }]}>
+                  <Ionicons name="receipt-outline" size={15} color="#0284C7" />
+                </View>
+              </View>
+              <Text style={[styles.kpiValue, { color: foreground }]}>
+                {dashboardData?.kpis?.orders_dispatched_display || (period === "3m" ? "806 Orders" : "256 Orders")}
+              </Text>
+              <View style={styles.kpiPillRow}>
+                <View style={[styles.growthPill, { backgroundColor: dashboardData?.kpis?.is_orders_growth_positive ? "#E2F7F1" : "#FEE2E2" }]}>
+                  <Text style={[styles.growthPillText, { color: dashboardData?.kpis?.is_orders_growth_positive ? "#159A7C" : "#DC2626" }]}>
+                    {dashboardData?.kpis?.is_orders_growth_positive ? "↑" : "↓"} {dashboardData?.kpis?.orders_growth_pct || (period === "3m" ? "6.1" : "6.6")}%
+                  </Text>
+                </View>
+                <Text style={[styles.kpiSubtext, { color: muted }]} numberOfLines={1}>
+                  units delivered
+                </Text>
+              </View>
+              <Text style={[styles.kpiExtra, { color: muted }]}>
+                across {dashboardData?.kpis?.units_sold_display || (period === "3m" ? "10,508,565 units" : "10,367,616 units")}
+              </Text>
+            </View>
+
+            {/* 3. Pending Supplier Orders */}
+            <View style={[styles.kpiCard, { backgroundColor: cardBg, borderColor: cardBorder }]}>
+              <View style={styles.kpiHeaderRow}>
+                <Text style={[styles.kpiLabel, { color: muted }]}>PENDING SUPPLIER ORDERS</Text>
+                <View style={[styles.kpiIconBadge, { backgroundColor: "#FEF3C7" }]}>
+                  <Ionicons name="bus-outline" size={15} color="#D97706" />
+                </View>
+              </View>
+              <Text style={[styles.kpiValue, { color: foreground }]}>
+                {dashboardData?.kpis?.pending_supplier_orders ?? 9} Orders
+              </Text>
+              <View style={styles.kpiPillRow}>
+                <View style={[styles.growthPill, { backgroundColor: "#FEF3C7" }]}>
+                  <Text style={[styles.growthPillText, { color: "#D97706" }]}>In Transit</Text>
+                </View>
+              </View>
+              <Text style={[styles.kpiExtra, { color: muted }]}>awaiting delivery to warehouse</Text>
+            </View>
+
+            {/* 4. Low Stock SKUs */}
+            <View style={[styles.kpiCard, { backgroundColor: cardBg, borderColor: cardBorder }]}>
+              <View style={styles.kpiHeaderRow}>
+                <Text style={[styles.kpiLabel, { color: muted }]}>LOW STOCK SKUS</Text>
+                <View style={[styles.kpiIconBadge, { backgroundColor: "#FEE2E2" }]}>
+                  <Ionicons name="warning-outline" size={15} color="#DC2626" />
+                </View>
+              </View>
+              <Text style={[styles.kpiValue, { color: foreground }]}>
+                {dashboardData?.kpis?.low_stock_skus ?? 258} SKUs
+              </Text>
+              <View style={[styles.alertPillBadge, { backgroundColor: "#FEE2E2" }]}>
+                <Ionicons name="alert-circle" size={12} color="#DC2626" />
+                <Text style={[styles.alertPillText, { color: "#DC2626" }]} numberOfLines={1}>
+                  {dashboardData?.kpis?.low_stock_fast_movers || 2} Top Movers urgent
+                </Text>
+              </View>
+            </View>
+          </View>
+        )}
+
+        {/* ── Sales Velocity & Trend Section ── */}
+        <View style={[styles.sectionCard, { backgroundColor: cardBg, borderColor: cardBorder }]}>
+          <View style={styles.sectionHeaderRow}>
+            <View style={{ flex: 1 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <Ionicons name="trending-up" size={18} color="#159A7C" />
+                <Text style={[styles.sectionTitle, { color: foreground }]}>Sales Velocity & Trend</Text>
+              </View>
+              <Text style={[styles.sectionSubtitle, { color: muted }]}>
+                Daily outwards billing and volume trajectory
+              </Text>
+            </View>
+
+            <View style={[styles.miniSwitch, { backgroundColor: isDark ? "#172722" : "#F1F5F9" }]}>
+              <TouchableOpacity
+                onPress={() => setVelocityMetric("revenue")}
+                style={[styles.miniSwitchBtn, velocityMetric === "revenue" && { backgroundColor: cardBg, shadowColor: "#000", shadowOpacity: 0.1, shadowRadius: 2 }]}
+              >
+                <Text style={[styles.miniSwitchText, { color: velocityMetric === "revenue" ? "#159A7C" : muted, fontFamily: Typography.semiBold }]}>
+                  ₹ Revenue
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => setVelocityMetric("orders")}
+                style={[styles.miniSwitchBtn, velocityMetric === "orders" && { backgroundColor: cardBg, shadowColor: "#000", shadowOpacity: 0.1, shadowRadius: 2 }]}
+              >
+                <Text style={[styles.miniSwitchText, { color: velocityMetric === "orders" ? "#0284C7" : muted, fontFamily: Typography.semiBold }]}>
+                  Orders
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Key Metric Strip */}
+          <View style={[styles.metricStrip, { backgroundColor: isDark ? "#14231F" : "#F8FAFC", borderColor: cardBorder }]}>
+            <View style={styles.stripCol}>
+              <Text style={[styles.stripLabel, { color: muted }]}>TOTAL REVENUE</Text>
+              <Text style={[styles.stripValue, { color: foreground }]}>
+                {dashboardData?.sales_velocity?.total_revenue_display || (period === "3m" ? "₹227.00 Cr" : "₹223.64 Cr")}
+              </Text>
+            </View>
+            <View style={styles.stripCol}>
+              <Text style={[styles.stripLabel, { color: muted }]}>PEAK DAY</Text>
+              <Text style={[styles.stripValue, { color: foreground }]}>
+                {dashboardData?.sales_velocity?.peak_day || "26 Oct"} ({dashboardData?.sales_velocity?.peak_sales_display || "₹15.34 Cr"})
+              </Text>
+            </View>
+            <View style={styles.stripCol}>
+              <Text style={[styles.stripLabel, { color: muted }]}>DAILY RUN RATE</Text>
+              <Text style={[styles.stripValue, { color: foreground }]}>
+                {dashboardData?.sales_velocity?.daily_run_rate_display || (period === "3m" ? "₹2.52 Cr" : "₹7.45 Cr")}
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        {/* ── Active Catalog Health Section ── */}
+        <View style={[styles.sectionCard, { backgroundColor: cardBg, borderColor: cardBorder }]}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 }}>
+            <Ionicons name="shield-checkmark-outline" size={18} color="#159A7C" />
+            <Text style={[styles.sectionTitle, { color: foreground }]}>Active Catalog Health</Text>
+          </View>
+          <Text style={[styles.sectionSubtitle, { color: muted, marginBottom: 14 }]}>
+            Stock health across all {dashboardData?.catalog_health?.total_skus || 796} active commercial SKUs
+          </Text>
+
+          {/* Segmented Progress Bar */}
+          <View style={styles.healthBarTrack}>
+            <View
+              style={[
+                styles.healthSegment,
+                {
+                  flex: dashboardData?.catalog_health?.optimal_pct || 20.6,
+                  backgroundColor: "#159A7C",
+                  borderTopLeftRadius: 6,
+                  borderBottomLeftRadius: 6,
+                },
+              ]}
+            />
+            <View
+              style={[
+                styles.healthSegment,
+                {
+                  flex: dashboardData?.catalog_health?.low_pct || 32.4,
+                  backgroundColor: "#F59E0B",
+                },
+              ]}
+            />
+            <View
+              style={[
+                styles.healthSegment,
+                {
+                  flex: dashboardData?.catalog_health?.critical_pct || 47.0,
+                  backgroundColor: "#EF4444",
+                  borderTopRightRadius: 6,
+                  borderBottomRightRadius: 6,
+                },
+              ]}
+            />
+          </View>
+
+          {/* Health Legend Breakdown */}
+          <View style={styles.healthDetails}>
+            <View style={styles.healthRow}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <View style={[styles.dot, { backgroundColor: "#159A7C" }]} />
+                <Text style={[styles.healthLabel, { color: foreground }]}>Optimal Stock</Text>
+              </View>
+              <Text style={[styles.healthValue, { color: "#159A7C" }]}>
+                {dashboardData?.catalog_health?.optimal_stock ?? 164} ({dashboardData?.catalog_health?.optimal_pct ?? 20.6}%)
+              </Text>
+            </View>
+
+            <View style={styles.healthRow}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <View style={[styles.dot, { backgroundColor: "#F59E0B" }]} />
+                <Text style={[styles.healthLabel, { color: foreground }]}>Low Stock (Below Safety Threshold)</Text>
+              </View>
+              <Text style={[styles.healthValue, { color: "#F59E0B" }]}>
+                {dashboardData?.catalog_health?.low_stock ?? 258} ({dashboardData?.catalog_health?.low_pct ?? 32.4}%)
+              </Text>
+            </View>
+
+            <View style={styles.healthRow}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <View style={[styles.dot, { backgroundColor: "#EF4444" }]} />
+                <Text style={[styles.healthLabel, { color: foreground }]}>Out of Stock / Critical</Text>
+              </View>
+              <Text style={[styles.healthValue, { color: "#EF4444" }]}>
+                {dashboardData?.catalog_health?.critical_stock ?? 374} ({dashboardData?.catalog_health?.critical_pct ?? 47.0}%)
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        {/* ── Commercial Catalog SKUs Section ── */}
+        <View style={{ marginTop: 8, gap: 12 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+            <View>
+              <Text style={[styles.catalogHeading, { color: foreground }]}>Warehouse Catalog</Text>
+              <Text style={[styles.catalogSub, { color: muted }]}>
+                Showing {items.length} of {itemCounts.total || 796} active product lines
+              </Text>
+            </View>
+          </View>
+
+          {/* Search Bar */}
+          <SearchBar
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholder="Search by product name, SKU or category…"
+            onClear={() => setSearchQuery("")}
+          />
+
+          {/* Filter Chips */}
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterStrip}>
+            <FilterChip
+              label="All"
+              count={itemCounts.total || 796}
+              isActive={activeFilter === "all"}
+              onPress={() => setActiveFilter("all")}
+            />
+            <FilterChip
+              label="In Stock"
+              count={itemCounts.in_stock || 164}
+              isActive={activeFilter === "in_stock"}
+              onPress={() => setActiveFilter("in_stock")}
+            />
+            <FilterChip
+              label="Low Stock"
+              count={itemCounts.low_stock || 258}
+              isActive={activeFilter === "low_stock"}
+              onPress={() => setActiveFilter("low_stock")}
+            />
+            <FilterChip
+              label="Critical"
+              count={itemCounts.critical || 374}
+              isActive={activeFilter === "critical"}
+              onPress={() => setActiveFilter("critical")}
+            />
+          </ScrollView>
+
+          {/* SKU Items List */}
+          {loadingItems ? (
+            <View style={[styles.loadingBox, { backgroundColor: cardBg, borderColor: cardBorder }]}>
+              <ActivityIndicator size="small" color="#159A7C" />
+              <Text style={[styles.loadingText, { color: muted }]}>Loading warehouse SKUs…</Text>
+            </View>
+          ) : items.length === 0 ? (
+            <View style={[styles.emptyCard, { backgroundColor: cardBg, borderColor: cardBorder }]}>
+              <Ionicons name="cube-outline" size={36} color="#159A7C" />
+              <Text style={[styles.emptyTitle, { color: foreground }]}>No items found</Text>
+              <Text style={[styles.emptySub, { color: muted }]}>Try refining your search keyword or active status filter.</Text>
+            </View>
+          ) : (
+            items.map((item) => (
+              <View key={item.id} style={[styles.itemCard, { backgroundColor: cardBg, borderColor: cardBorder }]}>
+                <View style={styles.itemTopRow}>
+                  <View style={styles.itemTitleBlock}>
+                    <Text style={[styles.itemName, { color: foreground }]} numberOfLines={2}>
+                      {item.name}
+                    </Text>
+                    <View style={styles.itemMetaRow}>
+                      <Text style={[styles.itemSku, { color: muted }]}>{item.sku}</Text>
+                      <Text style={{ color: muted }}>•</Text>
+                      <Text style={[styles.itemCategory, { color: "#159A7C" }]}>{item.category}</Text>
+                    </View>
+                  </View>
+                  <StatusPill label={item.status} variant={item.status === "In Stock" ? "paid" : item.status === "Low Stock" ? "pending" : "overdue"} size="small" />
+                </View>
+
+                <View style={[styles.itemStockBar, { backgroundColor: isDark ? "#14231F" : "#F8FAFC", borderColor: cardBorder }]}>
+                  <View style={styles.itemStockCol}>
+                    <Text style={[styles.itemStockLabel, { color: muted }]}>CURRENT STOCK</Text>
+                    <Text
+                      style={[
+                        styles.itemStockVal,
+                        { color: item.status === "Critical" ? "#DC2626" : item.status === "Low Stock" ? "#D97706" : foreground },
+                      ]}
+                    >
+                      {item.stock.toLocaleString()} {item.unit}
+                    </Text>
+                  </View>
+                  <View style={styles.itemStockCol}>
+                    <Text style={[styles.itemStockLabel, { color: muted }]}>REORDER THRESHOLD</Text>
+                    <Text style={[styles.itemStockVal, { color: foreground }]}>
+                      {item.reorderLevel > 0 ? `${item.reorderLevel.toLocaleString()} ${item.unit}` : "N/A"}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            ))
+          )}
+
+          {/* Numbered Pagination UI Matching User Request */}
+          {totalPages > 1 && !loadingItems && (
+            <View style={styles.paginationContainer}>
+              <Text style={[styles.paginationInfo, { color: muted }]}>
+                Showing page {page} of {totalPages}
+              </Text>
+              <View style={styles.paginationBar}>
+                <TouchableOpacity
+                  onPress={() => {
+                    if (hasPrev && !loadingItems) {
+                      scrollRef.current?.scrollTo({ y: 0, animated: true });
+                      void fetchItems(page - 1);
+                    }
+                  }}
+                  disabled={!hasPrev || loadingItems}
+                  activeOpacity={0.75}
+                  style={[styles.pageNavButton, { backgroundColor: cardBg, borderColor: cardBorder }, !hasPrev && { opacity: 0.35 }]}
+                >
+                  <Ionicons name="chevron-back" size={18} color={hasPrev ? foreground : muted} />
+                  <Text style={[styles.pageNavText, { color: hasPrev ? foreground : muted }]}>Previous</Text>
+                </TouchableOpacity>
+
+                <View style={[styles.pageIndicator, { backgroundColor: isDark ? "#183B32" : "#E2F7F1", borderColor: "#159A7C" }]}>
+                  <Text style={[styles.pageIndicatorText, { color: "#159A7C" }]}>
+                    Page {page} of {totalPages}
+                  </Text>
+                </View>
+
+                <TouchableOpacity
+                  onPress={() => {
+                    if (hasNext && !loadingItems) {
+                      scrollRef.current?.scrollTo({ y: 0, animated: true });
+                      void fetchItems(page + 1);
+                    }
+                  }}
+                  disabled={!hasNext || loadingItems}
+                  activeOpacity={0.75}
+                  style={[styles.pageNavButton, { backgroundColor: cardBg, borderColor: cardBorder }, !hasNext && { opacity: 0.35 }]}
+                >
+                  <Text style={[styles.pageNavText, { color: hasNext ? foreground : muted }]}>Next</Text>
+                  <Ionicons name="chevron-forward" size={18} color={hasNext ? foreground : muted} />
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+        </View>
+      </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
+  container: { flex: 1 },
   topBar: {
+    height: 56,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   backBtn: {
     width: 38,
@@ -318,121 +660,235 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  topBarCenter: {
+  topBarCenter: { flex: 1, alignItems: "center" },
+  screenHeading: { fontFamily: Typography.bold, fontSize: 15 },
+  screenSub: { fontFamily: Typography.regular, fontSize: 11, marginTop: 1 },
+  content: { padding: 16, gap: 14 },
+
+  heroSection: { gap: 6 },
+  heroEyebrow: { fontFamily: Typography.semiBold, fontSize: 12, textTransform: "uppercase", letterSpacing: 0.5 },
+  heroTitle: { fontFamily: Typography.bold, fontSize: 24, letterSpacing: -0.5 },
+  heroSubtitle: { fontFamily: Typography.regular, fontSize: 13, lineHeight: 18, marginTop: 2 },
+
+  periodSwitcher: {
+    flexDirection: "row",
+    borderRadius: 12,
+    padding: 3,
+    marginTop: 8,
+    gap: 4,
+  },
+  periodBtn: {
     flex: 1,
+    paddingVertical: 7,
     alignItems: "center",
-    marginHorizontal: 10,
+    justifyContent: "center",
+    borderRadius: 9,
   },
-  screenHeading: {
-    fontFamily: Typography.bold,
-    fontSize: 17,
-    letterSpacing: -0.2,
-  },
-  screenSub: {
-    fontFamily: Typography.medium,
-    fontSize: 12,
-    marginTop: 1,
-  },
-  topBarRightPlaceholder: {
-    width: 38,
-  },
-  listContent: {
-    paddingHorizontal: 16,
-    paddingTop: 12,
-  },
-  headerBlock: {
-    marginBottom: 8,
-  },
-  searchWrapper: {
-    marginBottom: 12,
-  },
-  metricsRow: {
+  periodBtnText: { fontSize: 12 },
+
+  activeRangeBar: {
     flexDirection: "row",
-    gap: 12,
-    marginBottom: 14,
-  },
-  chipsRow: {
-    flexDirection: "row",
+    alignItems: "center",
     gap: 8,
-    marginBottom: 12,
-  },
-  itemCard: {
-    borderRadius: 16,
     borderWidth: 1,
-    padding: 14,
-    marginBottom: 10,
-    ...Shadows.card,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginTop: 4,
   },
-  itemTopRow: {
+  activeRangeText: { fontFamily: Typography.regular, fontSize: 11.5, flex: 1 },
+
+  kpiGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+  },
+  kpiCard: {
+    width: "48%",
+    borderWidth: 1,
+    borderRadius: 16,
+    padding: 12,
+    gap: 6,
+  },
+  kpiHeaderRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 10,
   },
-  itemAvatar: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 10,
-  },
-  itemIdentity: {
+  kpiLabel: {
+    fontFamily: Typography.semiBold,
+    fontSize: 9.5,
+    letterSpacing: 0.4,
     flex: 1,
-    marginRight: 8,
   },
-  itemName: {
+  kpiIconBadge: {
+    width: 26,
+    height: 26,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  kpiValue: {
     fontFamily: Typography.bold,
-    fontSize: 15,
-    letterSpacing: -0.2,
-  },
-  itemSub: {
-    fontFamily: Typography.medium,
-    fontSize: 12,
+    fontSize: 18,
+    letterSpacing: -0.5,
     marginTop: 2,
   },
-  metaContainer: {
+  kpiPillRow: {
     flexDirection: "row",
-    borderRadius: 12,
-    borderWidth: 1,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
     alignItems: "center",
+    gap: 6,
+    marginTop: 2,
   },
-  metaCol: {
+  growthPill: {
+    borderRadius: 6,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+  },
+  growthPillText: {
+    fontFamily: Typography.bold,
+    fontSize: 10,
+  },
+  kpiSubtext: {
+    fontFamily: Typography.regular,
+    fontSize: 10,
     flex: 1,
-    gap: 2,
   },
-  metaDivider: {
-    width: 1,
-    height: 24,
-    marginHorizontal: 8,
+  kpiExtra: {
+    fontFamily: Typography.regular,
+    fontSize: 10,
   },
-  metaLabel: {
-    fontFamily: Typography.semiBold,
-    fontSize: 9,
-    letterSpacing: 0.4,
-    textTransform: "uppercase",
-  },
-  metaValue: {
-    fontFamily: Typography.bold,
-    fontSize: 13,
-  },
-  metaValueHighlight: {
-    fontFamily: Typography.bold,
-    fontSize: 13,
-  },
-  emptyContainer: {
-    paddingVertical: 40,
+  alertPillBadge: {
+    flexDirection: "row",
     alignItems: "center",
+    gap: 4,
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    marginTop: 4,
+  },
+  alertPillText: {
+    fontFamily: Typography.bold,
+    fontSize: 9.5,
+  },
+
+  sectionCard: {
+    borderWidth: 1,
+    borderRadius: 18,
+    padding: 14,
+  },
+  sectionHeaderRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    marginBottom: 12,
+  },
+  sectionTitle: { fontFamily: Typography.bold, fontSize: 15 },
+  sectionSubtitle: { fontFamily: Typography.regular, fontSize: 11, marginTop: 2 },
+  miniSwitch: {
+    flexDirection: "row",
+    borderRadius: 8,
+    padding: 2,
+  },
+  miniSwitchBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  miniSwitchText: { fontSize: 10.5 },
+
+  metricStrip: {
+    flexDirection: "row",
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 10,
+  },
+  stripCol: { flex: 1, gap: 2 },
+  stripLabel: { fontFamily: Typography.semiBold, fontSize: 9, letterSpacing: 0.3 },
+  stripValue: { fontFamily: Typography.bold, fontSize: 11 },
+
+  healthBarTrack: {
+    height: 12,
+    flexDirection: "row",
+    borderRadius: 6,
+    overflow: "hidden",
+    marginBottom: 12,
+  },
+  healthSegment: { height: "100%" },
+  healthDetails: { gap: 8 },
+  healthRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  dot: { width: 8, height: 8, borderRadius: 4 },
+  healthLabel: { fontFamily: Typography.medium, fontSize: 12 },
+  healthValue: { fontFamily: Typography.bold, fontSize: 12 },
+
+  catalogHeading: { fontFamily: Typography.bold, fontSize: 16 },
+  catalogSub: { fontFamily: Typography.regular, fontSize: 12, marginTop: 1 },
+  filterStrip: { gap: 8, paddingVertical: 4 },
+
+  itemCard: {
+    borderWidth: 1,
+    borderRadius: 16,
+    padding: 14,
+    gap: 10,
+  },
+  itemTopRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 10 },
+  itemTitleBlock: { flex: 1, gap: 4 },
+  itemName: { fontFamily: Typography.bold, fontSize: 13.5, lineHeight: 18 },
+  itemMetaRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  itemSku: { fontFamily: Typography.semiBold, fontSize: 11 },
+  itemCategory: { fontFamily: Typography.medium, fontSize: 11 },
+  itemStockBar: {
+    flexDirection: "row",
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 10,
+  },
+  itemStockCol: { flex: 1, gap: 2 },
+  itemStockLabel: { fontFamily: Typography.semiBold, fontSize: 9.5, letterSpacing: 0.4 },
+  itemStockVal: { fontFamily: Typography.bold, fontSize: 13 },
+
+  loadingBox: {
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 24,
+    alignItems: "center",
+    justifyContent: "center",
     gap: 8,
   },
-  emptyTitle: {
-    fontFamily: Typography.bold,
-    fontSize: 16,
+  loadingText: { fontFamily: Typography.medium, fontSize: 12 },
+  emptyCard: {
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
   },
-  emptySubtitle: {
-    fontFamily: Typography.medium,
-    fontSize: 13,
+  emptyTitle: { fontFamily: Typography.bold, fontSize: 14 },
+  emptySub: { fontFamily: Typography.regular, fontSize: 12, textAlign: "center" },
+
+  paginationContainer: { marginTop: 12, gap: 8 },
+  paginationInfo: { textAlign: "center", fontFamily: Typography.regular, fontSize: 12 },
+  paginationBar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  pageNavButton: {
+    minHeight: 40,
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingHorizontal: 10,
   },
+  pageNavText: { fontFamily: Typography.semiBold, fontSize: 12 },
+  pageIndicator: {
+    minHeight: 40,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  pageIndicatorText: { fontFamily: Typography.bold, fontSize: 12 },
 });

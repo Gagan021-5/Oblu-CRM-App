@@ -113,10 +113,13 @@ export default function CustomerToolScreen() {
   const [crossSellingStats, setCrossSellingStats] = useState<any>(null);
   const [crossSellingPage, setCrossSellingPage] = useState(1);
   const [crossSellingTotal, setCrossSellingTotal] = useState(0);
+  const [crossSellingTotalPages, setCrossSellingTotalPages] = useState(1);
   const [crossSellingHasNext, setCrossSellingHasNext] = useState(false);
+  const [crossSellingHasPrev, setCrossSellingHasPrev] = useState(false);
   const [debouncedCustomerSearch, setDebouncedCustomerSearch] = useState("");
   const hasLoadedTool = useRef(false);
   const crossSellingRequestSequence = useRef(0);
+  const scrollRef = useRef<any>(null);
 
   // Payment follow-up specific state
   const [paymentStatusFilter, setPaymentStatusFilter] = useState("All Payments");
@@ -218,9 +221,15 @@ export default function CustomerToolScreen() {
       }
 
       if (tool === "cross-selling" && result?.data) {
-        setCrossSellingPage(Number(result.data.page || pageToLoad));
-        setCrossSellingTotal(Number(result.data.total_count || 0));
-        setCrossSellingHasNext(Boolean(result.data.has_next));
+        const pageNum = Number(result.data.page || pageToLoad);
+        const totalItems = Number(result.data.total_count || 0);
+        const pageSize = Number(result.data.page_size || 25);
+        const pagesCount = Number(result.data.total_pages || Math.ceil(totalItems / pageSize) || 1);
+        setCrossSellingPage(pageNum);
+        setCrossSellingTotal(totalItems);
+        setCrossSellingTotalPages(pagesCount);
+        setCrossSellingHasNext(Boolean(result.data.has_next || pageNum < pagesCount));
+        setCrossSellingHasPrev(Boolean(result.data.has_prev || pageNum > 1));
       }
 
       if (Array.isArray(result?.data?.salespersons) && result.data.salespersons.length > 0) {
@@ -288,6 +297,8 @@ export default function CustomerToolScreen() {
     setError("");
     setCrossSellingPage(1);
     setCrossSellingHasNext(false);
+    setCrossSellingTotalPages(1);
+    setCrossSellingHasPrev(false);
     setCrossSellingTotal(0);
   }, [tool]);
 
@@ -1032,6 +1043,7 @@ export default function CustomerToolScreen() {
   return (
     <>
       <ScrollView
+        ref={scrollRef}
         style={{ flex: 1, backgroundColor: colors.background }}
         contentContainerStyle={[styles.content, { paddingTop: Math.max(insets.top, 12) + 8, paddingBottom: 110 }]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); void load(); }} />}
@@ -1501,84 +1513,90 @@ export default function CustomerToolScreen() {
           ))
         )}
 
-        {/* ── PAGINATION CONTROLS FOR TEAM CUSTOMERS ── */}
-        {tool === "cross-selling" && !loading && crossSellingHasNext && (
-          <TouchableOpacity
-            onPress={() => void load(crossSellingPage + 1, true)}
-            disabled={loadingMore}
-            activeOpacity={0.75}
-            style={[styles.loadMoreButton, { backgroundColor: isDark ? "#183B32" : "#E2F7F1", borderColor: "#159A7C" }]}
-          >
-            {loadingMore ? (
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                <ActivityIndicator size="small" color="#159A7C" />
-                <Text style={[styles.loadMoreText, { color: "#159A7C" }]}>Loading customers…</Text>
+        {/* ── PAGINATION CONTROLS FOR CROSS SELLING ── */}
+        {tool === "cross-selling" && !loading && crossSellingTotalPages > 1 && (
+          <View style={styles.paginationContainer}>
+            <Text style={[styles.paginationInfo, { color: muted }]}>
+              Showing {rows.length} of {crossSellingTotal} accounts · Page {crossSellingPage} of {crossSellingTotalPages}
+            </Text>
+            <View style={styles.paginationBar}>
+              <TouchableOpacity
+                onPress={() => {
+                  if (crossSellingHasPrev && !loading && !loadingMore) {
+                    scrollRef.current?.scrollTo({ y: 0, animated: true });
+                    void load(crossSellingPage - 1, false);
+                  }
+                }}
+                disabled={!crossSellingHasPrev || loading || loadingMore}
+                activeOpacity={0.75}
+                style={[
+                  styles.pageNavButton,
+                  card,
+                  !crossSellingHasPrev && { opacity: 0.35 },
+                ]}
+              >
+                <Ionicons name="chevron-back" size={18} color={crossSellingHasPrev ? foreground : muted} />
+                <Text style={[styles.pageNavText, { color: crossSellingHasPrev ? foreground : muted }]}>Previous</Text>
+              </TouchableOpacity>
+
+              <View style={[styles.pageIndicator, card, { backgroundColor: isDark ? "#183B32" : "#E2F7F1", borderColor: "#159A7C" }]}>
+                <Text style={[styles.pageIndicatorText, { color: "#159A7C" }]}>
+                  Page {crossSellingPage} of {crossSellingTotalPages}
+                </Text>
               </View>
-            ) : (
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                <Ionicons name="arrow-down-circle" size={20} color="#159A7C" />
-                <Text style={[styles.loadMoreText, { color: "#159A7C" }]}>Load next 25 customers ({Math.max(0, crossSellingTotal - rows.length)} remaining)</Text>
-              </View>
-            )}
-          </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => {
+                  if (crossSellingHasNext && !loading && !loadingMore) {
+                    scrollRef.current?.scrollTo({ y: 0, animated: true });
+                    void load(crossSellingPage + 1, false);
+                  }
+                }}
+                disabled={!crossSellingHasNext || loading || loadingMore}
+                activeOpacity={0.75}
+                style={[
+                  styles.pageNavButton,
+                  card,
+                  !crossSellingHasNext && { opacity: 0.35 },
+                ]}
+              >
+                <Text style={[styles.pageNavText, { color: crossSellingHasNext ? foreground : muted }]}>Next</Text>
+                <Ionicons name="chevron-forward" size={18} color={crossSellingHasNext ? foreground : muted} />
+              </TouchableOpacity>
+            </View>
+          </View>
         )}
 
+        {/* ── PAGINATION CONTROLS FOR TEAM CUSTOMERS ── */}
         {tool === "team-customers" && !loading && totalAccountCount > 0 && (
           <View style={styles.paginationContainer}>
             <Text style={[styles.paginationInfo, { color: muted }]}>
               Showing {visibleRows.length} of {totalAccountCount} accounts · Page {currentPage} of {totalPages}
             </Text>
 
-            {hasNextPage && (
-              <TouchableOpacity
-                onPress={() => void load(currentPage + 1, true)}
-                disabled={loadingMore}
-                activeOpacity={0.7}
-                style={[
-                  styles.loadMoreButton,
-                  {
-                    backgroundColor: isDark ? "#183B32" : "#E2F7F1",
-                    borderColor: "#159A7C",
-                  },
-                ]}
-              >
-                {loadingMore ? (
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                    <ActivityIndicator size="small" color="#159A7C" />
-                    <Text style={[styles.loadMoreText, { color: "#159A7C" }]}>Loading more accounts…</Text>
-                  </View>
-                ) : (
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                    <Ionicons name="arrow-down-circle" size={20} color="#159A7C" />
-                    <Text style={[styles.loadMoreText, { color: "#159A7C" }]}>
-                      Load Next 50 Customers ({Math.max(0, totalAccountCount - visibleRows.length)} remaining)
-                    </Text>
-                  </View>
-                )}
-              </TouchableOpacity>
-            )}
-
             {totalPages > 1 && (
               <View style={styles.paginationBar}>
                 <TouchableOpacity
                   onPress={() => {
                     if (hasPrevPage && !loading && !loadingMore) {
+                      scrollRef.current?.scrollTo({ y: 0, animated: true });
                       void load(currentPage - 1, false);
                     }
                   }}
                   disabled={!hasPrevPage || loading || loadingMore}
+                  activeOpacity={0.75}
                   style={[
                     styles.pageNavButton,
                     card,
-                    !hasPrevPage && { opacity: 0.4 },
+                    !hasPrevPage && { opacity: 0.35 },
                   ]}
                 >
                   <Ionicons name="chevron-back" size={18} color={hasPrevPage ? foreground : muted} />
                   <Text style={[styles.pageNavText, { color: hasPrevPage ? foreground : muted }]}>Previous</Text>
                 </TouchableOpacity>
 
-                <View style={[styles.pageIndicator, card]}>
-                  <Text style={[styles.pageIndicatorText, { color: foreground }]}>
+                <View style={[styles.pageIndicator, card, { backgroundColor: isDark ? "#183B32" : "#E2F7F1", borderColor: "#159A7C" }]}>
+                  <Text style={[styles.pageIndicatorText, { color: "#159A7C" }]}>
                     Page {currentPage} of {totalPages}
                   </Text>
                 </View>
@@ -1586,14 +1604,16 @@ export default function CustomerToolScreen() {
                 <TouchableOpacity
                   onPress={() => {
                     if (hasNextPage && !loading && !loadingMore) {
+                      scrollRef.current?.scrollTo({ y: 0, animated: true });
                       void load(currentPage + 1, false);
                     }
                   }}
                   disabled={!hasNextPage || loading || loadingMore}
+                  activeOpacity={0.75}
                   style={[
                     styles.pageNavButton,
                     card,
-                    !hasNextPage && { opacity: 0.4 },
+                    !hasNextPage && { opacity: 0.35 },
                   ]}
                 >
                   <Text style={[styles.pageNavText, { color: hasNextPage ? foreground : muted }]}>Next</Text>

@@ -2751,7 +2751,7 @@ def get_cross_selling_dataset():
         "stats": stats,
     }
 
-
+# Pagination view for optimized rendering  
 def get_cross_selling_mobile_dataset():
     """Return the compact, cacheable data needed by the paginated mobile matrix."""
     from django.core.cache import cache

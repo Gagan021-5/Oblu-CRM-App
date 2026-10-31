@@ -527,8 +527,15 @@
             margin-left: 0 !important;
         }
 
+        /* Suppress all internal child transitions during sidebar toggle to prevent lag & slow crawling */
+        html.sidebar-animating #page-content-wrapper *,
+        body.sidebar-animating #page-content-wrapper * {
+            transition: none !important;
+        }
+
         /* Sidebar Toggle Button in Navbar */
         .sidebar-toggle-btn {
+            touch-action: manipulation;
             width: 36px;
             height: 36px;
             display: inline-flex;
@@ -1489,11 +1496,22 @@ document.addEventListener(
                     openMobileDrawer();
                 }
             } else {
+                document.documentElement.classList.add("sidebar-animating");
+                document.body.classList.add("sidebar-animating");
+
                 const willCollapse = !isCollapsed();
                 document.documentElement.classList.toggle("sidebar-collapsed", willCollapse);
                 document.body.classList.toggle("sidebar-collapsed", willCollapse);
                 try { localStorage.setItem("oblu_sidebar_collapsed", String(willCollapse)); } catch (e) {}
                 updateToggleIcon();
+
+                setTimeout(function() {
+                    document.documentElement.classList.remove("sidebar-animating");
+                    document.body.classList.remove("sidebar-animating");
+                    if (window.velocityChart && typeof window.velocityChart.resize === "function") {
+                        window.velocityChart.resize();
+                    }
+                }, 170);
             }
         }
 
